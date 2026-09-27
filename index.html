@@ -116,6 +116,15 @@
               <i data-lucide="bell"></i>
               <span class="notification-dot" id="notification-dot"></span>
             </button>
+            <button
+              class="icon-button"
+              type="button"
+              data-action="logout"
+              aria-label="退出登录"
+              title="退出登录"
+            >
+              <i data-lucide="log-out"></i>
+            </button>
             <button class="profile-button" type="button" data-action="open-profile">
               <span class="avatar" id="top-avatar">竞</span>
               <span class="profile-copy">
@@ -135,6 +144,8 @@
         </main>
       </div>
     </div>
+
+    <div class="auth-root" id="auth-root"></div>
 
     <div class="notification-panel" id="notification-panel" hidden>
       <div class="panel-header">
