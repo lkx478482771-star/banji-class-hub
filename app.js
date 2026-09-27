@@ -5,6 +5,7 @@ const SHARED_CACHE_KEY = "banji-shared-cache-v1";
 const PENDING_SHARED_KEY = "banji-shared-pending-v1";
 const VISITOR_KEY = "banji-visitor-v1";
 const AUTH_SESSION_KEY = "banji-auth-session-v1";
+const LOCAL_ACCOUNTS_KEY = "banji-local-accounts-v1";
 const sharedConfig = window.BANJI_CONFIG || {};
 const authState = {
   ready: false,
@@ -548,27 +549,67 @@ async function requestAuth(path, options = {}) {
   return data;
 }
 
-function buildAuthSession(payload) {
-  const user = payload?.user || authState.session?.user;
-  if (!user?.id) return null;
-  const metadata = user.user_metadata || {};
-  const username =
-    metadata.display_name ||
-    metadata.username ||
-    authState.session?.username ||
-    state.candidate.name ||
-    "班级同学";
+function bytesToHex(bytes) {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToBytes(value) {
+  const pairs = String(value || "").match(/.{2}/g) || [];
+  return new Uint8Array(pairs.map((pair) => Number.parseInt(pair, 16)));
+}
+
+function getLocalAccounts() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_ACCOUNTS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveLocalAccounts(accounts) {
+  localStorage.setItem(LOCAL_ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+function localUsernameKey(username) {
+  return normalizeUsername(username).toLocaleLowerCase("zh-CN");
+}
+
+async function deriveLocalPassword(password, saltHex, algorithm) {
+  if (algorithm === "pbkdf2" && crypto.subtle?.importKey) {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(password),
+      "PBKDF2",
+      false,
+      ["deriveBits"]
+    );
+    const bits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: hexToBytes(saltHex),
+        iterations: 120000,
+        hash: "SHA-256"
+      },
+      key,
+      256
+    );
+    return bytesToHex(new Uint8Array(bits));
+  }
+  return fallbackHash(`${saltHex}:${password}`);
+}
+
+function createLocalSession(account) {
   return {
-    access_token: payload.access_token || authState.session?.access_token || "",
-    refresh_token: payload.refresh_token || authState.session?.refresh_token || "",
-    expires_at:
-      payload.expires_at ||
-      Math.floor(Date.now() / 1000) + Number(payload.expires_in || authState.session?.expires_in || 3600),
+    access_token: "",
+    refresh_token: "",
+    expires_at: 4102444800,
     user: {
-      id: user.id,
-      email: user.email || ""
+      id: account.id,
+      email: ""
     },
-    username,
+    username: account.username,
+    local: true,
     offline: false
   };
 }
@@ -591,58 +632,23 @@ function getSavedAuthSession() {
 }
 
 async function refreshAuthSession() {
-  if (!authState.session?.refresh_token) return false;
-  const payload = await requestAuth("/auth/v1/token?grant_type=refresh_token", {
-    method: "POST",
-    body: JSON.stringify({
-      refresh_token: authState.session.refresh_token
-    })
-  });
-  const refreshed = buildAuthSession(payload);
-  if (!refreshed) return false;
-  authState.session = refreshed;
-  saveAuthSession(refreshed);
-  return true;
+  return Boolean(authState.session?.local);
 }
 
 async function ensureFreshAuthSession() {
   if (!authState.session) return null;
-  const expiresSoon = Number(authState.session.expires_at || 0) < Math.floor(Date.now() / 1000) + 60;
-  if (expiresSoon && authState.session.refresh_token) {
-    try {
-      await refreshAuthSession();
-    } catch (error) {
-      if (error.status === 400 || error.status === 401) {
-        logoutAccount(false);
-        return null;
-      }
-      authState.session.offline = true;
-    }
-  }
   return authState.session;
 }
 
 async function restoreAuthSession() {
   const saved = getSavedAuthSession();
   if (!saved) return null;
+  if (!saved.local) {
+    localStorage.removeItem(AUTH_SESSION_KEY);
+    return null;
+  }
   authState.session = saved;
-  const expiresSoon = Number(saved.expires_at || 0) < Math.floor(Date.now() / 1000) + 60;
-  if (!expiresSoon) {
-    return saved;
-  }
-  try {
-    await refreshAuthSession();
-    return authState.session;
-  } catch (error) {
-    if (error.status === 400 || error.status === 401) {
-      localStorage.removeItem(AUTH_SESSION_KEY);
-      authState.session = null;
-      return null;
-    }
-    saved.offline = true;
-    authState.session = saved;
-    return saved;
-  }
+  return saved;
 }
 
 async function activateAccount(session) {
@@ -673,29 +679,28 @@ async function registerAccount(username, password, confirmPassword) {
   }
 
   const cleanName = normalizeUsername(username);
-  const email = await deriveAccountEmail(cleanName);
-  const payload = await requestAuth("/auth/v1/signup", {
-    method: "POST",
-    body: JSON.stringify({
-      email,
-      password,
-      data: {
-        display_name: cleanName,
-        username: cleanName,
-        username_key: cleanName.toLocaleLowerCase("zh-CN")
-      }
-    })
-  });
-
-  if (!payload.access_token) {
-    if (payload.user?.identities?.length === 0) {
-      throw new Error("这个账号名称已经被使用。");
-    }
-    throw new Error("账号已创建，但当前项目要求额外验证，请先联系管理员。");
+  const usernameKey = localUsernameKey(cleanName);
+  const accounts = getLocalAccounts();
+  if (accounts.some((account) => account.usernameKey === usernameKey)) {
+    throw new Error("这个账号名称已经被使用。");
   }
 
-  const session = buildAuthSession(payload);
-  session.username = cleanName;
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const algorithm = crypto.subtle?.importKey ? "pbkdf2" : "fallback";
+  const saltHex = bytesToHex(salt);
+  const passwordHash = await deriveLocalPassword(password, saltHex, algorithm);
+  const account = {
+    id: crypto.randomUUID?.() || `local-${Date.now().toString(36)}`,
+    username: cleanName,
+    usernameKey,
+    salt: saltHex,
+    passwordHash,
+    algorithm,
+    createdAt: new Date().toISOString()
+  };
+  accounts.push(account);
+  saveLocalAccounts(accounts);
+  const session = createLocalSession(account);
   await activateAccount(session);
   showToast("账号已创建", `欢迎你，${cleanName}。`);
 }
@@ -705,16 +710,16 @@ async function loginAccount(username, password) {
   if (nameError) throw new Error(nameError);
   if (!password) throw new Error("请输入密码。");
   const cleanName = normalizeUsername(username);
-  const email = await deriveAccountEmail(cleanName);
-  const payload = await requestAuth("/auth/v1/token?grant_type=password", {
-    method: "POST",
-    body: JSON.stringify({ email, password })
-  });
-  const session = buildAuthSession(payload);
-  if (!session) throw new Error("登录失败，请重试。");
-  session.username = session.username || cleanName;
-  await activateAccount(session);
-  showToast("登录成功", `欢迎回来，${session.username}。`);
+  const account = getLocalAccounts().find(
+    (item) => item.usernameKey === localUsernameKey(cleanName)
+  );
+  if (!account) throw new Error("账号名称或密码不正确。");
+  const passwordHash = await deriveLocalPassword(password, account.salt, account.algorithm);
+  if (passwordHash !== account.passwordHash) {
+    throw new Error("账号名称或密码不正确。");
+  }
+  await activateAccount(createLocalSession(account));
+  showToast("登录成功", `欢迎回来，${account.username}。`);
 }
 
 function logoutAccount(renderAfter = true) {
@@ -2225,7 +2230,12 @@ function showToast(title, text) {
 }
 
 function hasSharedConfig() {
-  return Boolean(sharedConfig.supabaseUrl && sharedConfig.supabaseAnonKey && sharedConfig.recordsTable);
+  return Boolean(
+    sharedConfig.cloudEnabled === true &&
+      sharedConfig.supabaseUrl &&
+      sharedConfig.supabaseAnonKey &&
+      sharedConfig.recordsTable
+  );
 }
 
 function getVisitorId() {
@@ -2333,7 +2343,7 @@ function setSyncStatus(status, detail = "") {
       ? "is-online"
       : status === "syncing"
         ? "is-syncing"
-        : status === "unavailable"
+        : status === "unavailable" || status === "local"
           ? "is-unavailable"
           : "is-offline"
   );
@@ -2342,6 +2352,7 @@ function setSyncStatus(status, detail = "") {
     online: detail || "云端已同步",
     offline: "云端较慢 · 已启用本地缓存",
     unavailable: "本地模式 · 云端表未初始化",
+    local: "本机模式 · 数据保存在当前设备",
     error: "本地模式 · 稍后自动重试"
   };
   label.textContent = messages[status] || messages.offline;
@@ -2505,7 +2516,7 @@ async function syncSharedRecords() {
     return;
   }
   if (syncState.inFlight || !hasSharedConfig()) {
-    if (!hasSharedConfig()) setSyncStatus("unavailable");
+    if (!hasSharedConfig()) setSyncStatus("local");
     return;
   }
 
