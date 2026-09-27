@@ -4,7 +4,16 @@ const FILE_STORE_NAME = "files";
 const SHARED_CACHE_KEY = "banji-shared-cache-v1";
 const PENDING_SHARED_KEY = "banji-shared-pending-v1";
 const VISITOR_KEY = "banji-visitor-v1";
+const AUTH_SESSION_KEY = "banji-auth-session-v1";
 const sharedConfig = window.BANJI_CONFIG || {};
+const authState = {
+  ready: false,
+  mode: "login",
+  error: "",
+  busy: false,
+  session: null,
+  passwordVisible: false
+};
 const syncState = {
   inFlight: false,
   retryTimer: null,
@@ -325,7 +334,7 @@ function createSeedState() {
 function loadState() {
   const defaults = createSeedState();
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    const saved = JSON.parse(localStorage.getItem(currentStorageKey) || "null");
     if (!saved) {
       return defaults;
     }
@@ -356,6 +365,7 @@ function loadState() {
   }
 }
 
+let currentStorageKey = STORAGE_KEY;
 let state = loadState();
 
 function escapeHTML(value) {
@@ -377,7 +387,7 @@ function icon(name) {
 
 function saveState() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(currentStorageKey, JSON.stringify(state));
   } catch (error) {
     showToast("保存失败", "浏览器本地空间不足，请删除部分上传资料后重试。");
   }
@@ -457,6 +467,415 @@ function getInitials(name) {
   return cleaned.slice(-1);
 }
 
+function normalizeUsername(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function validateUsername(value) {
+  const username = normalizeUsername(value);
+  if (username.length < 2 || username.length > 20) {
+    return "账号名称需要 2 到 20 个字符。";
+  }
+  if (!/^[\p{L}\p{N}_\-\u00b7\s]+$/u.test(username)) {
+    return "账号名称只能包含文字、数字、空格、下划线、短横线或间隔点。";
+  }
+  return "";
+}
+
+function fallbackHash(value) {
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    first ^= code;
+    first = Math.imul(first, 16777619);
+    second ^= code + index;
+    second = Math.imul(second, 2246822519);
+  }
+  return `${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0)
+    .toString(16)
+    .padStart(8, "0")}`;
+}
+
+async function deriveAccountEmail(username) {
+  const normalized = normalizeUsername(username).toLocaleLowerCase("zh-CN");
+  let hash = fallbackHash(normalized);
+  if (crypto.subtle?.digest) {
+    try {
+      const bytes = new TextEncoder().encode(normalized);
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    } catch (error) {
+      hash = fallbackHash(normalized);
+    }
+  }
+  return `u${hash}@banji.example.com`;
+}
+
+function authRequestHeaders() {
+  return {
+    apikey: sharedConfig.supabaseAnonKey,
+    "Content-Type": "application/json"
+  };
+}
+
+async function requestAuth(path, options = {}) {
+  const response = await fetch(new URL(path, sharedConfig.supabaseUrl), {
+    ...options,
+    headers: {
+      ...authRequestHeaders(),
+      ...(options.headers || {})
+    },
+    credentials: "omit"
+  });
+  let data = null;
+  try {
+    data = await response.json();
+  } catch (error) {
+    data = null;
+  }
+  if (!response.ok) {
+    const requestError = new Error(
+      data?.msg || data?.message || data?.error_description || `Auth request failed: ${response.status}`
+    );
+    requestError.status = response.status;
+    requestError.data = data;
+    throw requestError;
+  }
+  return data;
+}
+
+function buildAuthSession(payload) {
+  const user = payload?.user || authState.session?.user;
+  if (!user?.id) return null;
+  const metadata = user.user_metadata || {};
+  const username =
+    metadata.display_name ||
+    metadata.username ||
+    authState.session?.username ||
+    state.candidate.name ||
+    "班级同学";
+  return {
+    access_token: payload.access_token || authState.session?.access_token || "",
+    refresh_token: payload.refresh_token || authState.session?.refresh_token || "",
+    expires_at:
+      payload.expires_at ||
+      Math.floor(Date.now() / 1000) + Number(payload.expires_in || authState.session?.expires_in || 3600),
+    user: {
+      id: user.id,
+      email: user.email || ""
+    },
+    username,
+    offline: false
+  };
+}
+
+function saveAuthSession(session) {
+  try {
+    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+  } catch (error) {
+    // The active session can continue in memory even if storage is blocked.
+  }
+}
+
+function getSavedAuthSession() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || "null");
+    return parsed?.user?.id ? parsed : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function refreshAuthSession() {
+  if (!authState.session?.refresh_token) return false;
+  const payload = await requestAuth("/auth/v1/token?grant_type=refresh_token", {
+    method: "POST",
+    body: JSON.stringify({
+      refresh_token: authState.session.refresh_token
+    })
+  });
+  const refreshed = buildAuthSession(payload);
+  if (!refreshed) return false;
+  authState.session = refreshed;
+  saveAuthSession(refreshed);
+  return true;
+}
+
+async function ensureFreshAuthSession() {
+  if (!authState.session) return null;
+  const expiresSoon = Number(authState.session.expires_at || 0) < Math.floor(Date.now() / 1000) + 60;
+  if (expiresSoon && authState.session.refresh_token) {
+    try {
+      await refreshAuthSession();
+    } catch (error) {
+      if (error.status === 400 || error.status === 401) {
+        logoutAccount(false);
+        return null;
+      }
+      authState.session.offline = true;
+    }
+  }
+  return authState.session;
+}
+
+async function restoreAuthSession() {
+  const saved = getSavedAuthSession();
+  if (!saved) return null;
+  authState.session = saved;
+  const expiresSoon = Number(saved.expires_at || 0) < Math.floor(Date.now() / 1000) + 60;
+  if (!expiresSoon) {
+    return saved;
+  }
+  try {
+    await refreshAuthSession();
+    return authState.session;
+  } catch (error) {
+    if (error.status === 400 || error.status === 401) {
+      localStorage.removeItem(AUTH_SESSION_KEY);
+      authState.session = null;
+      return null;
+    }
+    saved.offline = true;
+    authState.session = saved;
+    return saved;
+  }
+}
+
+async function activateAccount(session) {
+  authState.session = session;
+  authState.error = "";
+  authState.busy = false;
+  authState.ready = true;
+  saveAuthSession(session);
+  currentStorageKey = `${STORAGE_KEY}:${session.user.id}`;
+  state = loadState();
+  applySharedRecords(getCachedSharedRecords());
+  state.candidate.name = session.username || state.candidate.name;
+  saveState();
+  ui.page = "today";
+  history.replaceState(null, "", "#today");
+  render();
+  void syncSharedRecords();
+}
+
+async function registerAccount(username, password, confirmPassword) {
+  const nameError = validateUsername(username);
+  if (nameError) throw new Error(nameError);
+  if (password.length < 6 || password.length > 72) {
+    throw new Error("密码需要 6 到 72 个字符。");
+  }
+  if (password !== confirmPassword) {
+    throw new Error("两次输入的密码不一致。");
+  }
+
+  const cleanName = normalizeUsername(username);
+  const email = await deriveAccountEmail(cleanName);
+  const payload = await requestAuth("/auth/v1/signup", {
+    method: "POST",
+    body: JSON.stringify({
+      email,
+      password,
+      data: {
+        display_name: cleanName,
+        username: cleanName,
+        username_key: cleanName.toLocaleLowerCase("zh-CN")
+      }
+    })
+  });
+
+  if (!payload.access_token) {
+    if (payload.user?.identities?.length === 0) {
+      throw new Error("这个账号名称已经被使用。");
+    }
+    throw new Error("账号已创建，但当前项目要求额外验证，请先联系管理员。");
+  }
+
+  const session = buildAuthSession(payload);
+  session.username = cleanName;
+  await activateAccount(session);
+  showToast("账号已创建", `欢迎你，${cleanName}。`);
+}
+
+async function loginAccount(username, password) {
+  const nameError = validateUsername(username);
+  if (nameError) throw new Error(nameError);
+  if (!password) throw new Error("请输入密码。");
+  const cleanName = normalizeUsername(username);
+  const email = await deriveAccountEmail(cleanName);
+  const payload = await requestAuth("/auth/v1/token?grant_type=password", {
+    method: "POST",
+    body: JSON.stringify({ email, password })
+  });
+  const session = buildAuthSession(payload);
+  if (!session) throw new Error("登录失败，请重试。");
+  session.username = session.username || cleanName;
+  await activateAccount(session);
+  showToast("登录成功", `欢迎回来，${session.username}。`);
+}
+
+function logoutAccount(renderAfter = true) {
+  authState.session = null;
+  authState.error = "";
+  authState.mode = "login";
+  authState.busy = false;
+  localStorage.removeItem(AUTH_SESSION_KEY);
+  currentStorageKey = STORAGE_KEY;
+  state = loadState();
+  closeModal();
+  ui.notificationsOpen = false;
+  if (renderAfter) {
+    render();
+  }
+}
+
+function renderAuthScreen() {
+  if (!authState.ready) {
+    return `
+      <div class="auth-loading">
+        <span class="loading-mark">班</span>
+        <span>正在识别本机账号...</span>
+      </div>
+    `;
+  }
+
+  const isRegister = authState.mode === "register";
+  return `
+    <div class="auth-page">
+      <section class="auth-visual">
+        <div class="auth-visual-content">
+          <div class="auth-brand">
+            <span class="brand-mark">班</span>
+            <span>班集 · 班级共建站</span>
+          </div>
+          <h1>让每个同学都能被看见，也让每件事都有回音。</h1>
+          <p>登录后进入班级互助、组队、资源共享、截止提醒和匿名意见空间。</p>
+        </div>
+      </section>
+      <section class="auth-form-side">
+        <div class="auth-card">
+          <p class="eyebrow">${isRegister ? "第一次使用" : "本机身份识别"}</p>
+          <h2>${isRegister ? "创建班级账号" : "欢迎回到班集"}</h2>
+          <p>${isRegister ? "账号名称不能重复，密码至少 6 位。" : "输入账号名称和密码即可继续。"}</p>
+          <div class="auth-tabs" role="tablist" aria-label="账号操作">
+            <button
+              class="auth-tab ${isRegister ? "" : "is-active"}"
+              type="button"
+              role="tab"
+              aria-selected="${!isRegister}"
+              data-action="auth-mode"
+              data-mode="login"
+            >
+              登录
+            </button>
+            <button
+              class="auth-tab ${isRegister ? "is-active" : ""}"
+              type="button"
+              role="tab"
+              aria-selected="${isRegister}"
+              data-action="auth-mode"
+              data-mode="register"
+            >
+              注册
+            </button>
+          </div>
+          <form class="auth-form" id="auth-form">
+            <div class="auth-field">
+              <label for="auth-username">账号名称</label>
+              <div class="auth-input-wrap">
+                ${icon("user-round")}
+                <input
+                  id="auth-username"
+                  name="username"
+                  maxlength="20"
+                  autocomplete="username"
+                  value="${escapeHTML(authState.username || "")}"
+                  placeholder="你的名字"
+                  required
+                />
+              </div>
+            </div>
+            <div class="auth-field">
+              <label for="auth-password">密码</label>
+              <div class="auth-input-wrap">
+                ${icon("lock-keyhole")}
+                <input
+                  id="auth-password"
+                  name="password"
+                  type="${authState.passwordVisible ? "text" : "password"}"
+                  maxlength="72"
+                  autocomplete="${isRegister ? "new-password" : "current-password"}"
+                  placeholder="至少 6 位"
+                  required
+                />
+                <button
+                  class="auth-password-toggle"
+                  type="button"
+                  data-action="toggle-password"
+                  aria-label="${authState.passwordVisible ? "隐藏密码" : "显示密码"}"
+                  title="${authState.passwordVisible ? "隐藏密码" : "显示密码"}"
+                >
+                  ${icon(authState.passwordVisible ? "eye-off" : "eye")}
+                </button>
+              </div>
+            </div>
+            ${
+              isRegister
+                ? `
+                  <div class="auth-field">
+                    <label for="auth-confirm">确认密码</label>
+                    <div class="auth-input-wrap">
+                      ${icon("shield-check")}
+                      <input
+                        id="auth-confirm"
+                        name="confirmPassword"
+                        type="${authState.passwordVisible ? "text" : "password"}"
+                        maxlength="72"
+                        autocomplete="new-password"
+                        placeholder="再次输入密码"
+                        required
+                      />
+                    </div>
+                  </div>
+                `
+                : ""
+            }
+            <p class="auth-error" id="auth-error">${escapeHTML(authState.error)}</p>
+            <button class="primary-button auth-submit" type="submit" ${authState.busy ? "disabled" : ""}>
+              ${icon(authState.busy ? "loader-circle" : isRegister ? "user-round-plus" : "log-in")}
+              ${authState.busy ? "正在处理..." : isRegister ? "创建并进入" : "登录并进入"}
+            </button>
+          </form>
+          <div class="auth-footnote">
+            ${icon("shield-check")}
+            <span>登录状态保存在这台设备中，下次打开会自动识别；退出登录后才需要重新输入。</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function describeAuthError(error) {
+  const message = String(error?.message || "");
+  if (/already registered|already been registered|user already registered/i.test(message)) {
+    return "这个账号名称已经被使用，请换一个名字。";
+  }
+  if (/invalid login|invalid credentials|invalid_grant/i.test(message)) {
+    return "账号名称或密码不正确。";
+  }
+  if (/password/i.test(message)) {
+    return "密码不符合要求，请使用至少 6 个字符。";
+  }
+  if (/fetch|network|load failed|failed to fetch/i.test(message)) {
+    return "暂时无法连接账号服务，请检查网络后重试。";
+  }
+  return message || "操作没有完成，请稍后重试。";
+}
+
 function getReadiness() {
   const candidate = state.candidate;
   let score = 46;
@@ -471,7 +890,7 @@ function getReadiness() {
 
 function updateShell() {
   const openPosts = state.posts.filter((item) => item.status === "open").length;
-  const candidateName = state.candidate.name || "候选人";
+  const candidateName = authState.session?.username || state.candidate.name || "候选人";
   const initials = getInitials(candidateName);
   const readiness = getReadiness();
   const unreadCount = state.notifications.filter((item) => !item.read).length;
@@ -485,6 +904,19 @@ function updateShell() {
 }
 
 function render() {
+  const authRoot = document.getElementById("auth-root");
+  if (!authState.ready || !authState.session) {
+    document.body.classList.add("is-auth-required");
+    document.getElementById("page-title").textContent = "登录班集";
+    document.getElementById("page-eyebrow").textContent = "本机账号识别";
+    authRoot.innerHTML = renderAuthScreen();
+    document.getElementById("notification-panel").hidden = true;
+    refreshIcons(authRoot);
+    return;
+  }
+
+  document.body.classList.remove("is-auth-required");
+  authRoot.innerHTML = "";
   const info = PAGE_INFO[ui.page] || PAGE_INFO.today;
   document.getElementById("page-title").textContent = info.title;
   document.getElementById("page-eyebrow").textContent = info.eyebrow;
@@ -1582,10 +2014,10 @@ function openModal(kind) {
           <div class="modal-body">
             <div class="form-grid">
               <div class="modal-field">
-                <label for="profile-name">姓名或称呼</label>
+                <label for="profile-name">账号名称</label>
                 <input id="profile-name" name="name" maxlength="20" value="${escapeHTML(
-                  state.candidate.name
-                )}" required />
+                  authState.session?.username || state.candidate.name
+                )}" readonly />
               </div>
               <div class="modal-field">
                 <label for="profile-slogan">竞选主张</label>
@@ -1817,10 +2249,35 @@ function getVisitorId() {
 function sharedHeaders(extra = {}) {
   return {
     apikey: sharedConfig.supabaseAnonKey,
-    Authorization: `Bearer ${sharedConfig.supabaseAnonKey}`,
+    Authorization: `Bearer ${
+      authState.session?.access_token || sharedConfig.supabaseAnonKey
+    }`,
     Accept: "application/json",
     ...extra
   };
+}
+
+async function authorizedFetch(input, init = {}, retry = true) {
+  await ensureFreshAuthSession();
+  const response = await fetch(input, {
+    ...init,
+    headers: {
+      ...sharedHeaders(),
+      ...(init.headers || {})
+    },
+    credentials: "omit"
+  });
+  if (response.status === 401 && retry && authState.session?.refresh_token) {
+    try {
+      await refreshAuthSession();
+      return authorizedFetch(input, init, false);
+    } catch (error) {
+      if (error.status === 400 || error.status === 401) {
+        logoutAccount();
+      }
+    }
+  }
+  return response;
 }
 
 function createRequestTimeout(milliseconds) {
@@ -1940,9 +2397,7 @@ async function readSharedRecords(attempt = 1) {
 
   const request = createRequestTimeout(18_000);
   try {
-    const response = await fetch(endpoint, {
-      headers: sharedHeaders(),
-      credentials: "omit",
+    const response = await authorizedFetch(endpoint, {
       signal: request.signal
     }).finally(request.clear);
     if (!response.ok) {
@@ -1967,14 +2422,16 @@ async function writeSharedRecord(record) {
     sharedConfig.supabaseUrl
   );
   const request = createRequestTimeout(22_000);
-  const response = await fetch(endpoint, {
+  const response = await authorizedFetch(endpoint, {
     method: "POST",
     headers: sharedHeaders({
       "Content-Type": "application/json",
       Prefer: "return=minimal"
     }),
-    body: JSON.stringify(record),
-    credentials: "omit",
+    body: JSON.stringify({
+      ...record,
+      author_id: authState.session?.user.id || null
+    }),
     signal: request.signal
   }).finally(request.clear);
 
@@ -1986,7 +2443,7 @@ async function writeSharedRecord(record) {
 }
 
 function queueSharedRecord(recordType, payload) {
-  if (!hasSharedConfig() || !payload?.id) return;
+  if (!authState.session || !hasSharedConfig() || !payload?.id) return;
   const recordKey = `${recordType}:${payload.id}`;
   const pending = getPendingSharedRecords().filter((item) => item.record_key !== recordKey);
   pending.push({
@@ -2044,6 +2501,9 @@ function scheduleSharedSync(delay = 12_000) {
 }
 
 async function syncSharedRecords() {
+  if (!authState.session) {
+    return;
+  }
   if (syncState.inFlight || !hasSharedConfig()) {
     if (!hasSharedConfig()) setSyncStatus("unavailable");
     return;
@@ -2198,6 +2658,29 @@ function handleClick(event) {
 
   if (action === "modal-backdrop") {
     if (event.target === actionElement) closeModal();
+    return;
+  }
+
+  if (action === "auth-mode") {
+    const usernameInput = document.getElementById("auth-username");
+    authState.username = usernameInput?.value || authState.username || "";
+    authState.mode = actionElement.dataset.mode === "register" ? "register" : "login";
+    authState.error = "";
+    authState.busy = false;
+    render();
+    requestAnimationFrame(() => document.getElementById("auth-username")?.focus());
+    return;
+  }
+
+  if (action === "toggle-password") {
+    authState.passwordVisible = !authState.passwordVisible;
+    render();
+    requestAnimationFrame(() => document.getElementById("auth-password")?.focus());
+    return;
+  }
+
+  if (action === "logout") {
+    logoutAccount();
     return;
   }
 
@@ -2375,6 +2858,38 @@ function handleClick(event) {
 function handleSubmit(event) {
   const form = event.target;
 
+  if (form.id === "auth-form") {
+    event.preventDefault();
+    const data = new FormData(form);
+    const username = normalizeUsername(data.get("username"));
+    const password = String(data.get("password") || "");
+    const confirmPassword = String(data.get("confirmPassword") || "");
+    authState.username = username;
+    authState.error = "";
+    authState.busy = true;
+    render();
+
+    const action =
+      authState.mode === "register"
+        ? registerAccount(username, password, confirmPassword)
+        : loginAccount(username, password);
+
+    action
+      .catch((error) => {
+        authState.error = describeAuthError(error);
+        authState.busy = false;
+        render();
+        requestAnimationFrame(() => {
+          const input =
+            authState.mode === "register"
+              ? document.getElementById("auth-confirm")
+              : document.getElementById("auth-password");
+          input?.focus();
+        });
+      });
+    return;
+  }
+
   if (form.id === "deadline-form") {
     event.preventDefault();
     const data = new FormData(form);
@@ -2464,7 +2979,7 @@ function handleSubmit(event) {
     event.preventDefault();
     const data = new FormData(form);
     state.candidate = {
-      name: String(data.get("name")).trim(),
+      name: authState.session?.username || String(data.get("name")).trim(),
       slogan: String(data.get("slogan")).trim(),
       intro: String(data.get("intro")).trim(),
       letter: String(data.get("letter")).trim(),
@@ -2525,7 +3040,6 @@ function initialize() {
     ui.page = hashPage;
   }
 
-  applySharedRecords(getCachedSharedRecords());
   document.addEventListener("click", handleClick);
   document.addEventListener("submit", handleSubmit);
   document.addEventListener("input", handleInput);
@@ -2539,7 +3053,20 @@ function initialize() {
   });
 
   render();
-  void syncSharedRecords();
+  restoreAuthSession()
+    .then((session) => {
+      if (session) {
+        void activateAccount(session);
+      } else {
+        authState.ready = true;
+        render();
+      }
+    })
+    .catch(() => {
+      authState.ready = true;
+      authState.session = null;
+      render();
+    });
 }
 
 initialize();
