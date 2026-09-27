@@ -12,10 +12,14 @@ create table if not exists public.class_hub_records (
   payload jsonb not null
     check (jsonb_typeof(payload) = 'object'),
   visitor_id uuid not null,
+  author_id uuid references auth.users(id) on delete set null,
   status text not null default 'published'
     check (status in ('published', 'hidden')),
   created_at timestamptz not null default now()
 );
+
+alter table public.class_hub_records
+  add column if not exists author_id uuid references auth.users(id) on delete set null;
 
 create index if not exists class_hub_records_visible_idx
   on public.class_hub_records (status, created_at desc);
@@ -67,6 +71,7 @@ create policy "visitors can publish class content"
     and jsonb_typeof(payload) = 'object'
     and octet_length(payload::text) <= 32768
     and visitor_id is not null
+    and (author_id is null or author_id = auth.uid())
   );
 
 grant usage on schema public to anon, authenticated;
