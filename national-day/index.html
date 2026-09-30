@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="庆祝中华人民共和国成立77周年，共赏山河盛景，写下真挚祝福。"
+    />
+    <meta name="theme-color" content="#b70d18" />
+    <title>山河同庆 · 国庆77周年</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="preload" as="image" href="assets/great-wall-sunrise.webp" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+    <script src="config.js" defer></script>
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳至主要内容</a>
+    <canvas id="fireworks-canvas" aria-hidden="true"></canvas>
+
+    <aside class="music-dock" id="music-dock" aria-label="网页音乐控制">
+      <audio id="ambient-audio" src="assets/festival-ambience.wav" loop preload="metadata"></audio>
+      <audio
+        id="theme-audio"
+        src="assets/wo-he-wo-de-zuguo-li-guyi.m4a"
+        data-title="《我和我的祖国》"
+        data-artist="李谷一"
+        preload="metadata"
+      ></audio>
+      <button class="music-primary" id="music-primary" type="button" aria-pressed="false">
+        <span class="music-disc" aria-hidden="true">
+          <i data-lucide="music-2"></i>
+        </span>
+        <span class="music-copy">
+          <strong id="music-title">《我和我的祖国》</strong>
+          <small id="music-status">李谷一 · 点击播放</small>
+        </span>
+        <span class="music-action" id="music-action" aria-hidden="true">
+          <i data-lucide="folder-open"></i>
+        </span>
+      </button>
+      <button
+        class="music-ambient"
+        id="music-ambient"
+        type="button"
+        aria-pressed="false"
+        aria-label="播放节庆氛围音乐"
+        title="播放节庆氛围音乐"
+      >
+        <span class="music-ambient-icon" id="music-ambient-icon" aria-hidden="true">
+          <i data-lucide="sparkles"></i>
+        </span>
+        <span class="music-ambient-label">氛围音</span>
+      </button>
+      <button
+        class="music-mobile-toggle"
+        id="music-mobile-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-label="打开音乐控制"
+        title="打开音乐控制"
+      >
+        <i data-lucide="music-2" aria-hidden="true"></i>
+      </button>
+      <input id="music-file-input" type="file" accept="audio/*" hidden />
+    </aside>
+
+    <header class="site-header" id="site-header">
+      <div class="header-inner">
+        <a class="brand" href="#home" aria-label="山河同庆首页">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" role="img">
+              <path d="M24 5.5 28.7 18l13.3.4-10.7 7.8 3.9 12.7L24 31.4l-11.2 7.5 3.9-12.7L6 18.4 19.3 18 24 5.5Z" />
+            </svg>
+          </span>
+          <span>
+            <strong>山河同庆</strong>
+            <small>2026 · NATIONAL DAY</small>
+          </span>
+        </a>
+
+        <button
+          class="nav-toggle"
+          type="button"
+          aria-label="打开导航"
+          aria-controls="primary-navigation"
+          aria-expanded="false"
+        >
+          <i data-lucide="menu" aria-hidden="true"></i>
+        </button>
+
+        <nav class="primary-nav" id="primary-navigation" aria-label="主导航">
+          <a class="nav-link" href="#celebration">盛景</a>
+          <a class="nav-link" href="#journey">年轮</a>
+          <a class="nav-link" href="#today">今日</a>
+          <a class="nav-link" href="#wishes">祝福</a>
+          <button class="nav-celebrate celebrate-trigger" type="button">
+            <i data-lucide="sparkles" aria-hidden="true"></i>
+            点亮祝福
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" id="home" aria-labelledby="hero-title">
+        <div class="hero-photo" aria-hidden="true"></div>
+        <div class="hero-light" aria-hidden="true"></div>
+        <div class="hero-grid" aria-hidden="true"></div>
+
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <p class="eyebrow reveal">
+              <span class="eyebrow-line" aria-hidden="true"></span>
+              2026 · 中华人民共和国成立77周年
+            </p>
+            <h1 id="hero-title" class="reveal reveal-delay-1">
+              <span>山河锦绣</span>
+              <span>共庆华诞</span>
+            </h1>
+            <p class="hero-lead reveal reveal-delay-2">
+              从东方既白，到万家灯火。以心中热爱，敬脚下这片辽阔土地。
+            </p>
+
+            <div class="hero-actions reveal reveal-delay-3">
+              <button class="button button-primary celebrate-trigger" type="button">
+                <i data-lucide="sparkles" aria-hidden="true"></i>
+                点亮祝福
+              </button>
+              <a class="button button-ghost" href="#celebration">
+                查看盛景
+                <i data-lucide="arrow-down" aria-hidden="true"></i>
+              </a>
+            </div>
+          </div>
+
+          <aside class="countdown-panel reveal reveal-delay-2" aria-label="国庆倒计时">
+            <div class="countdown-topline">
+              <span>迎接国庆</span>
+              <span class="live-dot"><i aria-hidden="true"></i>北京时间</span>
+            </div>
+            <p class="countdown-label" id="countdown-label">距离国庆节还有</p>
+            <div class="countdown" id="countdown" aria-live="polite">
+              <div>
+                <strong data-countdown="days">00</strong>
+                <span>天</span>
+              </div>
+              <div>
+                <strong data-countdown="hours">00</strong>
+                <span>时</span>
+              </div>
+              <div>
+                <strong data-countdown="minutes">00</strong>
+                <span>分</span>
+              </div>
+              <div>
+                <strong data-countdown="seconds">00</strong>
+                <span>秒</span>
+              </div>
+            </div>
+            <div class="countdown-date">
+              <i data-lucide="calendar-days" aria-hidden="true"></i>
+              <span>2026年10月1日 · 星期四</span>
+            </div>
+          </aside>
+
+          <div class="hero-seal reveal reveal-delay-3" aria-hidden="true">
+            <span class="seal-star">★</span>
+            <strong>77</strong>
+            <small>盛世华诞</small>
+          </div>
+        </div>
+
+        <div class="hero-scroll" aria-hidden="true">
+          <span>向下阅览</span>
+          <i data-lucide="chevron-down"></i>
+        </div>
+      </section>
+
+      <section class="section celebration" id="celebration" aria-labelledby="celebration-title">
+        <div class="shell">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker reveal">盛景 · 锦绣人间</p>
+              <h2 id="celebration-title" class="reveal">这一刻，处处是中国红</h2>
+            </div>
+            <p class="section-intro reveal reveal-delay-1">
+              花篮盛放、蓝天辽阔、长城蜿蜒。城市与山河，共同托起属于每个人的节日记忆。
+            </p>
+          </div>
+
+          <div class="gallery-grid">
+            <figure class="photo-card photo-card-lead reveal">
+              <img
+                src="assets/tiananmen-flower-basket.webp"
+                alt="天安门广场上的国庆主题巨型花篮"
+                width="1800"
+                height="1350"
+                loading="lazy"
+              />
+              <figcaption>
+                <span class="photo-index">01</span>
+                <div>
+                  <strong>繁花礼赞</strong>
+                  <p>用百花与丰收，写下最热烈的生日祝词。</p>
+                </div>
+              </figcaption>
+            </figure>
+
+            <figure class="photo-card reveal reveal-delay-1">
+              <img
+                src="assets/great-wall-sunrise.webp"
+                alt="晨光中的群山与长城"
+                width="1800"
+                height="1350"
+                loading="lazy"
+              />
+              <figcaption>
+                <span class="photo-index">02</span>
+                <div>
+                  <strong>山河晨光</strong>
+                  <p>万里长城迎着朝阳，见证岁月绵长。</p>
+                </div>
+              </figcaption>
+            </figure>
+
+            <figure class="photo-card reveal reveal-delay-2">
+              <img
+                src="assets/tiananmen-square-panorama.webp"
+                alt="国庆前夕花团锦簇的天安门广场"
+                width="1800"
+                height="608"
+                loading="lazy"
+              />
+              <figcaption>
+                <span class="photo-index">03</span>
+                <div>
+                  <strong>广场欢歌</strong>
+                  <p>人潮相聚，共同奔赴充满希望的明天。</p>
+                </div>
+              </figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section journey" id="journey" aria-labelledby="journey-title">
+        <div class="journey-glow" aria-hidden="true"></div>
+        <div class="shell">
+          <div class="section-heading section-heading-light">
+            <div>
+              <p class="section-kicker reveal">年轮 · 一路生花</p>
+              <h2 id="journey-title" class="reveal">时间的坐标，写满奋进</h2>
+            </div>
+            <p class="section-intro reveal reveal-delay-1">
+              每一个刻度，都连着无数人的努力。回望来路，是为了更坚定地走向远方。
+            </p>
+          </div>
+
+          <div class="timeline">
+            <article class="timeline-item reveal">
+              <div class="timeline-year">1949</div>
+              <div class="timeline-marker" aria-hidden="true"></div>
+              <div class="timeline-content">
+                <span class="timeline-icon"><i data-lucide="landmark" aria-hidden="true"></i></span>
+                <h3>启程</h3>
+                <p>五星红旗冉冉升起，历史翻开崭新篇章。</p>
+              </div>
+            </article>
+
+            <article class="timeline-item reveal reveal-delay-1">
+              <div class="timeline-year">1978</div>
+              <div class="timeline-marker" aria-hidden="true"></div>
+              <div class="timeline-content">
+                <span class="timeline-icon"><i data-lucide="sprout" aria-hidden="true"></i></span>
+                <h3>春潮</h3>
+                <p>改革春风吹遍大地，发展活力奔涌向前。</p>
+              </div>
+            </article>
+
+            <article class="timeline-item reveal reveal-delay-2">
+              <div class="timeline-year">2008</div>
+              <div class="timeline-marker" aria-hidden="true"></div>
+              <div class="timeline-content">
+                <span class="timeline-icon"><i data-lucide="globe-2" aria-hidden="true"></i></span>
+                <h3>相拥</h3>
+                <p>盛事汇聚世界目光，开放自信拥抱四海宾朋。</p>
+              </div>
+            </article>
+
+            <article class="timeline-item reveal reveal-delay-3">
+              <div class="timeline-year">2026</div>
+              <div class="timeline-marker" aria-hidden="true"></div>
+              <div class="timeline-content">
+                <span class="timeline-icon"><i data-lucide="rocket" aria-hidden="true"></i></span>
+                <h3>远航</h3>
+                <p>以创新拥抱时代，以奋斗回答未来。</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section today" id="today" aria-labelledby="today-title">
+        <div class="shell">
+          <div class="today-layout">
+            <div class="today-copy">
+              <p class="section-kicker reveal">今日 · 生生不息</p>
+              <h2 id="today-title" class="reveal">万千气象，汇成今日中国</h2>
+              <p class="reveal reveal-delay-1">
+                城市的灯火、乡野的新绿、实验室里的微光、旅途中的笑容，都是时代最生动的注脚。
+              </p>
+              <button class="text-button celebrate-trigger reveal reveal-delay-2" type="button">
+                为今日中国喝彩
+                <i data-lucide="arrow-up-right" aria-hidden="true"></i>
+              </button>
+            </div>
+
+            <div class="feature-grid">
+              <article class="feature-card reveal">
+                <span class="feature-number">01</span>
+                <i data-lucide="train-front" aria-hidden="true"></i>
+                <h3>通江达海</h3>
+                <p>纵横交通缩短山海距离，让每一次出发都更有期待。</p>
+              </article>
+              <article class="feature-card reveal reveal-delay-1">
+                <span class="feature-number">02</span>
+                <i data-lucide="telescope" aria-hidden="true"></i>
+                <h3>探索星河</h3>
+                <p>从大地到深空，好奇心把梦想送往更远处。</p>
+              </article>
+              <article class="feature-card reveal reveal-delay-2">
+                <span class="feature-number">03</span>
+                <i data-lucide="leaf" aria-hidden="true"></i>
+                <h3>绿水青山</h3>
+                <p>让良好生态成为最普惠的民生福祉。</p>
+              </article>
+              <article class="feature-card reveal reveal-delay-3">
+                <span class="feature-number">04</span>
+                <i data-lucide="book-open" aria-hidden="true"></i>
+                <h3>文脉绵长</h3>
+                <p>古老文明在当代生活中焕发新的光彩。</p>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section wishes" id="wishes" aria-labelledby="wishes-title">
+        <div class="wish-ribbon wish-ribbon-left" aria-hidden="true"></div>
+        <div class="wish-ribbon wish-ribbon-right" aria-hidden="true"></div>
+        <div class="shell">
+          <div class="wish-heading">
+            <p class="section-kicker reveal">祝福 · 纸短情长</p>
+            <h2 id="wishes-title" class="reveal">把祝福，写进万家灯火</h2>
+            <p class="reveal reveal-delay-1">一句祝福，一份心意。愿山河无恙，愿家国安宁。</p>
+          </div>
+
+          <form class="wish-form reveal reveal-delay-2" id="wish-form">
+            <label class="sr-only" for="wish-input">写下你的国庆祝福</label>
+            <i data-lucide="pen-line" aria-hidden="true"></i>
+            <input
+              id="wish-input"
+              name="wish"
+              type="text"
+              maxlength="48"
+              autocomplete="off"
+              placeholder="写下你的祝福…"
+              required
+            />
+            <button type="submit">
+              <i data-lucide="send" aria-hidden="true"></i>
+              <span>送出祝福</span>
+            </button>
+          </form>
+
+          <div class="wish-wall reveal reveal-delay-3" id="wish-wall" aria-live="polite"></div>
+
+          <button class="final-celebration celebrate-trigger reveal" type="button">
+            <span class="final-star" aria-hidden="true">★</span>
+            <span>
+              <strong>共庆华诞</strong>
+              <small>点亮这一刻</small>
+            </span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <div class="footer-brand">
+          <span class="brand-mark brand-mark-small" aria-hidden="true">
+            <svg viewBox="0 0 48 48">
+              <path d="M24 5.5 28.7 18l13.3.4-10.7 7.8 3.9 12.7L24 31.4l-11.2 7.5 3.9-12.7L6 18.4 19.3 18 24 5.5Z" />
+            </svg>
+          </span>
+          <div>
+            <strong>山河同庆 · 2026</strong>
+            <p>愿以吾辈之青春，捍卫盛世之中华。</p>
+          </div>
+        </div>
+        <div class="footer-meta">
+          <a href="#home">返回顶部</a>
+          <a href="#main-content">页面内容</a>
+        </div>
+      </div>
+      <div class="shell photo-credits">
+        <span>摄影素材来源：</span>
+        <a
+          href="https://commons.wikimedia.org/wiki/File:Flower_basket_displayed_at_Tiananmen_Square_for_National_Day.jpg"
+          target="_blank"
+          rel="noreferrer"
+        >Tiananmen Square National Day flower basket × N509FZ</a>
+        <span>·</span>
+        <a
+          href="https://commons.wikimedia.org/wiki/File:Sun_Rise_of_the_Great_Wall.jpg"
+          target="_blank"
+          rel="noreferrer"
+        >Great Wall sunrise × Chrisding30</a>
+        <span>·</span>
+        <a
+          href="https://commons.wikimedia.org/wiki/File:Tiananmen_Square_%E5%A4%A9%E5%AE%89%E9%97%A8%E5%B9%BF%E5%9C%BA_(5283031153).jpg"
+          target="_blank"
+          rel="noreferrer"
+        >Tiananmen Square × InSapphoWeTrust</a>
+        <span>，均依 Wikimedia Commons 对应许可使用。</span>
+      </div>
+    </footer>
+  </body>
+</html>
