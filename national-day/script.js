@@ -272,20 +272,25 @@ function initWishes() {
   const input = document.querySelector("#wish-input");
   const submitButton = form?.querySelector('button[type="submit"]');
   const wall = document.querySelector("#wish-wall");
+  const status = document.querySelector("#wish-form-status");
   const sharedConfig = window.NATIONAL_DAY_CONFIG || {};
   const pendingStorageKey = "national-day-pending-wishes-2026";
   const visitorStorageKey = "national-day-visitor-2026";
 
-  if (!form || !input || !submitButton || !wall) {
+  if (!form || !input || !submitButton || !wall || !status) {
     return;
   }
 
-  const hasSharedStorage = Boolean(
+  const hasMantleStorage = Boolean(
     sharedConfig.provider === "mantle" && sharedConfig.apiBase && sharedConfig.namespace,
+  );
+  const hasGitHubIssues = Boolean(
+    sharedConfig.githubRepo && sharedConfig.issuePrefix && sharedConfig.issueMarker,
   );
   const entryUrl = (path) =>
     `${sharedConfig.apiBase}/${encodeURIComponent(sharedConfig.namespace)}/${path}`;
   const listUrl = `${sharedConfig.apiBase}/list/${encodeURIComponent(sharedConfig.namespace)}`;
+  const githubIssuesUrl = `https://api.github.com/repos/${sharedConfig.githubRepo}/issues?state=all&per_page=100&sort=created&direction=desc`;
   let sharedWishes = [];
   let isRefreshing = false;
 
@@ -323,16 +328,44 @@ function initWishes() {
     }
   };
 
-  const requestJson = async (url, options = {}) => {
-    const response = await fetch(url, {
-      ...options,
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...(options.headers || {}),
-      },
+  const createTimeoutSignal = (timeout) => {
+    if (typeof AbortSignal?.timeout === "function") {
+      return AbortSignal.timeout(timeout);
+    }
+
+    const controller = new AbortController();
+    window.setTimeout(() => controller.abort(), timeout);
+    return controller.signal;
+  };
+
+  const withTimeout = (promise, timeout = 7000) =>
+    new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error("Request timed out")), timeout);
+      promise.then(
+        (value) => {
+          window.clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          window.clearTimeout(timer);
+          reject(error);
+        },
+      );
     });
+
+  const requestJson = async (url, options = {}) => {
+    const response = await withTimeout(
+      fetch(url, {
+        ...options,
+        cache: "no-store",
+        signal: options.signal || createTimeoutSignal(7000),
+        headers: {
+          Accept: "application/json",
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          ...(options.headers || {}),
+        },
+      }),
+    );
 
     if (response.status === 404) {
       return null;
@@ -357,7 +390,11 @@ function initWishes() {
     });
   };
 
-  const readSharedWishes = async () => {
+  const readMantleWishes = async () => {
+    if (!hasMantleStorage) {
+      return [];
+    }
+
     const list = await requestJson(listUrl);
     const paths = (list?.entries || [])
       .map((entry) => entry?.path)
@@ -374,8 +411,71 @@ function initWishes() {
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   };
 
+  const readGitHubWishes = async () => {
+    if (!hasGitHubIssues) {
+      return [];
+    }
+
+    const response = await withTimeout(
+      fetch(githubIssuesUrl, {
+        cache: "no-store",
+        signal: createTimeoutSignal(7000),
+        headers: {
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }),
+    );
+
+    if (!response.ok) {
+      throw new Error(`GitHub issue request failed: ${response.status}`);
+    }
+
+    const issues = await response.json();
+    const markerPattern = new RegExp(`${sharedConfig.issueMarker}:([a-z0-9-]+)`, "i");
+
+    return issues
+      .filter(
+        (issue) =>
+          !issue.pull_request &&
+          typeof issue.title === "string" &&
+          issue.title.startsWith(sharedConfig.issuePrefix),
+      )
+      .map((issue) => {
+        const marker = String(issue.body || "").match(markerPattern);
+        return {
+          id: marker?.[1] || `github-${issue.number}`,
+          text: issue.title.slice(sharedConfig.issuePrefix.length).trim(),
+          createdAt: issue.created_at,
+          githubNumber: issue.number,
+        };
+      })
+      .filter((wish) => wish.id && wish.text);
+  };
+
+  const readSharedWishes = async () => {
+    const readers = [];
+    if (hasMantleStorage) {
+      readers.push(readMantleWishes);
+    }
+    if (hasGitHubIssues) {
+      readers.push(readGitHubWishes);
+    }
+
+    const results = await Promise.allSettled(readers.map((reader) => reader()));
+    const combined = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+
+    return combined
+      .filter((wish) => wish?.id && wish?.text)
+      .filter(
+        (wish, index, collection) =>
+          collection.findIndex((candidate) => candidate.id === wish.id) === index,
+      )
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  };
+
   const flushPendingWishes = async () => {
-    if (!hasSharedStorage || !navigator.onLine) {
+    if (!hasMantleStorage || !navigator.onLine) {
       return;
     }
 
@@ -391,6 +491,33 @@ function initWishes() {
     }
 
     savePendingWishes(remaining);
+  };
+
+  const buildGitHubIssueUrl = (wish) => {
+    const title = `${sharedConfig.issuePrefix}${wish.text}`;
+    const body = `<!-- ${sharedConfig.issueMarker}:${wish.id} -->\n\n${wish.text}\n\n来自国庆祝福墙`;
+    const query = new URLSearchParams({ title, body });
+    return `https://github.com/${sharedConfig.githubRepo}/issues/new?${query.toString()}`;
+  };
+
+  const showGitHubFallback = (wish) => {
+    status.replaceChildren();
+    const note = document.createTextNode("共享数据库暂时不可用，可前往 GitHub 发布：");
+    const link = document.createElement("a");
+    link.href = buildGitHubIssueUrl(wish);
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.textContent = "打开发布页面";
+    status.append(note, link);
+  };
+
+  const showPublishSuccess = () => {
+    status.textContent = "祝福已同步，所有访客刷新后都能看见。";
+    window.setTimeout(() => {
+      if (status.textContent === "祝福已同步，所有访客刷新后都能看见。") {
+        status.textContent = "";
+      }
+    }, 5000);
   };
 
   const renderWishes = () => {
@@ -413,7 +540,7 @@ function initWishes() {
     if (allWishes.length === 0) {
       const empty = document.createElement("span");
       empty.className = "wish-chip wish-chip-muted";
-      empty.textContent = hasSharedStorage
+      empty.textContent = hasMantleStorage || hasGitHubIssues
         ? "还没有祝福，来写下第一条吧。"
         : "在线祝福暂时不可用，请稍后再试。";
       wall.appendChild(empty);
@@ -430,8 +557,8 @@ function initWishes() {
   };
 
   const refreshWishes = async () => {
-    if (isRefreshing || !hasSharedStorage) {
-      if (!hasSharedStorage) {
+    if (isRefreshing || (!hasMantleStorage && !hasGitHubIssues)) {
+      if (!hasMantleStorage && !hasGitHubIssues) {
         renderWishes();
       }
       return;
@@ -443,6 +570,8 @@ function initWishes() {
     try {
       await flushPendingWishes();
       sharedWishes = await readSharedWishes();
+      const publishedIds = new Set(sharedWishes.map((wish) => wish.id));
+      savePendingWishes(readPendingWishes().filter((wish) => !publishedIds.has(wish.id)));
     } catch {
       // Pending local wishes remain visible and will be retried later.
     } finally {
@@ -476,6 +605,7 @@ function initWishes() {
     input.focus();
     submitButton.disabled = true;
     submitButton.setAttribute("aria-busy", "true");
+    status.textContent = "";
 
     const firstWish = wall.querySelector(".wish-chip");
     if (firstWish) {
@@ -489,13 +619,16 @@ function initWishes() {
       window.dispatchEvent(canvasEvent);
     }
 
-    if (hasSharedStorage) {
+    if (hasMantleStorage) {
       try {
         await publishWish(wish);
         savePendingWishes(readPendingWishes().filter((item) => item.id !== wish.id));
+        showPublishSuccess();
       } catch {
-        // Keep it locally pending for the next automatic sync.
+        showGitHubFallback(wish);
       }
+    } else {
+      showGitHubFallback(wish);
     }
 
     submitButton.disabled = false;
@@ -516,7 +649,7 @@ function initWishes() {
     if (document.visibilityState === "visible") {
       void refreshWishes();
     }
-  }, 15000);
+  }, 120000);
 }
 
 function initMusic() {

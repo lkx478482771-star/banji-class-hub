@@ -1337,6 +1337,20 @@ button {
   width: 16px;
 }
 
+.wish-form-status {
+  min-height: 22px;
+  margin: 12px auto 0;
+  color: rgba(255, 255, 255, 0.72);
+  text-align: center;
+  font-size: 12px;
+}
+
+.wish-form-status a {
+  color: var(--gold-300);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .wish-wall {
   display: flex;
   max-width: 980px;
