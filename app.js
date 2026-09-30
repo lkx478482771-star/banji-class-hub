@@ -13,7 +13,9 @@ const authState = {
   error: "",
   busy: false,
   session: null,
-  passwordVisible: false
+  passwordVisible: false,
+  role: "student",
+  identityNote: ""
 };
 const syncState = {
   inFlight: false,
@@ -28,6 +30,7 @@ const PAGE_INFO = {
   "mutual-aid": { title: "互助广场", eyebrow: "让问题更快被看见" },
   teams: { title: "任务搭子", eyebrow: "找同伴，也找行动力" },
   resources: { title: "资源共享", eyebrow: "让好资料在班级里流动" },
+  members: { title: "成员身份", eyebrow: "让每个人知道自己该找谁" },
   feedback: { title: "匿名意见箱", eyebrow: "认真收集，公开改进" },
   candidate: { title: "我的竞选页", eyebrow: "用作品证明行动力" }
 };
@@ -37,6 +40,31 @@ const POST_TYPE_META = {
   失物: { color: "red", icon: "search-check" },
   借用: { color: "blue", icon: "package-open" },
   学习: { color: "green", icon: "book-open-check" }
+};
+
+const ROLE_META = {
+  student: { label: "普通同学", icon: "graduation-cap", color: "blue", group: "student" },
+  monitor: { label: "班长", icon: "crown", color: "green", group: "committee" },
+  vice_monitor: { label: "副班长", icon: "badge-check", color: "green", group: "committee" },
+  league_secretary: { label: "团支书", icon: "flag", color: "orange", group: "committee" },
+  study: { label: "学习委员", icon: "book-open-check", color: "blue", group: "committee" },
+  life: { label: "生活委员", icon: "heart-handshake", color: "yellow", group: "committee" },
+  sports: { label: "体育委员", icon: "dumbbell", color: "orange", group: "committee" },
+  arts: { label: "文艺委员", icon: "music", color: "red", group: "committee" },
+  psychology: { label: "心理委员", icon: "heart-pulse", color: "green", group: "committee" },
+  publicity: { label: "宣传委员", icon: "megaphone", color: "blue", group: "committee" },
+  organization: { label: "组织委员", icon: "clipboard-list", color: "yellow", group: "committee" },
+  discipline: { label: "纪律委员", icon: "shield", color: "red", group: "committee" },
+  labor: { label: "劳动委员", icon: "hammer", color: "green", group: "committee" },
+  teacher: { label: "任课老师", icon: "presentation", color: "blue", group: "faculty" },
+  head_teacher: { label: "班主任", icon: "school", color: "orange", group: "faculty" },
+  counselor: { label: "辅导员", icon: "briefcase-business", color: "green", group: "faculty" }
+};
+
+const ROLE_GROUPS = {
+  faculty: "教师与辅导员",
+  committee: "班级委员会",
+  student: "普通同学"
 };
 
 const PROMISE_DEFAULTS = [
@@ -61,6 +89,11 @@ const ui = {
   resourceFilter: "全部",
   resourceQuery: "",
   globalQuery: "",
+  memberFilter: "全部",
+  memberQuery: "",
+  members: [],
+  membersLoading: false,
+  membersLoaded: false,
   notificationsOpen: false
 };
 
@@ -470,6 +503,14 @@ function getInitials(name) {
   return cleaned.slice(-1);
 }
 
+function getRoleMeta(role) {
+  return ROLE_META[role] || ROLE_META.student;
+}
+
+function normalizeRole(role) {
+  return ROLE_META[role] ? role : "student";
+}
+
 function normalizeUsername(value) {
   return String(value || "")
     .normalize("NFKC")
@@ -563,6 +604,9 @@ function createLocalSession(account) {
       email: ""
     },
     username: account.username,
+    role: normalizeRole(account.role),
+    identityNote: String(account.identityNote || ""),
+    identityStatus: account.identityStatus || "self_declared",
     local: true,
     offline: false
   };
@@ -603,6 +647,8 @@ async function activateAccount(session) {
   authState.ready = true;
   syncState.accountChecked = false;
   syncState.localImported = false;
+  ui.membersLoaded = false;
+  ui.members = [];
   saveAuthSession(session);
   currentStorageKey = `${STORAGE_KEY}:${session.user.id}`;
   state = loadState();
@@ -615,7 +661,7 @@ async function activateAccount(session) {
   void syncSharedRecords();
 }
 
-async function registerAccount(username, password, confirmPassword) {
+async function registerAccount(username, password, confirmPassword, role, identityNote) {
   const nameError = validateUsername(username);
   if (nameError) throw new Error(nameError);
   if (password.length < 6 || password.length > 72) {
@@ -627,6 +673,8 @@ async function registerAccount(username, password, confirmPassword) {
 
   const cleanName = normalizeUsername(username);
   const usernameKey = localUsernameKey(cleanName);
+  const normalizedRole = normalizeRole(role);
+  const cleanIdentityNote = String(identityNote || "").trim().slice(0, 60);
   let remoteAccount = null;
   try {
     remoteAccount = await readRemoteAccount(usernameKey);
@@ -652,6 +700,9 @@ async function registerAccount(username, password, confirmPassword) {
     salt: saltHex,
     passwordHash,
     algorithm,
+    role: normalizedRole,
+    identityNote: cleanIdentityNote,
+    identityStatus: "self_declared",
     createdAt: new Date().toISOString()
   };
   accounts.push(account);
@@ -704,6 +755,8 @@ function logoutAccount(renderAfter = true) {
   localStorage.removeItem(AUTH_SESSION_KEY);
   currentStorageKey = STORAGE_KEY;
   state = loadState();
+  ui.membersLoaded = false;
+  ui.members = [];
   closeModal();
   ui.notificationsOpen = false;
   if (renderAfter) {
@@ -819,6 +872,47 @@ function renderAuthScreen() {
                       />
                     </div>
                   </div>
+                  <div class="auth-field">
+                    <label for="auth-role">班级身份</label>
+                    <div class="auth-input-wrap">
+                      ${icon("badge-check")}
+                      <select id="auth-role" name="role">
+                        ${Object.entries(ROLE_GROUPS)
+                          .map(
+                            ([group, groupLabel]) => `
+                              <optgroup label="${escapeHTML(groupLabel)}">
+                                ${Object.entries(ROLE_META)
+                                  .filter(([, meta]) => meta.group === group)
+                                  .map(
+                                    ([role, meta]) => `
+                                      <option value="${role}" ${
+                                        normalizeRole(authState.role) === role ? "selected" : ""
+                                      }>
+                                        ${escapeHTML(meta.label)}
+                                      </option>
+                                    `
+                                  )
+                                  .join("")}
+                              </optgroup>
+                            `
+                          )
+                          .join("")}
+                      </select>
+                    </div>
+                  </div>
+                  <div class="auth-field">
+                    <label for="auth-identity-note">职务、课程或负责事项</label>
+                    <div class="auth-input-wrap">
+                      ${icon("notebook-pen")}
+                      <input
+                        id="auth-identity-note"
+                        name="identityNote"
+                        maxlength="60"
+                        value="${escapeHTML(authState.identityNote || "")}"
+                        placeholder="例如：负责高等数学答疑"
+                      />
+                    </div>
+                  </div>
                 `
                 : ""
             }
@@ -870,11 +964,16 @@ function getReadiness() {
 function updateShell() {
   const openPosts = state.posts.filter((item) => item.status === "open").length;
   const candidateName = authState.session?.username || state.candidate.name || "候选人";
+  const roleMeta = getRoleMeta(authState.session?.role);
+  const roleLabel = roleMeta.label;
   const initials = getInitials(candidateName);
   const readiness = getReadiness();
   const unreadCount = state.notifications.filter((item) => !item.read).length;
 
   document.getElementById("top-candidate-name").textContent = candidateName;
+  document.getElementById("top-role-label").textContent = roleLabel;
+  document.getElementById("readiness-label").textContent =
+    roleMeta.group === "faculty" ? "身份资料完整度" : "竞选主页";
   document.getElementById("top-avatar").textContent = initials;
   document.getElementById("nav-post-count").textContent = String(openPosts);
   document.getElementById("candidate-readiness").textContent = `${readiness}%`;
@@ -908,6 +1007,7 @@ function render() {
     "mutual-aid": renderMutualAid,
     teams: renderTeams,
     resources: renderResources,
+    members: renderMembers,
     feedback: renderFeedback,
     candidate: renderCandidate
   };
@@ -1507,6 +1607,195 @@ function renderResourceRows() {
     .join("");
 }
 
+function publicMemberFromAccount(account) {
+  const role = normalizeRole(account?.role);
+  return {
+    id: account?.id || "",
+    username: normalizeUsername(account?.username) || "班级成员",
+    role,
+    roleLabel: getRoleMeta(role).label,
+    identityNote: String(account?.identityNote || "").trim(),
+    createdAt: account?.createdAt || "",
+    identityStatus: account?.identityStatus || "self_declared"
+  };
+}
+
+async function loadMemberDirectory(force = false) {
+  if (ui.membersLoading || (ui.membersLoaded && !force)) return;
+  ui.membersLoading = true;
+  if (ui.page === "members" && !ui.membersLoaded) render();
+
+  try {
+    if (hasSharedConfig()) {
+      const list = await mantleRequest(mantleListUrl());
+      const accountPaths = (list?.entries || [])
+        .map((entry) => entry?.path)
+        .filter((path) => typeof path === "string" && path.startsWith("accounts/"));
+      const remoteAccounts = await Promise.all(
+        accountPaths.map((path) => mantleRequest(mantleEntryUrl(path)))
+      );
+      ui.members = remoteAccounts
+        .filter((account) => account?.username)
+        .map(publicMemberFromAccount);
+    } else {
+      ui.members = getLocalAccounts().map(publicMemberFromAccount);
+    }
+  } catch (error) {
+    ui.members = getLocalAccounts().map(publicMemberFromAccount);
+    showToast("成员名单同步较慢", "当前先显示本机已经识别到的成员。");
+  } finally {
+    ui.membersLoading = false;
+    ui.membersLoaded = true;
+    if (ui.page === "members") render();
+  }
+}
+
+function renderMembers() {
+  if (!ui.membersLoading && !ui.membersLoaded) {
+    window.setTimeout(() => void loadMemberDirectory(), 0);
+  }
+
+  const filters = ["全部", "教师与辅导员", "班级委员会", "普通同学"];
+  const counts = ui.members.reduce(
+    (result, member) => {
+      result.total += 1;
+      result[getRoleMeta(member.role).group] += 1;
+      return result;
+    },
+    { total: 0, faculty: 0, committee: 0, student: 0 }
+  );
+
+  return `
+    <div class="page-stack">
+      <header class="page-intro">
+        <div>
+          <p class="eyebrow">身份公开，职责清楚，找人不再靠猜</p>
+          <h2>班级成员与职责目录</h2>
+          <p>集中展示任课老师、班主任、辅导员、各班委和普通同学，帮助班级事务快速找到对应负责人。</p>
+        </div>
+        <div class="page-actions">
+          <button class="primary-button" type="button" data-action="open-profile">
+            ${icon("badge-plus")}
+            修改我的身份
+          </button>
+        </div>
+      </header>
+
+      <section class="metric-grid">
+        <article class="metric">
+          <span class="metric-icon green">${icon("users-round")}</span>
+          <div><strong class="metric-value">${counts.total}</strong><span class="metric-label">已登记成员</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon orange">${icon("school")}</span>
+          <div><strong class="metric-value">${counts.faculty}</strong><span class="metric-label">教师与辅导员</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon blue">${icon("landmark")}</span>
+          <div><strong class="metric-value">${counts.committee}</strong><span class="metric-label">班委成员</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon yellow">${icon("graduation-cap")}</span>
+          <div><strong class="metric-value">${counts.student}</strong><span class="metric-label">普通同学</span></div>
+        </article>
+      </section>
+
+      <section class="filter-bar">
+        ${filters
+          .map(
+            (filter) => `
+              <button
+                class="filter-chip ${ui.memberFilter === filter ? "is-active" : ""}"
+                type="button"
+                data-action="filter-member"
+                data-filter="${filter}"
+              >
+                ${filter}
+              </button>
+            `
+          )
+          .join("")}
+        <label class="search-inline">
+          ${icon("search")}
+          <input
+            id="member-search"
+            type="search"
+            placeholder="搜索姓名、身份或负责事项"
+            value="${escapeHTML(ui.memberQuery)}"
+          />
+        </label>
+      </section>
+
+      <section class="member-directory" id="member-results">
+        ${renderMemberCards()}
+      </section>
+    </div>
+  `;
+}
+
+function renderMemberCards() {
+  if (ui.membersLoading && !ui.membersLoaded) {
+    return renderEmpty("loader-circle", "正在同步成员身份", "班级名单加载完成后会显示在这里。");
+  }
+
+  const query = ui.memberQuery.trim().toLowerCase();
+  const filtered = ui.members
+    .filter((member) => {
+      const groupLabel = ROLE_GROUPS[getRoleMeta(member.role).group];
+      const matchesFilter = ui.memberFilter === "全部" || groupLabel === ui.memberFilter;
+      const haystack = `${member.username} ${member.roleLabel} ${member.identityNote}`.toLowerCase();
+      return matchesFilter && (!query || haystack.includes(query));
+    })
+    .sort((a, b) => {
+      const order = { faculty: 0, committee: 1, student: 2 };
+      return order[getRoleMeta(a.role).group] - order[getRoleMeta(b.role).group] ||
+        a.username.localeCompare(b.username, "zh-CN");
+    });
+
+  if (!filtered.length) {
+    return renderEmpty("contact-round", "还没有匹配的成员", "可以修改筛选条件，或先完善自己的身份。");
+  }
+
+  return filtered
+    .map((member) => {
+      const meta = getRoleMeta(member.role);
+      const isCurrent = member.id === authState.session?.user.id;
+      return `
+        <article class="member-card">
+          <div class="member-card-main">
+            <span class="member-avatar ${meta.color}">${escapeHTML(getInitials(member.username))}</span>
+            <div class="member-copy">
+              <div class="member-name-row">
+                <strong>${escapeHTML(member.username)}</strong>
+                <span class="badge ${meta.color}">${icon(meta.icon)} ${escapeHTML(meta.label)}</span>
+              </div>
+              <p>${escapeHTML(member.identityNote || "暂未填写职责说明")}</p>
+              <span class="member-meta">${icon("info")} 身份由成员自主申报，暂不用于系统权限</span>
+            </div>
+          </div>
+          ${
+            isCurrent
+              ? `
+                <button class="secondary-button" type="button" data-action="open-profile">
+                  ${icon("pencil")}
+                  修改身份
+                </button>
+              `
+              : ""
+          }
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function updateMemberResults() {
+  const container = document.getElementById("member-results");
+  if (!container) return;
+  container.innerHTML = renderMemberCards();
+  refreshIcons(container);
+}
+
 function renderFeedback() {
   const poll = state.poll;
   const totalVotes = poll.options.reduce((sum, option) => sum + option.votes, 0);
@@ -1722,7 +2011,7 @@ function renderCandidate() {
         <article class="candidate-profile">
           <span class="candidate-avatar">${escapeHTML(getInitials(candidate.name))}</span>
           <div>
-            <p class="eyebrow">班级委员候选人</p>
+            <p class="eyebrow">${escapeHTML(getRoleMeta(authState.session?.role).label)} · 班级身份名片</p>
             <h2>${escapeHTML(candidate.name)}</h2>
             <blockquote>“${escapeHTML(candidate.slogan)}”</blockquote>
             <p>${escapeHTML(candidate.intro)}</p>
@@ -1986,8 +2275,8 @@ function openModal(kind) {
       `
     },
     profile: {
-      title: "编辑竞选资料",
-      subtitle: "这些内容只保存在当前浏览器中，可随时继续修改",
+      title: "编辑账号身份与资料",
+      subtitle: "账号名称不可重复，教师和班委身份目前采用自主申报",
       wide: true,
       body: `
         <form id="profile-form">
@@ -2004,6 +2293,43 @@ function openModal(kind) {
                 <input id="profile-slogan" name="slogan" maxlength="60" value="${escapeHTML(
                   state.candidate.slogan
                 )}" required />
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="modal-field">
+                <label for="profile-role">班级身份</label>
+                <select id="profile-role" name="role">
+                  ${Object.entries(ROLE_GROUPS)
+                    .map(
+                      ([group, groupLabel]) => `
+                        <optgroup label="${escapeHTML(groupLabel)}">
+                          ${Object.entries(ROLE_META)
+                            .filter(([, meta]) => meta.group === group)
+                            .map(
+                              ([role, meta]) => `
+                                <option value="${role}" ${
+                                  normalizeRole(authState.session?.role) === role ? "selected" : ""
+                                }>
+                                  ${escapeHTML(meta.label)}
+                                </option>
+                              `
+                            )
+                            .join("")}
+                        </optgroup>
+                      `
+                    )
+                    .join("")}
+                </select>
+              </div>
+              <div class="modal-field">
+                <label for="profile-identity-note">职务、课程或负责事项</label>
+                <input
+                  id="profile-identity-note"
+                  name="identityNote"
+                  maxlength="60"
+                  value="${escapeHTML(authState.session?.identityNote || "")}"
+                  placeholder="例如：负责班级学习与竞赛信息"
+                />
               </div>
             </div>
             <div class="modal-field">
@@ -2465,6 +2791,14 @@ async function ensureCurrentAccountShared() {
   const remoteAccount = await readRemoteAccount(usernameKey);
   if (!remoteAccount) {
     await writeRemoteAccount(localAccount);
+  } else {
+    authState.session.username = remoteAccount.username || authState.session.username;
+    authState.session.role = normalizeRole(remoteAccount.role);
+    authState.session.identityNote = String(remoteAccount.identityNote || "");
+    authState.session.identityStatus = remoteAccount.identityStatus || "self_declared";
+    state.candidate.name = authState.session.username;
+    saveAuthSession(authState.session);
+    saveState();
   }
   syncState.accountChecked = true;
 }
@@ -2657,7 +2991,11 @@ function handleClick(event) {
 
   if (action === "auth-mode") {
     const usernameInput = document.getElementById("auth-username");
+    const roleInput = document.getElementById("auth-role");
+    const identityNoteInput = document.getElementById("auth-identity-note");
     authState.username = usernameInput?.value || authState.username || "";
+    authState.role = normalizeRole(roleInput?.value || authState.role);
+    authState.identityNote = identityNoteInput?.value || authState.identityNote || "";
     authState.mode = actionElement.dataset.mode === "register" ? "register" : "login";
     authState.error = "";
     authState.busy = false;
@@ -2737,6 +3075,12 @@ function handleClick(event) {
 
   if (action === "filter-resource") {
     ui.resourceFilter = actionElement.dataset.filter;
+    render();
+    return;
+  }
+
+  if (action === "filter-member") {
+    ui.memberFilter = actionElement.dataset.filter;
     render();
     return;
   }
@@ -2858,14 +3202,18 @@ function handleSubmit(event) {
     const username = normalizeUsername(data.get("username"));
     const password = String(data.get("password") || "");
     const confirmPassword = String(data.get("confirmPassword") || "");
+    const role = normalizeRole(data.get("role") || authState.role);
+    const identityNote = String(data.get("identityNote") || "").trim().slice(0, 60);
     authState.username = username;
+    authState.role = role;
+    authState.identityNote = identityNote;
     authState.error = "";
     authState.busy = true;
     render();
 
     const action =
       authState.mode === "register"
-        ? registerAccount(username, password, confirmPassword)
+        ? registerAccount(username, password, confirmPassword, role, identityNote)
         : loginAccount(username, password);
 
     action
@@ -2972,6 +3320,8 @@ function handleSubmit(event) {
   if (form.id === "profile-form") {
     event.preventDefault();
     const data = new FormData(form);
+    const role = normalizeRole(data.get("role"));
+    const identityNote = String(data.get("identityNote") || "").trim().slice(0, 60);
     state.candidate = {
       name: authState.session?.username || String(data.get("name")).trim(),
       slogan: String(data.get("slogan")).trim(),
@@ -2983,9 +3333,35 @@ function handleSubmit(event) {
       }))
     };
     saveState();
+    authState.session.role = role;
+    authState.session.identityNote = identityNote;
+    authState.session.identityStatus = "self_declared";
+    saveAuthSession(authState.session);
+    const accounts = getLocalAccounts();
+    const account = accounts.find(
+      (item) => item.usernameKey === localUsernameKey(authState.session.username)
+    );
+    if (account) {
+      account.role = role;
+      account.identityNote = identityNote;
+      account.identityStatus = "self_declared";
+      account.updatedAt = new Date().toISOString();
+      saveLocalAccounts(accounts);
+      void writeRemoteAccount(account)
+        .then(() => {
+          syncState.accountChecked = true;
+          void loadMemberDirectory(true);
+          showToast("身份资料已同步", "成员身份目录已经更新。");
+        })
+        .catch(() => {
+          setSyncStatus("offline");
+          scheduleSharedSync();
+          showToast("身份已保存在本机", "网络恢复后会自动同步到成员目录。");
+        });
+    }
     closeModal();
     render();
-    showToast("竞选资料已更新", "首页与竞选页已经同步。");
+    showToast("账号资料已更新", "首页、竞选页和身份标签已经同步。");
   }
 }
 
@@ -3000,6 +3376,12 @@ function handleInput(event) {
   if (target.id === "resource-search") {
     ui.resourceQuery = target.value;
     updateResourceResults();
+    return;
+  }
+
+  if (target.id === "member-search") {
+    ui.memberQuery = target.value;
+    updateMemberResults();
     return;
   }
 
@@ -3053,6 +3435,9 @@ function initialize() {
   window.setInterval(() => {
     if (authState.session && document.visibilityState === "visible") {
       void syncSharedRecords();
+      if (ui.page === "members") {
+        void loadMemberDirectory(true);
+      }
     }
   }, 15_000);
 
