@@ -102,29 +102,27 @@ function initCountdown() {
     const now = Date.now();
     const beijingNow = new Date(now + BEIJING_OFFSET_MS);
     const year = beijingNow.getUTCFullYear();
-    let target = Date.UTC(year, 9, 1) - BEIJING_OFFSET_MS;
-    const nationalDayEnd = target + 24 * 60 * 60 * 1000;
+    const nationalDayStart = Date.UTC(year, 9, 1) - BEIJING_OFFSET_MS;
+    const nationalDayEnd = nationalDayStart + 24 * 60 * 60 * 1000;
+    const holidayEnd = Date.UTC(year, 9, 8) - BEIJING_OFFSET_MS;
+    let target = nationalDayStart;
+    let labelText = "距离国庆节还有";
+    let dateLabel = `${year}年10月1日 · 星期四`;
 
-    if (now >= target && now < nationalDayEnd) {
-      label.textContent = "今天是国庆节";
+    if (now >= nationalDayStart && now < nationalDayEnd) {
+      target = nationalDayEnd;
+      labelText = "距离国庆节结束还有";
+      dateLabel = `${year}年10月1日 · 国庆节`;
+    } else if (now >= nationalDayEnd && now < holidayEnd) {
+      label.textContent = `已欢度${year - 1949}周年国庆`;
       Object.values(values).forEach((value) => {
         value.textContent = "00";
       });
-      dateText.textContent = `${year}年10月1日 · 国庆节`;
+      dateText.textContent = `${year}年国庆假期`;
       return;
-    }
-
-    if (now >= nationalDayEnd) {
-      const holidayEnd = Date.UTC(year, 9, 8) - BEIJING_OFFSET_MS;
-      if (now < holidayEnd) {
-        label.textContent = `已欢度${year - 1949}周年国庆`;
-        Object.values(values).forEach((value) => {
-          value.textContent = "00";
-        });
-        dateText.textContent = `${year}年国庆假期`;
-        return;
-      }
+    } else if (now >= holidayEnd) {
       target = Date.UTC(year + 1, 9, 1) - BEIJING_OFFSET_MS;
+      dateLabel = `${year + 1}年10月1日 · 星期四`;
     }
 
     const difference = Math.max(0, target - now);
@@ -132,14 +130,13 @@ function initCountdown() {
     const hours = Math.floor((difference / (60 * 60 * 1000)) % 24);
     const minutes = Math.floor((difference / (60 * 1000)) % 60);
     const seconds = Math.floor((difference / 1000) % 60);
-    const targetYear = new Date(target + BEIJING_OFFSET_MS).getUTCFullYear();
 
-    label.textContent = "距离国庆节还有";
+    label.textContent = labelText;
     values.days.textContent = format(days);
     values.hours.textContent = format(hours);
     values.minutes.textContent = format(minutes);
     values.seconds.textContent = format(seconds);
-    dateText.textContent = `${targetYear}年10月1日 · 星期四`;
+    dateText.textContent = dateLabel;
   };
 
   update();
