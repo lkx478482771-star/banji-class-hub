@@ -185,6 +185,38 @@ button {
   pointer-events: none;
 }
 
+.star-rain {
+  position: fixed;
+  z-index: 170;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.star-particle {
+  position: absolute;
+  color: var(--gold-300);
+  font-size: var(--star-size, 14px);
+  line-height: 1;
+  opacity: 0;
+  text-shadow: 0 0 12px rgba(255, 216, 129, 0.78);
+  animation: star-fall var(--star-duration, 1.4s) ease-in both;
+}
+
+@keyframes star-fall {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.4) rotate(0);
+  }
+  20% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 42px) scale(1.05) rotate(150deg);
+  }
+}
+
 /* Music control */
 .music-dock {
   position: fixed;
@@ -435,6 +467,21 @@ button {
   font-weight: 700;
 }
 
+.nav-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gold-300);
+}
+
+.site-header.is-scrolled .nav-home {
+  color: var(--red-700);
+}
+
+.nav-home svg {
+  width: 15px;
+}
+
 .nav-link::after {
   position: absolute;
   right: 0;
@@ -511,9 +558,10 @@ button {
   position: absolute;
   z-index: -4;
   inset: 0;
-  background-image: url("assets/great-wall-sunrise.webp");
-  background-position: center 66%;
-  background-size: cover;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 66%;
   filter: saturate(0.86) contrast(1.08) brightness(0.7);
   transform: scale(1.01);
   animation: hero-drift 16s ease-out both;
@@ -1351,17 +1399,51 @@ button {
   text-underline-offset: 3px;
 }
 
+.wish-spotlight {
+  max-width: 760px;
+  margin: 24px auto 0;
+  padding: 18px 24px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.065);
+  border: 1px solid rgba(255, 224, 153, 0.2);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+}
+
+.wish-spotlight span {
+  color: var(--gold-300);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.wish-spotlight p {
+  margin: 8px 0 0;
+  font-family: var(--display-font);
+  font-size: 23px;
+  line-height: 1.5;
+}
+
 .wish-wall {
   display: flex;
   max-width: 980px;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
   gap: 11px;
   min-height: 88px;
   margin: 34px auto 0;
+  overflow-x: auto;
+  padding: 6px 4px 12px;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, transparent, black 6%, black 94%, transparent);
+}
+
+.wish-wall::-webkit-scrollbar {
+  display: none;
 }
 
 .wish-chip {
+  flex: 0 0 auto;
   padding: 11px 16px;
   color: rgba(255, 255, 255, 0.88);
   background: rgba(255, 255, 255, 0.075);
@@ -1651,6 +1733,10 @@ button {
 
   .nav-link::after {
     display: none;
+  }
+
+  .nav-home {
+    color: var(--red-700);
   }
 
   .nav-celebrate {
@@ -1946,6 +2032,7 @@ button {
 
   .wish-wall {
     margin-top: 26px;
+    mask-image: linear-gradient(to right, transparent, black 3%, black 97%, transparent);
   }
 
   .wish-chip {

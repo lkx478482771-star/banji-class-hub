@@ -115,6 +115,15 @@ function initCountdown() {
     }
 
     if (now >= nationalDayEnd) {
+      const holidayEnd = Date.UTC(year, 9, 8) - BEIJING_OFFSET_MS;
+      if (now < holidayEnd) {
+        label.textContent = `已欢度${year - 1949}周年国庆`;
+        Object.values(values).forEach((value) => {
+          value.textContent = "00";
+        });
+        dateText.textContent = `${year}年国庆假期`;
+        return;
+      }
       target = Date.UTC(year + 1, 9, 1) - BEIJING_OFFSET_MS;
     }
 
@@ -267,17 +276,47 @@ function initFireworks() {
   resize();
 }
 
+function initStarRain() {
+  const layer = document.querySelector("#star-rain");
+
+  if (!layer || prefersReducedMotion || !window.matchMedia("(pointer: fine)").matches) {
+    return;
+  }
+
+  let lastEmit = 0;
+
+  document.addEventListener("pointermove", (event) => {
+    const now = performance.now();
+    if (now - lastEmit < 90) {
+      return;
+    }
+    lastEmit = now;
+
+    const star = document.createElement("span");
+    star.className = "star-particle";
+    star.textContent = "★";
+    star.style.left = `${event.clientX + (Math.random() * 30 - 15)}px`;
+    star.style.top = `${event.clientY + (Math.random() * 22 - 11)}px`;
+    star.style.setProperty("--star-size", `${9 + Math.random() * 8}px`);
+    star.style.setProperty("--star-duration", `${1 + Math.random() * 0.7}s`);
+    layer.appendChild(star);
+    window.setTimeout(() => star.remove(), 1800);
+  }, { passive: true });
+}
+
 function initWishes() {
   const form = document.querySelector("#wish-form");
   const input = document.querySelector("#wish-input");
   const submitButton = form?.querySelector('button[type="submit"]');
   const wall = document.querySelector("#wish-wall");
   const status = document.querySelector("#wish-form-status");
+  const spotlight = document.querySelector("#wish-spotlight");
+  const spotlightText = document.querySelector("#wish-spotlight-text");
   const sharedConfig = window.NATIONAL_DAY_CONFIG || {};
   const pendingStorageKey = "national-day-pending-wishes-2026";
   const visitorStorageKey = "national-day-visitor-2026";
 
-  if (!form || !input || !submitButton || !wall || !status) {
+  if (!form || !input || !submitButton || !wall || !status || !spotlight || !spotlightText) {
     return;
   }
 
@@ -293,6 +332,7 @@ function initWishes() {
   const githubIssuesUrl = `https://api.github.com/repos/${sharedConfig.githubRepo}/issues?state=all&per_page=100&sort=created&direction=desc`;
   let sharedWishes = [];
   let isRefreshing = false;
+  let wallPaused = false;
 
   const readPendingWishes = () => {
     try {
@@ -454,24 +494,23 @@ function initWishes() {
   };
 
   const readSharedWishes = async () => {
-    const readers = [];
     if (hasMantleStorage) {
-      readers.push(readMantleWishes);
+      try {
+        return await readMantleWishes();
+      } catch {
+        // Fall through to GitHub only when the primary shared database is unavailable.
+      }
     }
+
     if (hasGitHubIssues) {
-      readers.push(readGitHubWishes);
+      try {
+        return await readGitHubWishes();
+      } catch {
+        return [];
+      }
     }
 
-    const results = await Promise.allSettled(readers.map((reader) => reader()));
-    const combined = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
-
-    return combined
-      .filter((wish) => wish?.id && wish?.text)
-      .filter(
-        (wish, index, collection) =>
-          collection.findIndex((candidate) => candidate.id === wish.id) === index,
-      )
-      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    return [];
   };
 
   const flushPendingWishes = async () => {
@@ -537,6 +576,11 @@ function initWishes() {
       return;
     }
 
+    if (sharedWishes.length > 0 && (!spotlightText.textContent || Math.random() < 0.3)) {
+      spotlightText.textContent = sharedWishes[Math.floor(Math.random() * sharedWishes.length)].text;
+      spotlight.hidden = false;
+    }
+
     if (allWishes.length === 0) {
       const empty = document.createElement("span");
       empty.className = "wish-chip wish-chip-muted";
@@ -554,6 +598,35 @@ function initWishes() {
       chip.style.animationDelay = `${Math.min(index * 45, 360)}ms`;
       wall.appendChild(chip);
     });
+
+    if (!prefersReducedMotion && !wall.dataset.tickerReady) {
+      wall.dataset.tickerReady = "true";
+      let lastFrame = performance.now();
+      const ticker = (now) => {
+        const maxScroll = Math.max(0, wall.scrollWidth - wall.clientWidth);
+        if (!wallPaused && maxScroll > 0) {
+          wall.scrollLeft += (now - lastFrame) * 0.024;
+          if (wall.scrollLeft >= maxScroll - 1) {
+            wall.scrollLeft = 0;
+          }
+        }
+        lastFrame = now;
+        window.requestAnimationFrame(ticker);
+      };
+      window.requestAnimationFrame(ticker);
+      wall.addEventListener("pointerenter", () => {
+        wallPaused = true;
+      });
+      wall.addEventListener("pointerleave", () => {
+        wallPaused = false;
+      });
+      wall.addEventListener("focus", () => {
+        wallPaused = true;
+      });
+      wall.addEventListener("blur", () => {
+        wallPaused = false;
+      });
+    }
   };
 
   const refreshWishes = async () => {
@@ -826,6 +899,7 @@ function init() {
   initReveal();
   initCountdown();
   initFireworks();
+  initStarRain();
   initWishes();
   initMusic();
 }

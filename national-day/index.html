@@ -7,18 +7,25 @@
       name="description"
       content="庆祝中华人民共和国成立77周年，共赏山河盛景，写下真挚祝福。"
     />
+    <meta property="og:title" content="山河同庆｜建国77周年国庆专题" />
+    <meta
+      property="og:description"
+      content="金秋十月，共祝祖国生日快乐，写下你的国庆祝福。"
+    />
+    <meta property="og:type" content="website" />
     <meta name="theme-color" content="#b70d18" />
     <title>山河同庆 · 国庆77周年</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="preload" as="image" href="assets/great-wall-sunrise.webp" />
     <link rel="stylesheet" href="styles.css" />
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
-    <script src="config.js" defer></script>
-    <script src="script.js" defer></script>
+    <script src="config.js?v=7" defer></script>
+    <script src="script.js?v=7" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳至主要内容</a>
     <canvas id="fireworks-canvas" aria-hidden="true"></canvas>
+    <div class="star-rain" id="star-rain" aria-hidden="true"></div>
 
     <aside class="music-dock" id="music-dock" aria-label="网页音乐控制">
       <audio id="ambient-audio" src="assets/festival-ambience.wav" loop preload="metadata"></audio>
@@ -92,6 +99,10 @@
         </button>
 
         <nav class="primary-nav" id="primary-navigation" aria-label="主导航">
+          <a class="nav-link nav-home" href="../">
+            <i data-lucide="arrow-left" aria-hidden="true"></i>
+            班级 Hub
+          </a>
           <a class="nav-link" href="#celebration">盛景</a>
           <a class="nav-link" href="#journey">年轮</a>
           <a class="nav-link" href="#today">今日</a>
@@ -106,7 +117,15 @@
 
     <main id="main-content">
       <section class="hero" id="home" aria-labelledby="hero-title">
-        <div class="hero-photo" aria-hidden="true"></div>
+        <img
+          class="hero-photo"
+          src="assets/great-wall-sunrise.webp"
+          alt=""
+          width="1800"
+          height="1350"
+          fetchpriority="high"
+          decoding="async"
+        />
         <div class="hero-light" aria-hidden="true"></div>
         <div class="hero-grid" aria-hidden="true"></div>
 
@@ -266,7 +285,7 @@
               <div class="timeline-content">
                 <span class="timeline-icon"><i data-lucide="landmark" aria-hidden="true"></i></span>
                 <h3>启程</h3>
-                <p>五星红旗冉冉升起，历史翻开崭新篇章。</p>
+                <p>五星红旗冉冉升起，开启崭新时代。</p>
               </div>
             </article>
 
@@ -276,7 +295,7 @@
               <div class="timeline-content">
                 <span class="timeline-icon"><i data-lucide="sprout" aria-hidden="true"></i></span>
                 <h3>春潮</h3>
-                <p>改革春风吹遍大地，发展活力奔涌向前。</p>
+                <p>改革春风，激荡神州大地。</p>
               </div>
             </article>
 
@@ -286,7 +305,7 @@
               <div class="timeline-content">
                 <span class="timeline-icon"><i data-lucide="globe-2" aria-hidden="true"></i></span>
                 <h3>相拥</h3>
-                <p>盛事汇聚世界目光，开放自信拥抱四海宾朋。</p>
+                <p>敞开怀抱，迎接世界目光。</p>
               </div>
             </article>
 
@@ -296,7 +315,7 @@
               <div class="timeline-content">
                 <span class="timeline-icon"><i data-lucide="rocket" aria-hidden="true"></i></span>
                 <h3>远航</h3>
-                <p>以创新拥抱时代，以奋斗回答未来。</p>
+                <p>砥砺奋进，奔赴崭新征程。</p>
               </div>
             </article>
           </div>
@@ -310,7 +329,7 @@
               <p class="section-kicker reveal">今日 · 生生不息</p>
               <h2 id="today-title" class="reveal">万千气象，汇成今日中国</h2>
               <p class="reveal reveal-delay-1">
-                城市的灯火、乡野的新绿、实验室里的微光、旅途中的笑容，都是时代最生动的注脚。
+                城市灯火、乡野新绿、实验室微光、旅途的笑脸，皆是时代生动注脚。
               </p>
               <button class="text-button celebrate-trigger reveal reveal-delay-2" type="button">
                 为今日中国喝彩
@@ -377,7 +396,17 @@
           </form>
           <p class="wish-form-status" id="wish-form-status" aria-live="polite"></p>
 
-          <div class="wish-wall reveal reveal-delay-3" id="wish-wall" aria-live="polite"></div>
+          <div class="wish-spotlight reveal" id="wish-spotlight" hidden>
+            <span>随机网友祝福</span>
+            <p id="wish-spotlight-text"></p>
+          </div>
+
+          <div
+            class="wish-wall reveal reveal-delay-3"
+            id="wish-wall"
+            tabindex="0"
+            aria-live="polite"
+          ></div>
 
           <button class="final-celebration celebrate-trigger reveal" type="button">
             <span class="final-star" aria-hidden="true">★</span>
@@ -404,6 +433,7 @@
           </div>
         </div>
         <div class="footer-meta">
+          <a href="../">返回班级 Hub</a>
           <a href="#home">返回顶部</a>
           <a href="#main-content">页面内容</a>
         </div>
