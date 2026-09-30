@@ -31,6 +31,7 @@ const PAGE_INFO = {
   teams: { title: "任务搭子", eyebrow: "找同伴，也找行动力" },
   resources: { title: "资源共享", eyebrow: "让好资料在班级里流动" },
   profile: { title: "个人中心", eyebrow: "我的身份与发布记录" },
+  history: { title: "历史记录", eyebrow: "已经过期但可以继续查看" },
   members: { title: "成员身份", eyebrow: "让每个人知道自己该找谁" },
   feedback: { title: "匿名意见箱", eyebrow: "认真收集，公开改进" },
   candidate: { title: "我的竞选页", eyebrow: "用作品证明行动力" }
@@ -77,6 +78,32 @@ const PUBLISH_LIMITS = {
   deadline: 5
 };
 
+const TASK_PUBLISH_ROLES = [
+  "monitor",
+  "vice_monitor",
+  "league_secretary",
+  "study",
+  "life",
+  "sports",
+  "arts",
+  "psychology",
+  "publicity",
+  "organization",
+  "discipline",
+  "labor",
+  "teacher",
+  "head_teacher",
+  "counselor"
+];
+
+const SCHEDULE_EDIT_ROLES = [
+  "monitor",
+  "vice_monitor",
+  "teacher",
+  "head_teacher",
+  "counselor"
+];
+
 const PROMISE_DEFAULTS = [
   {
     title: "需求有回音",
@@ -106,6 +133,9 @@ const ui = {
   membersLoaded: false,
   dailyUsage: null,
   dailyUsageLoading: false,
+  history: [],
+  historyLoading: false,
+  historyLoaded: false,
   notificationsOpen: false
 };
 
@@ -504,6 +534,14 @@ function dueLabel(value) {
   return `${days} 天后截止`;
 }
 
+function formatTimeRemaining(value) {
+  if (!value) return "长期保留";
+  const milliseconds = parseDate(value).getTime() - Date.now();
+  if (milliseconds <= 0) return "已到归档时间";
+  const hours = Math.max(1, Math.ceil(milliseconds / 3600000));
+  return `${hours} 小时后归档`;
+}
+
 function toDateInputValue(date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 10);
@@ -540,6 +578,23 @@ function isCurrentAdmin() {
     authState.session?.role === "admin" ||
     isAdminUsername(authState.session?.username)
   );
+}
+
+function hasRolePermission(roles) {
+  return isCurrentAdmin() || roles.includes(authState.session?.role);
+}
+
+function canPublishTask() {
+  return hasRolePermission(TASK_PUBLISH_ROLES);
+}
+
+function canEditSchedule() {
+  return hasRolePermission(SCHEDULE_EDIT_ROLES);
+}
+
+function isRecordExpired(payload) {
+  if (!payload?.expiresAt) return false;
+  return parseDate(payload.expiresAt).getTime() <= Date.now();
 }
 
 function normalizeUsername(value) {
@@ -636,8 +691,9 @@ function createLocalSession(account) {
     },
     username: account.username,
     role: resolveAccountRole(account),
+    pendingRole: account.pendingRole ? normalizeRole(account.pendingRole) : "",
     identityNote: String(account.identityNote || ""),
-    identityStatus: account.identityStatus || "self_declared",
+    identityStatus: account.identityStatus || "student",
     local: true,
     offline: false
   };
@@ -681,6 +737,8 @@ async function activateAccount(session) {
   ui.membersLoaded = false;
   ui.members = [];
   ui.dailyUsage = null;
+  ui.historyLoaded = false;
+  ui.history = [];
   saveAuthSession(session);
   currentStorageKey = `${STORAGE_KEY}:${session.user.id}`;
   state = loadState();
@@ -705,7 +763,19 @@ async function registerAccount(username, password, confirmPassword, role, identi
 
   const cleanName = normalizeUsername(username);
   const usernameKey = localUsernameKey(cleanName);
-  const normalizedRole = isAdminUsername(cleanName) ? "admin" : normalizeRole(role);
+  const requestedRole = normalizeRole(role);
+  const normalizedRole = isAdminUsername(cleanName)
+    ? "admin"
+    : requestedRole === "student"
+      ? "student"
+      : "student";
+  const pendingRole =
+    isAdminUsername(cleanName) || requestedRole === "student" ? "" : requestedRole;
+  const identityStatus = isAdminUsername(cleanName)
+    ? "approved"
+    : requestedRole === "student"
+      ? "student"
+      : "pending";
   const cleanIdentityNote = String(identityNote || "").trim().slice(0, 60);
   let remoteAccount = null;
   try {
@@ -733,8 +803,9 @@ async function registerAccount(username, password, confirmPassword, role, identi
     passwordHash,
     algorithm,
     role: normalizedRole,
+    pendingRole,
     identityNote: cleanIdentityNote,
-    identityStatus: "self_declared",
+    identityStatus,
     createdAt: new Date().toISOString()
   };
   accounts.push(account);
@@ -747,7 +818,12 @@ async function registerAccount(username, password, confirmPassword, role, identi
   }
   const session = createLocalSession(account);
   await activateAccount(session);
-  showToast("账号已创建", `欢迎你，${cleanName}。`);
+  showToast(
+    pendingRole ? "账号已创建，身份待审核" : "账号已创建",
+    pendingRole
+      ? `你申请的“${getRoleMeta(pendingRole).label}”需要管理员确认。`
+      : `欢迎你，${cleanName}。`
+  );
 }
 
 async function loginAccount(username, password) {
@@ -790,6 +866,8 @@ function logoutAccount(renderAfter = true) {
   ui.membersLoaded = false;
   ui.members = [];
   ui.dailyUsage = null;
+  ui.historyLoaded = false;
+  ui.history = [];
   closeModal();
   ui.notificationsOpen = false;
   if (renderAfter) {
@@ -1004,7 +1082,9 @@ function updateShell() {
   const unreadCount = state.notifications.filter((item) => !item.read).length;
 
   document.getElementById("top-candidate-name").textContent = candidateName;
-  document.getElementById("top-role-label").textContent = roleLabel;
+  document.getElementById("top-role-label").textContent = authState.session?.pendingRole
+    ? `${roleLabel} · 待审核`
+    : roleLabel;
   document.getElementById("readiness-label").textContent =
     roleMeta.group === "faculty" ? "身份资料完整度" : "竞选主页";
   document.getElementById("top-avatar").textContent = initials;
@@ -1041,6 +1121,7 @@ function render() {
     teams: renderTeams,
     resources: renderResources,
     profile: renderPersonalCenter,
+    history: renderHistory,
     members: renderMembers,
     feedback: renderFeedback,
     candidate: renderCandidate
@@ -1223,10 +1304,18 @@ function renderDashboard() {
                 <h3>即将截止</h3>
                 <p>课程、材料、考试和活动统一提醒</p>
               </div>
-              <button class="secondary-button" type="button" data-action="open-modal" data-modal="deadline">
-                ${icon("calendar-plus")}
-                添加事项
-              </button>
+              ${
+                canEditSchedule()
+                  ? `
+                    <button class="secondary-button" type="button" data-action="open-modal" data-modal="deadline">
+                      ${icon("calendar-plus")}
+                      添加事项
+                    </button>
+                  `
+                  : `
+                    <span class="badge yellow">${icon("lock-keyhole")} 班长、副班长、辅导员或教师可编辑</span>
+                  `
+              }
             </header>
             <div class="panel-body deadline-list">
               ${
@@ -1243,6 +1332,18 @@ function renderDashboard() {
                 <h2>未来 7 天</h2>
                 <p class="eyebrow">把班级节奏提前说清楚</p>
               </div>
+              ${
+                canEditSchedule()
+                  ? `
+                    <button class="secondary-button" type="button" data-action="open-modal" data-modal="deadline">
+                      ${icon("pencil")}
+                      编辑未来 7 天
+                    </button>
+                  `
+                  : `
+                    <span class="badge blue">${icon("lock-keyhole")} 指定班委与教师可编辑</span>
+                  `
+              }
             </header>
             <div class="week-strip">
               ${renderWeekStrip()}
@@ -1291,7 +1392,9 @@ function renderDeadlineItem(item) {
       </div>
       <div class="deadline-copy">
         <strong>${escapeHTML(item.title)}</strong>
-        <span>${escapeHTML(item.category)} · ${escapeHTML(dueLabel(item.due))}</span>
+        <span>${escapeHTML(item.category)} · ${escapeHTML(dueLabel(item.due))} · ${escapeHTML(
+          formatTimeRemaining(item.expiresAt)
+        )}</span>
       </div>
       <div class="row-actions">
         <button
@@ -1488,10 +1591,18 @@ function renderTeams() {
           <p>课程作业、运动、志愿和学习搭子都可以公开招募，人数与时间一眼看清。</p>
         </div>
         <div class="page-actions">
-          <button class="primary-button" type="button" data-action="open-modal" data-modal="team">
-            ${icon("user-round-plus")}
-            发起组队
-          </button>
+          ${
+            canPublishTask()
+              ? `
+                <button class="primary-button" type="button" data-action="open-modal" data-modal="team">
+                  ${icon("user-round-plus")}
+                  发起组队
+                </button>
+              `
+              : `
+                <span class="badge yellow">${icon("lock-keyhole")} 班委、教师、辅导员或管理员可发布</span>
+              `
+          }
         </div>
       </header>
 
@@ -1523,6 +1634,7 @@ function renderTeamCard(item) {
       <div class="card-meta">
         <span>${icon("map-pin")} ${escapeHTML(item.place)}</span>
         <span>${icon("user-round")} 发起人 ${escapeHTML(item.owner)}</span>
+        <span>${icon("clock-3")} ${escapeHTML(formatTimeRemaining(item.expiresAt))}</span>
       </div>
       <div class="team-progress" aria-label="招募进度 ${percentage}%">
         <span style="width: ${percentage}%"></span>
@@ -1799,9 +1911,20 @@ function renderPersonalCenter() {
             <div class="member-name-row">
               <h2>${escapeHTML(username)}</h2>
               <span class="badge ${roleMeta.color}">${icon(roleMeta.icon)} ${escapeHTML(roleMeta.label)}</span>
+              ${
+                authState.session?.pendingRole
+                  ? `<span class="badge yellow">${icon("clock-3")} 待审核：${escapeHTML(
+                      getRoleMeta(authState.session.pendingRole).label
+                    )}</span>`
+                  : ""
+              }
             </div>
             <p>${escapeHTML(authState.session?.identityNote || "还没有填写职务、课程或负责事项。")}</p>
-            <span class="member-meta">${icon("shield-check")} 身份为自主申报，账号名称全局唯一</span>
+            <span class="member-meta">${icon("shield-check")} ${
+              authState.session?.pendingRole
+                ? "特殊身份需要管理员审核，通过前保持普通同学权限"
+                : "账号名称全局唯一，身份状态已同步"
+            }</span>
           </div>
         </article>
         <aside class="personal-actions">
@@ -1916,16 +2039,126 @@ function renderPersonalCenter() {
   `;
 }
 
+async function loadHistory(force = false) {
+  if (ui.historyLoading || (ui.historyLoaded && !force)) return;
+  ui.historyLoading = true;
+  if (ui.page === "history" && !ui.historyLoaded) render();
+  try {
+    ui.history = await readSharedHistory();
+  } catch (error) {
+    ui.history = [];
+  } finally {
+    ui.historyLoading = false;
+    ui.historyLoaded = true;
+    if (ui.page === "history") render();
+  }
+}
+
+async function deleteHistoryRecord(recordKey) {
+  if (!isCurrentAdmin()) {
+    showToast("没有删除权限", "只有管理员可以删除历史记录。");
+    return;
+  }
+  await mantleRequest(
+    mantleEntryUrl(`history/${encodeURIComponent(recordKey)}`),
+    { method: "DELETE" }
+  );
+  await loadHistory(true);
+  showToast("历史记录已删除", "管理员已移除这条归档内容。");
+}
+
+function historyRecordTitle(record) {
+  const payload = record?.payload || {};
+  if (record.record_type === "deadline") return payload.title || "截止事项";
+  if (record.record_type === "team") return payload.title || "任务组队";
+  if (record.record_type === "post") return payload.title || "互助信息";
+  if (record.record_type === "suggestion") return payload.text || "匿名意见";
+  return "班级记录";
+}
+
+function renderHistory() {
+  if (!ui.historyLoaded) {
+    window.setTimeout(() => void loadHistory(), 0);
+  }
+  const records = [...ui.history].sort(
+    (a, b) => parseDate(b.archived_at) - parseDate(a.archived_at)
+  );
+
+  return `
+    <div class="page-stack">
+      <header class="page-intro">
+        <div>
+          <p class="eyebrow">栏目中自动隐藏，历史中继续保留</p>
+          <h2>已过期事项与任务记录</h2>
+          <p>发布者设置的保留时间到期后，内容会自动从当前栏目移除，并归档到这里。</p>
+        </div>
+        <div class="page-actions">
+          <span class="badge blue">${icon("archive")} ${records.length} 条历史记录</span>
+        </div>
+      </header>
+
+      <section class="history-list" id="history-results">
+        ${
+          ui.historyLoading
+            ? renderEmpty("loader-circle", "正在读取历史记录", "归档内容加载完成后会显示在这里。")
+            : records.length
+              ? records
+                  .map(
+                    (record) => `
+                      <article class="history-card">
+                        <div class="history-card-main">
+                          <span class="history-icon">${icon("archive")}</span>
+                          <div>
+                            <div class="member-name-row">
+                              <strong>${escapeHTML(historyRecordTitle(record))}</strong>
+                              <span class="badge blue">${escapeHTML(record.record_type)}</span>
+                            </div>
+                            <p>${escapeHTML(record.payload?.description || record.payload?.category || "已归档班级内容")}</p>
+                            <span class="member-meta">
+                              ${icon("clock-3")}
+                              过期时间：${formatDateTime(record.expired_at || record.payload?.expiresAt)}
+                            </span>
+                          </div>
+                        </div>
+                        ${
+                          isCurrentAdmin()
+                            ? `
+                              <button
+                                class="small-icon-button"
+                                type="button"
+                                data-action="delete-history-record"
+                                data-record-key="${escapeHTML(record.record_key)}"
+                                title="删除历史记录"
+                                aria-label="删除历史记录"
+                              >
+                                ${icon("trash-2")}
+                              </button>
+                            `
+                            : ""
+                        }
+                      </article>
+                    `
+                  )
+                  .join("")
+              : renderEmpty("archive", "暂无历史记录", "事项到期并归档后会显示在这里。")
+        }
+      </section>
+    </div>
+  `;
+}
+
 function publicMemberFromAccount(account) {
   const role = resolveAccountRole(account);
   return {
     id: account?.id || "",
     username: normalizeUsername(account?.username) || "班级成员",
+    usernameKey: account?.usernameKey || localUsernameKey(account?.username),
     role,
     roleLabel: getRoleMeta(role).label,
+    pendingRole: account?.pendingRole ? normalizeRole(account.pendingRole) : "",
     identityNote: String(account?.identityNote || "").trim(),
     createdAt: account?.createdAt || "",
-    identityStatus: account?.identityStatus || "self_declared"
+    identityStatus: account?.identityStatus || "student"
   };
 }
 
@@ -2052,7 +2285,10 @@ function renderMemberCards() {
     .filter((member) => {
       const groupLabel = ROLE_GROUPS[getRoleMeta(member.role).group];
       const matchesFilter = ui.memberFilter === "全部" || groupLabel === ui.memberFilter;
-      const haystack = `${member.username} ${member.roleLabel} ${member.identityNote}`.toLowerCase();
+      const pendingLabel = member.pendingRole
+        ? getRoleMeta(member.pendingRole).label
+        : "";
+      const haystack = `${member.username} ${member.roleLabel} ${pendingLabel} ${member.identityNote}`.toLowerCase();
       return matchesFilter && (!query || haystack.includes(query));
     })
     .sort((a, b) => {
@@ -2068,6 +2304,7 @@ function renderMemberCards() {
   return filtered
     .map((member) => {
       const meta = getRoleMeta(member.role);
+      const pendingMeta = member.pendingRole ? getRoleMeta(member.pendingRole) : null;
       const isCurrent = member.id === authState.session?.user.id;
       return `
         <article class="member-card">
@@ -2077,25 +2314,101 @@ function renderMemberCards() {
               <div class="member-name-row">
                 <strong>${escapeHTML(member.username)}</strong>
                 <span class="badge ${meta.color}">${icon(meta.icon)} ${escapeHTML(meta.label)}</span>
+                ${
+                  pendingMeta
+                    ? `<span class="badge yellow">${icon("clock-3")} 待审核：${escapeHTML(
+                        pendingMeta.label
+                      )}</span>`
+                    : ""
+                }
               </div>
               <p>${escapeHTML(member.identityNote || "暂未填写职责说明")}</p>
-              <span class="member-meta">${icon("info")} 身份由成员自主申报，暂不用于系统权限</span>
+              <span class="member-meta">${icon("shield-check")} ${
+                pendingMeta ? "管理员审核通过后身份才会生效" : "身份已进入班级身份目录"
+              }</span>
             </div>
           </div>
-          ${
-            isCurrent
-              ? `
-                <button class="secondary-button" type="button" data-action="open-profile">
-                  ${icon("pencil")}
-                  修改身份
-                </button>
-              `
-              : ""
-          }
+          <div class="row-actions">
+            ${
+              isCurrent
+                ? `
+                  <button class="secondary-button" type="button" data-action="open-profile">
+                    ${icon("pencil")}
+                    申请修改身份
+                  </button>
+                `
+                : ""
+            }
+            ${
+              isCurrentAdmin() && pendingMeta
+                ? `
+                  <button
+                    class="primary-button"
+                    type="button"
+                    data-action="approve-identity"
+                    data-username-key="${escapeHTML(member.usernameKey)}"
+                  >
+                    ${icon("check")}
+                    通过
+                  </button>
+                  <button
+                    class="secondary-button"
+                    type="button"
+                    data-action="reject-identity"
+                    data-username-key="${escapeHTML(member.usernameKey)}"
+                  >
+                    ${icon("x")}
+                    驳回
+                  </button>
+                `
+                : ""
+            }
+          </div>
         </article>
       `;
     })
     .join("");
+}
+
+async function reviewMemberIdentity(usernameKey, approved) {
+  if (!isCurrentAdmin()) {
+    showToast("没有审核权限", "只有管理员可以审核班级身份。");
+    return;
+  }
+  const account = await readRemoteAccount(usernameKey);
+  if (!account) throw new Error("Account not found");
+  if (!account.pendingRole) {
+    showToast("没有待审核申请", "该成员当前没有新的身份申请。");
+    return;
+  }
+
+  if (approved) {
+    account.role = normalizeRole(account.pendingRole);
+    account.identityStatus = "approved";
+    account.approvedAt = new Date().toISOString();
+    account.approvedBy = authState.session.user.id;
+  } else {
+    account.role = "student";
+    account.identityStatus = "rejected";
+    account.rejectedAt = new Date().toISOString();
+  }
+  account.pendingRole = "";
+  account.updatedAt = new Date().toISOString();
+  await writeRemoteAccount(account);
+
+  if (authState.session.username === account.username) {
+    authState.session.role = resolveAccountRole(account);
+    authState.session.pendingRole = "";
+    authState.session.identityStatus = account.identityStatus;
+    saveAuthSession(authState.session);
+  }
+  syncState.accountChecked = false;
+  await loadMemberDirectory(true);
+  render();
+  showToast(
+    approved ? "身份申请已通过" : "身份申请已驳回",
+    `${account.username} · ${approved ? getRoleMeta(account.role).label : "普通同学"}`
+  );
 }
 
 function updateMemberResults() {
@@ -2464,12 +2777,31 @@ function openModal(kind) {
                 />
               </div>
             </div>
+            ${
+              authState.session?.pendingRole
+                ? `
+                  <div class="badge yellow" style="justify-self: start">
+                    ${icon("clock-3")}
+                    待审核身份：${escapeHTML(getRoleMeta(authState.session.pendingRole).label)}
+                  </div>
+                `
+                : ""
+            }
             <div class="modal-field">
               <label for="deadline-priority">优先级</label>
               <select id="deadline-priority" name="priority">
                 <option value="高">高</option>
                 <option value="中" selected>中</option>
                 <option value="低">低</option>
+              </select>
+            </div>
+            <div class="modal-field">
+              <label for="deadline-retention">保留时间</label>
+              <select id="deadline-retention" name="retention">
+                <option value="6">6 小时</option>
+                <option value="12">12 小时</option>
+                <option value="24">24 小时</option>
+                <option value="48" selected>48 小时</option>
               </select>
             </div>
           </div>
@@ -2582,6 +2914,15 @@ function openModal(kind) {
                 <label for="team-capacity">招募人数</label>
                 <input id="team-capacity" name="capacity" type="number" min="2" max="20" value="4" required />
               </div>
+            </div>
+            <div class="modal-field">
+              <label for="team-retention">保留时间</label>
+              <select id="team-retention" name="retention">
+                <option value="6">6 小时</option>
+                <option value="12">12 小时</option>
+                <option value="24">24 小时</option>
+                <option value="48" selected>48 小时</option>
+              </select>
             </div>
           </div>
           <div class="modal-footer">
@@ -2930,6 +3271,7 @@ async function readDailyUsage() {
 }
 
 async function ensurePublishQuota(recordType) {
+  if (isCurrentAdmin()) return;
   if (!authState.session || !hasSharedConfig()) return;
   const usage = await readDailyUsage();
   if (usage.total >= PUBLISH_LIMITS.total) {
@@ -3150,6 +3492,52 @@ async function readSharedRecords() {
   return records.filter((record) => record?.record_key && record?.payload);
 }
 
+async function readSharedHistory() {
+  if (!hasSharedConfig()) return [];
+  const list = await mantleRequest(mantleListUrl());
+  const historyPaths = (list?.entries || [])
+    .map((entry) => entry?.path)
+    .filter((path) => typeof path === "string" && path.startsWith("history/"))
+    .slice(0, 500);
+  const records = await Promise.all(
+    historyPaths.map((path) => mantleRequest(mantleEntryUrl(path)))
+  );
+  return records.filter((record) => record?.record_key && record?.payload);
+}
+
+async function archiveAndDeleteExpiredRecord(record) {
+  if (!record?.record_key) return;
+  const archiveEntry = {
+    ...record,
+    archived_at: new Date().toISOString(),
+    expired_at: record.payload?.expiresAt || new Date().toISOString()
+  };
+  await mantleRequest(
+    mantleEntryUrl(`history/${encodeURIComponent(record.record_key)}`),
+    {
+      method: "POST",
+      body: JSON.stringify(archiveEntry)
+    }
+  );
+  await mantleRequest(
+    mantleEntryUrl(`records/${encodeURIComponent(record.record_key)}`),
+    { method: "DELETE" }
+  );
+}
+
+function purgeExpiredLocalRecords() {
+  let changed = false;
+  const collections = ["posts", "teams", "suggestions", "deadlines"];
+  for (const collectionName of collections) {
+    const before = state[collectionName].length;
+    state[collectionName] = state[collectionName].filter(
+      (item) => !isRecordExpired(item)
+    );
+    if (state[collectionName].length !== before) changed = true;
+  }
+  if (changed) saveState();
+}
+
 async function writeSharedRecord(record) {
   const { skip_quota, ...sharedRecord } = record;
   await mantleRequest(mantleEntryUrl(`records/${encodeURIComponent(record.record_key)}`), {
@@ -3201,7 +3589,7 @@ async function flushPendingSharedRecords() {
   for (const record of pending) {
     try {
       await writeSharedRecord(record);
-      if (!record.skip_quota) {
+      if (!record.skip_quota && !isCurrentAdmin()) {
         try {
           await incrementDailyUsage(record.record_type);
         } catch (error) {
@@ -3230,26 +3618,51 @@ function scheduleSharedSync(delay = 12_000) {
 }
 
 async function ensureCurrentAccountShared() {
-  if (syncState.accountChecked || !authState.session || !hasSharedConfig()) return;
+  if (syncState.accountChecked || !authState.session || !hasSharedConfig()) return false;
   const usernameKey = localUsernameKey(authState.session.username);
   const localAccount = getLocalAccounts().find((account) => account.usernameKey === usernameKey);
   if (!localAccount) {
     syncState.accountChecked = true;
-    return;
+    return false;
   }
   const remoteAccount = await readRemoteAccount(usernameKey);
   if (!remoteAccount) {
     await writeRemoteAccount(localAccount);
+    syncState.accountChecked = true;
+    return false;
   } else {
-    authState.session.username = remoteAccount.username || authState.session.username;
-    authState.session.role = resolveAccountRole(remoteAccount);
-    authState.session.identityNote = String(remoteAccount.identityNote || "");
-    authState.session.identityStatus = remoteAccount.identityStatus || "self_declared";
+    let changed = false;
+    const nextRole = resolveAccountRole(remoteAccount);
+    const nextPendingRole = remoteAccount.pendingRole
+      ? normalizeRole(remoteAccount.pendingRole)
+      : "";
+    const nextNote = String(remoteAccount.identityNote || "");
+    if (authState.session.username !== remoteAccount.username) {
+      authState.session.username = remoteAccount.username;
+      changed = true;
+    }
+    if (authState.session.role !== nextRole) {
+      authState.session.role = nextRole;
+      changed = true;
+    }
+    if ((authState.session.pendingRole || "") !== nextPendingRole) {
+      authState.session.pendingRole = nextPendingRole;
+      changed = true;
+    }
+    if ((authState.session.identityNote || "") !== nextNote) {
+      authState.session.identityNote = nextNote;
+      changed = true;
+    }
+    if ((authState.session.identityStatus || "") !== (remoteAccount.identityStatus || "student")) {
+      authState.session.identityStatus = remoteAccount.identityStatus || "student";
+      changed = true;
+    }
     state.candidate.name = authState.session.username;
     saveAuthSession(authState.session);
     saveState();
+    syncState.accountChecked = true;
+    return changed;
   }
-  syncState.accountChecked = true;
 }
 
 function importLocalRecordsToShared() {
@@ -3287,14 +3700,24 @@ async function syncSharedRecords() {
   syncState.inFlight = true;
   setSyncStatus("syncing");
   try {
-    await ensureCurrentAccountShared();
+    const accountChanged = await ensureCurrentAccountShared();
     importLocalRecordsToShared();
     await flushPendingSharedRecords();
-    const records = await readSharedRecords();
+    purgeExpiredLocalRecords();
+    const allRecords = await readSharedRecords();
+    const expiredRecords = allRecords.filter((record) => isRecordExpired(record?.payload));
+    const records = allRecords.filter((record) => !isRecordExpired(record?.payload));
+    await Promise.all(
+      expiredRecords.map((record) => archiveAndDeleteExpiredRecord(record).catch(() => {}))
+    );
+    if (expiredRecords.length) {
+      ui.historyLoaded = false;
+      if (ui.page === "history") void loadHistory(true);
+    }
     cacheSharedRecords(records);
     const changed = applySharedRecords(records);
     syncState.available = true;
-    if (changed) {
+    if (changed || accountChanged) {
       saveState();
       render();
     }
@@ -3571,6 +3994,23 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "approve-identity" || action === "reject-identity") {
+    void reviewMemberIdentity(
+      actionElement.dataset.usernameKey,
+      action === "approve-identity"
+    ).catch(() => {
+      showToast("审核失败", "共享服务暂时不可用，请稍后重试。");
+    });
+    return;
+  }
+
+  if (action === "delete-history-record") {
+    void deleteHistoryRecord(actionElement.dataset.recordKey).catch(() => {
+      showToast("删除失败", "历史记录暂时无法删除，请稍后重试。");
+    });
+    return;
+  }
+
   if (action === "respond-post") {
     const item = state.posts.find((post) => post.id === actionElement.dataset.id);
     if (item) {
@@ -3700,6 +4140,10 @@ async function handleSubmit(event) {
 
   if (form.id === "deadline-form") {
     event.preventDefault();
+    if (!canEditSchedule()) {
+      showToast("没有编辑权限", "只有班长、副班长、辅导员、教师或管理员可以编辑日程。");
+      return;
+    }
     const data = new FormData(form);
     try {
       await ensurePublishQuota("deadline");
@@ -3713,6 +4157,9 @@ async function handleSubmit(event) {
       category: String(data.get("category")),
       due: new Date(`${data.get("due")}T20:00:00`).toISOString(),
       priority: String(data.get("priority")),
+      expiresAt: new Date(
+        Date.now() + Number(data.get("retention") || 48) * 60 * 60 * 1000
+      ).toISOString(),
       done: false
     };
     state.deadlines.push(item);
@@ -3755,6 +4202,10 @@ async function handleSubmit(event) {
 
   if (form.id === "team-form") {
     event.preventDefault();
+    if (!canPublishTask()) {
+      showToast("没有发布权限", "任务事项只能由班委、教师、辅导员或管理员发布。");
+      return;
+    }
     const data = new FormData(form);
     try {
       await ensurePublishQuota("team");
@@ -3771,6 +4222,9 @@ async function handleSubmit(event) {
       place: String(data.get("place")).trim(),
       members: 1,
       capacity: Number(data.get("capacity")),
+      expiresAt: new Date(
+        Date.now() + Number(data.get("retention") || 48) * 60 * 60 * 1000
+      ).toISOString(),
       owner: state.candidate.name === "候选人" ? "班级同学" : state.candidate.name
     };
     state.teams.unshift(item);
@@ -3810,7 +4264,19 @@ async function handleSubmit(event) {
   if (form.id === "profile-form") {
     event.preventDefault();
     const data = new FormData(form);
-    const role = normalizeRole(data.get("role"));
+    const requestedRole = normalizeRole(data.get("role"));
+    const role = isCurrentAdmin()
+      ? "admin"
+      : requestedRole === "student"
+        ? "student"
+        : "student";
+    const pendingRole =
+      isCurrentAdmin() || requestedRole === "student" ? "" : requestedRole;
+    const identityStatus = isCurrentAdmin()
+      ? "approved"
+      : requestedRole === "student"
+        ? "student"
+        : "pending";
     const identityNote = String(data.get("identityNote") || "").trim().slice(0, 60);
     state.candidate = {
       name: authState.session?.username || String(data.get("name")).trim(),
@@ -3824,8 +4290,9 @@ async function handleSubmit(event) {
     };
     saveState();
     authState.session.role = role;
+    authState.session.pendingRole = pendingRole;
     authState.session.identityNote = identityNote;
-    authState.session.identityStatus = "self_declared";
+    authState.session.identityStatus = identityStatus;
     saveAuthSession(authState.session);
     const accounts = getLocalAccounts();
     const account = accounts.find(
@@ -3833,15 +4300,21 @@ async function handleSubmit(event) {
     );
     if (account) {
       account.role = role;
+      account.pendingRole = pendingRole;
       account.identityNote = identityNote;
-      account.identityStatus = "self_declared";
+      account.identityStatus = identityStatus;
       account.updatedAt = new Date().toISOString();
       saveLocalAccounts(accounts);
       void writeRemoteAccount(account)
         .then(() => {
           syncState.accountChecked = true;
           void loadMemberDirectory(true);
-          showToast("身份资料已同步", "成员身份目录已经更新。");
+          showToast(
+            pendingRole ? "身份申请已提交" : "身份资料已同步",
+            pendingRole
+              ? `你申请的“${getRoleMeta(pendingRole).label}”需要管理员审核。`
+              : "成员身份目录已经更新。"
+          );
         })
         .catch(() => {
           setSyncStatus("offline");
@@ -3927,6 +4400,9 @@ function initialize() {
       void syncSharedRecords();
       if (ui.page === "members") {
         void loadMemberDirectory(true);
+      }
+      if (ui.page === "history") {
+        void loadHistory(true);
       }
     }
   }, 15_000);
