@@ -18,7 +18,8 @@ const authState = {
 const syncState = {
   inFlight: false,
   retryTimer: null,
-  available: null
+  available: null,
+  accountChecked: false
 };
 
 const PAGE_INFO = {
@@ -501,54 +502,6 @@ function fallbackHash(value) {
     .padStart(8, "0")}`;
 }
 
-async function deriveAccountEmail(username) {
-  const normalized = normalizeUsername(username).toLocaleLowerCase("zh-CN");
-  let hash = fallbackHash(normalized);
-  if (crypto.subtle?.digest) {
-    try {
-      const bytes = new TextEncoder().encode(normalized);
-      const digest = await crypto.subtle.digest("SHA-256", bytes);
-      hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    } catch (error) {
-      hash = fallbackHash(normalized);
-    }
-  }
-  return `u${hash}@banji.example.com`;
-}
-
-function authRequestHeaders() {
-  return {
-    apikey: sharedConfig.supabaseAnonKey,
-    "Content-Type": "application/json"
-  };
-}
-
-async function requestAuth(path, options = {}) {
-  const response = await fetch(new URL(path, sharedConfig.supabaseUrl), {
-    ...options,
-    headers: {
-      ...authRequestHeaders(),
-      ...(options.headers || {})
-    },
-    credentials: "omit"
-  });
-  let data = null;
-  try {
-    data = await response.json();
-  } catch (error) {
-    data = null;
-  }
-  if (!response.ok) {
-    const requestError = new Error(
-      data?.msg || data?.message || data?.error_description || `Auth request failed: ${response.status}`
-    );
-    requestError.status = response.status;
-    requestError.data = data;
-    throw requestError;
-  }
-  return data;
-}
-
 function bytesToHex(bytes) {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -631,15 +584,6 @@ function getSavedAuthSession() {
   }
 }
 
-async function refreshAuthSession() {
-  return Boolean(authState.session?.local);
-}
-
-async function ensureFreshAuthSession() {
-  if (!authState.session) return null;
-  return authState.session;
-}
-
 async function restoreAuthSession() {
   const saved = getSavedAuthSession();
   if (!saved) return null;
@@ -656,6 +600,7 @@ async function activateAccount(session) {
   authState.error = "";
   authState.busy = false;
   authState.ready = true;
+  syncState.accountChecked = false;
   saveAuthSession(session);
   currentStorageKey = `${STORAGE_KEY}:${session.user.id}`;
   state = loadState();
@@ -680,8 +625,17 @@ async function registerAccount(username, password, confirmPassword) {
 
   const cleanName = normalizeUsername(username);
   const usernameKey = localUsernameKey(cleanName);
+  let remoteAccount = null;
+  try {
+    remoteAccount = await readRemoteAccount(usernameKey);
+  } catch (error) {
+    throw new Error("暂时无法连接账号服务，请检查网络后重试。");
+  }
   const accounts = getLocalAccounts();
-  if (accounts.some((account) => account.usernameKey === usernameKey)) {
+  if (
+    remoteAccount ||
+    accounts.some((account) => account.usernameKey === usernameKey)
+  ) {
     throw new Error("这个账号名称已经被使用。");
   }
 
@@ -700,6 +654,12 @@ async function registerAccount(username, password, confirmPassword) {
   };
   accounts.push(account);
   saveLocalAccounts(accounts);
+  try {
+    await writeRemoteAccount(account);
+  } catch (error) {
+    saveLocalAccounts(accounts.filter((item) => item.usernameKey !== usernameKey));
+    throw new Error("账号暂时无法保存到共享数据库，请稍后重试。");
+  }
   const session = createLocalSession(account);
   await activateAccount(session);
   showToast("账号已创建", `欢迎你，${cleanName}。`);
@@ -710,14 +670,26 @@ async function loginAccount(username, password) {
   if (nameError) throw new Error(nameError);
   if (!password) throw new Error("请输入密码。");
   const cleanName = normalizeUsername(username);
-  const account = getLocalAccounts().find(
-    (item) => item.usernameKey === localUsernameKey(cleanName)
-  );
+  const usernameKey = localUsernameKey(cleanName);
+  let account = null;
+  try {
+    account = await readRemoteAccount(usernameKey);
+  } catch (error) {
+    account = getLocalAccounts().find((item) => item.usernameKey === usernameKey) || null;
+  }
+  if (!account) {
+    account = getLocalAccounts().find((item) => item.usernameKey === usernameKey) || null;
+  }
   if (!account) throw new Error("账号名称或密码不正确。");
   const passwordHash = await deriveLocalPassword(password, account.salt, account.algorithm);
   if (passwordHash !== account.passwordHash) {
     throw new Error("账号名称或密码不正确。");
   }
+  const localAccounts = getLocalAccounts().filter(
+    (item) => item.usernameKey !== usernameKey
+  );
+  localAccounts.push({ ...account, passwordHash, salt: account.salt, algorithm: account.algorithm });
+  saveLocalAccounts(localAccounts);
   await activateAccount(createLocalSession(account));
   showToast("登录成功", `欢迎回来，${account.username}。`);
 }
@@ -957,6 +929,7 @@ function navigate(page) {
   render();
   document.getElementById("app").focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: "smooth" });
+  void syncSharedRecords();
 }
 
 function renderDashboard() {
@@ -2232,10 +2205,55 @@ function showToast(title, text) {
 function hasSharedConfig() {
   return Boolean(
     sharedConfig.cloudEnabled === true &&
-      sharedConfig.supabaseUrl &&
-      sharedConfig.supabaseAnonKey &&
-      sharedConfig.recordsTable
+      sharedConfig.provider === "mantle" &&
+      sharedConfig.mantleApiBase &&
+      sharedConfig.mantleNamespace
   );
+}
+
+function mantleEntryUrl(path) {
+  return `${sharedConfig.mantleApiBase}/${encodeURIComponent(
+    sharedConfig.mantleNamespace
+  )}/${path}`;
+}
+
+function mantleListUrl() {
+  return `${sharedConfig.mantleApiBase}/list/${encodeURIComponent(
+    sharedConfig.mantleNamespace
+  )}`;
+}
+
+async function mantleRequest(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {})
+    },
+    cache: "no-store"
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const error = new Error(`Shared storage request failed: ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+async function readRemoteAccount(usernameKey) {
+  if (!hasSharedConfig()) return null;
+  return mantleRequest(mantleEntryUrl(`accounts/${encodeURIComponent(usernameKey)}`));
+}
+
+async function writeRemoteAccount(account) {
+  if (!hasSharedConfig()) return;
+  await mantleRequest(mantleEntryUrl(`accounts/${encodeURIComponent(account.usernameKey)}`), {
+    method: "POST",
+    body: JSON.stringify(account)
+  });
 }
 
 function getVisitorId() {
@@ -2254,49 +2272,6 @@ function getVisitorId() {
   } catch (error) {
     return "00000000-0000-4000-8000-000000000000";
   }
-}
-
-function sharedHeaders(extra = {}) {
-  return {
-    apikey: sharedConfig.supabaseAnonKey,
-    Authorization: `Bearer ${
-      authState.session?.access_token || sharedConfig.supabaseAnonKey
-    }`,
-    Accept: "application/json",
-    ...extra
-  };
-}
-
-async function authorizedFetch(input, init = {}, retry = true) {
-  await ensureFreshAuthSession();
-  const response = await fetch(input, {
-    ...init,
-    headers: {
-      ...sharedHeaders(),
-      ...(init.headers || {})
-    },
-    credentials: "omit"
-  });
-  if (response.status === 401 && retry && authState.session?.refresh_token) {
-    try {
-      await refreshAuthSession();
-      return authorizedFetch(input, init, false);
-    } catch (error) {
-      if (error.status === 400 || error.status === 401) {
-        logoutAccount();
-      }
-    }
-  }
-  return response;
-}
-
-function createRequestTimeout(milliseconds) {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), milliseconds);
-  return {
-    signal: controller.signal,
-    clear: () => window.clearTimeout(timeout)
-  };
 }
 
 function getCachedSharedRecords() {
@@ -2348,12 +2323,12 @@ function setSyncStatus(status, detail = "") {
           : "is-offline"
   );
   const messages = {
-    syncing: "正在同步班级云...",
-    online: detail || "云端已同步",
-    offline: "云端较慢 · 已启用本地缓存",
-    unavailable: "本地模式 · 云端表未初始化",
-    local: "本机模式 · 数据保存在当前设备",
-    error: "本地模式 · 稍后自动重试"
+    syncing: "正在同步班级共享数据...",
+    online: detail || "班级共享数据已同步",
+    offline: "共享服务较慢 · 内容已保存在本机",
+    unavailable: "共享服务未配置",
+    local: "本地模式 · 数据保存在当前设备",
+    error: "共享服务暂不可用 · 稍后自动重试"
   };
   label.textContent = messages[status] || messages.offline;
 }
@@ -2396,61 +2371,27 @@ function applySharedRecords(records) {
   return changed;
 }
 
-async function readSharedRecords(attempt = 1) {
-  const endpoint = new URL(
-    `/rest/v1/${encodeURIComponent(sharedConfig.recordsTable)}`,
-    sharedConfig.supabaseUrl
+async function readSharedRecords() {
+  if (!hasSharedConfig()) return [];
+  const list = await mantleRequest(mantleListUrl());
+  const recordPaths = (list?.entries || [])
+    .map((entry) => entry?.path)
+    .filter((path) => typeof path === "string" && path.startsWith("records/"))
+    .slice(0, 500);
+  const records = await Promise.all(
+    recordPaths.map((path) => mantleRequest(mantleEntryUrl(path)))
   );
-  endpoint.searchParams.set("select", "record_key,record_type,payload,created_at");
-  endpoint.searchParams.set("status", "eq.published");
-  endpoint.searchParams.set("order", "created_at.desc");
-  endpoint.searchParams.set("limit", "300");
-
-  const request = createRequestTimeout(18_000);
-  try {
-    const response = await authorizedFetch(endpoint, {
-      signal: request.signal
-    }).finally(request.clear);
-    if (!response.ok) {
-      const error = new Error(`Shared record read failed: ${response.status}`);
-      error.status = response.status;
-      throw error;
-    }
-    return response.json();
-  } catch (error) {
-    request.clear();
-    if (attempt < 3 && error.status !== 404) {
-      await new Promise((resolve) => window.setTimeout(resolve, 650 * attempt));
-      return readSharedRecords(attempt + 1);
-    }
-    throw error;
-  }
+  return records.filter((record) => record?.record_key && record?.payload);
 }
 
 async function writeSharedRecord(record) {
-  const endpoint = new URL(
-    `/rest/v1/${encodeURIComponent(sharedConfig.recordsTable)}`,
-    sharedConfig.supabaseUrl
-  );
-  const request = createRequestTimeout(22_000);
-  const response = await authorizedFetch(endpoint, {
+  await mantleRequest(mantleEntryUrl(`records/${encodeURIComponent(record.record_key)}`), {
     method: "POST",
-    headers: sharedHeaders({
-      "Content-Type": "application/json",
-      Prefer: "return=minimal"
-    }),
     body: JSON.stringify({
       ...record,
       author_id: authState.session?.user.id || null
-    }),
-    signal: request.signal
-  }).finally(request.clear);
-
-  if (!response.ok) {
-    const error = new Error(`Shared record write failed: ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
+    })
+  });
 }
 
 function queueSharedRecord(recordType, payload) {
@@ -2468,7 +2409,7 @@ function queueSharedRecord(recordType, payload) {
   void flushPendingSharedRecords()
     .then(() => {
       syncState.available = true;
-      setSyncStatus("online", "已同步到班级云");
+      setSyncStatus("online", "已同步到班级共享");
     })
     .catch((error) => {
       if (error.status === 404) {
@@ -2511,6 +2452,21 @@ function scheduleSharedSync(delay = 12_000) {
   }, delay);
 }
 
+async function ensureCurrentAccountShared() {
+  if (syncState.accountChecked || !authState.session || !hasSharedConfig()) return;
+  const usernameKey = localUsernameKey(authState.session.username);
+  const localAccount = getLocalAccounts().find((account) => account.usernameKey === usernameKey);
+  if (!localAccount) {
+    syncState.accountChecked = true;
+    return;
+  }
+  const remoteAccount = await readRemoteAccount(usernameKey);
+  if (!remoteAccount) {
+    await writeRemoteAccount(localAccount);
+  }
+  syncState.accountChecked = true;
+}
+
 async function syncSharedRecords() {
   if (!authState.session) {
     return;
@@ -2523,6 +2479,7 @@ async function syncSharedRecords() {
   syncState.inFlight = true;
   setSyncStatus("syncing");
   try {
+    await ensureCurrentAccountShared();
     await flushPendingSharedRecords();
     const records = await readSharedRecords();
     cacheSharedRecords(records);
@@ -2532,7 +2489,7 @@ async function syncSharedRecords() {
       saveState();
       render();
     }
-    setSyncStatus("online", `云端已同步 · ${records.length} 条`);
+    setSyncStatus("online", `班级共享已同步 · ${records.length} 条`);
   } catch (error) {
     if (error.status === 404) {
       syncState.available = false;
@@ -3062,6 +3019,16 @@ function initialize() {
       navigate(page);
     }
   });
+  window.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && authState.session) {
+      void syncSharedRecords();
+    }
+  });
+  window.setInterval(() => {
+    if (authState.session && document.visibilityState === "visible") {
+      void syncSharedRecords();
+    }
+  }, 15_000);
 
   render();
   restoreAuthSession()
