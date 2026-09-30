@@ -40,6 +40,10 @@
             <i data-lucide="library-big"></i>
             <span>资源共享</span>
           </button>
+          <button class="nav-item" type="button" data-action="navigate" data-page="members">
+            <i data-lucide="contact-round"></i>
+            <span>成员身份</span>
+          </button>
           <button class="nav-item" type="button" data-action="navigate" data-page="feedback">
             <i data-lucide="message-square-lock"></i>
             <span>匿名意见箱</span>
@@ -52,7 +56,7 @@
 
         <section class="sidebar-progress" aria-label="竞选主页完成度">
           <div class="progress-heading">
-            <span>竞选主页</span>
+            <span id="readiness-label">竞选主页</span>
             <strong id="candidate-readiness">78%</strong>
           </div>
           <div class="progress-track" aria-hidden="true">
@@ -129,7 +133,7 @@
               <span class="avatar" id="top-avatar">竞</span>
               <span class="profile-copy">
                 <strong id="top-candidate-name">候选人</strong>
-                <small>竞选主页</small>
+                <small id="top-role-label">普通同学</small>
               </span>
               <i data-lucide="chevron-down"></i>
             </button>
