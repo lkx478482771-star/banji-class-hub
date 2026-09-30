@@ -666,6 +666,17 @@ svg {
   box-shadow: var(--shadow-sm);
 }
 
+.metric-button {
+  width: 100%;
+  color: inherit;
+  text-align: left;
+}
+
+.metric-button:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-soft);
+}
+
 .metric-icon {
   display: grid;
   width: 42px;
@@ -1560,6 +1571,89 @@ svg {
   align-self: flex-end;
 }
 
+.personal-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.6fr);
+  gap: 12px;
+}
+
+.personal-profile {
+  display: flex;
+  min-height: 176px;
+  align-items: center;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.personal-avatar {
+  display: grid;
+  width: 72px;
+  height: 72px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--primary);
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.personal-profile h2 {
+  font-size: 28px;
+}
+
+.personal-profile p {
+  margin: 10px 0 8px;
+  color: var(--ink-soft);
+}
+
+.personal-actions {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+}
+
+.personal-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.6fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.personal-record-list {
+  display: grid;
+  gap: 8px;
+}
+
+.personal-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.personal-record strong,
+.personal-record span {
+  display: block;
+}
+
+.personal-record span {
+  margin-top: 3px;
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
 .suggestion-card p {
   margin: 8px 0 11px;
   color: var(--ink-soft);
@@ -2275,7 +2369,9 @@ body.is-auth-required .app-shell {
 
   .content-grid,
   .candidate-hero,
-  .two-column-form {
+  .two-column-form,
+  .personal-hero,
+  .personal-grid {
     grid-template-columns: 1fr;
   }
 }
