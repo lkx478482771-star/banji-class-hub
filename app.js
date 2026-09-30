@@ -19,7 +19,8 @@ const syncState = {
   inFlight: false,
   retryTimer: null,
   available: null,
-  accountChecked: false
+  accountChecked: false,
+  localImported: false
 };
 
 const PAGE_INFO = {
@@ -601,6 +602,7 @@ async function activateAccount(session) {
   authState.busy = false;
   authState.ready = true;
   syncState.accountChecked = false;
+  syncState.localImported = false;
   saveAuthSession(session);
   currentStorageKey = `${STORAGE_KEY}:${session.user.id}`;
   state = loadState();
@@ -2467,6 +2469,29 @@ async function ensureCurrentAccountShared() {
   syncState.accountChecked = true;
 }
 
+function importLocalRecordsToShared() {
+  if (syncState.localImported || !authState.session) return;
+  const isSeedId = (id) => /^(p|t|d|s)-\d+$/.test(String(id || ""));
+  const collections = [
+    ["post", state.posts],
+    ["team", state.teams],
+    ["suggestion", state.suggestions],
+    ["deadline", state.deadlines]
+  ];
+
+  for (const [recordType, records] of collections) {
+    records
+      .filter((record) => record?.id && !record.shared && !isSeedId(record.id))
+      .forEach((record) => {
+        record.shared = true;
+        queueSharedRecord(recordType, record);
+      });
+  }
+
+  syncState.localImported = true;
+  saveState();
+}
+
 async function syncSharedRecords() {
   if (!authState.session) {
     return;
@@ -2480,6 +2505,7 @@ async function syncSharedRecords() {
   setSyncStatus("syncing");
   try {
     await ensureCurrentAccountShared();
+    importLocalRecordsToShared();
     await flushPendingSharedRecords();
     const records = await readSharedRecords();
     cacheSharedRecords(records);
