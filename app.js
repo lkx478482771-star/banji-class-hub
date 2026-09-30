@@ -30,6 +30,7 @@ const PAGE_INFO = {
   "mutual-aid": { title: "互助广场", eyebrow: "让问题更快被看见" },
   teams: { title: "任务搭子", eyebrow: "找同伴，也找行动力" },
   resources: { title: "资源共享", eyebrow: "让好资料在班级里流动" },
+  profile: { title: "个人中心", eyebrow: "我的身份与发布记录" },
   members: { title: "成员身份", eyebrow: "让每个人知道自己该找谁" },
   feedback: { title: "匿名意见箱", eyebrow: "认真收集，公开改进" },
   candidate: { title: "我的竞选页", eyebrow: "用作品证明行动力" }
@@ -58,13 +59,22 @@ const ROLE_META = {
   labor: { label: "劳动委员", icon: "hammer", color: "green", group: "committee" },
   teacher: { label: "任课老师", icon: "presentation", color: "blue", group: "faculty" },
   head_teacher: { label: "班主任", icon: "school", color: "orange", group: "faculty" },
-  counselor: { label: "辅导员", icon: "briefcase-business", color: "green", group: "faculty" }
+  counselor: { label: "辅导员", icon: "briefcase-business", color: "green", group: "faculty" },
+  admin: { label: "管理员", icon: "shield-check", color: "red", group: "faculty" }
 };
 
 const ROLE_GROUPS = {
-  faculty: "教师与辅导员",
+  faculty: "教师、辅导员与管理员",
   committee: "班级委员会",
   student: "普通同学"
+};
+
+const PUBLISH_LIMITS = {
+  total: 10,
+  post: 5,
+  team: 5,
+  suggestion: 5,
+  deadline: 5
 };
 
 const PROMISE_DEFAULTS = [
@@ -94,6 +104,8 @@ const ui = {
   members: [],
   membersLoading: false,
   membersLoaded: false,
+  dailyUsage: null,
+  dailyUsageLoading: false,
   notificationsOpen: false
 };
 
@@ -511,6 +523,25 @@ function normalizeRole(role) {
   return ROLE_META[role] ? role : "student";
 }
 
+function isAdminUsername(username) {
+  const key = localUsernameKey(username);
+  return (sharedConfig.adminUsernames || []).some(
+    (adminName) => localUsernameKey(adminName) === key
+  );
+}
+
+function resolveAccountRole(account) {
+  if (isAdminUsername(account?.username)) return "admin";
+  return normalizeRole(account?.role);
+}
+
+function isCurrentAdmin() {
+  return (
+    authState.session?.role === "admin" ||
+    isAdminUsername(authState.session?.username)
+  );
+}
+
 function normalizeUsername(value) {
   return String(value || "")
     .normalize("NFKC")
@@ -604,7 +635,7 @@ function createLocalSession(account) {
       email: ""
     },
     username: account.username,
-    role: normalizeRole(account.role),
+    role: resolveAccountRole(account),
     identityNote: String(account.identityNote || ""),
     identityStatus: account.identityStatus || "self_declared",
     local: true,
@@ -649,6 +680,7 @@ async function activateAccount(session) {
   syncState.localImported = false;
   ui.membersLoaded = false;
   ui.members = [];
+  ui.dailyUsage = null;
   saveAuthSession(session);
   currentStorageKey = `${STORAGE_KEY}:${session.user.id}`;
   state = loadState();
@@ -673,7 +705,7 @@ async function registerAccount(username, password, confirmPassword, role, identi
 
   const cleanName = normalizeUsername(username);
   const usernameKey = localUsernameKey(cleanName);
-  const normalizedRole = normalizeRole(role);
+  const normalizedRole = isAdminUsername(cleanName) ? "admin" : normalizeRole(role);
   const cleanIdentityNote = String(identityNote || "").trim().slice(0, 60);
   let remoteAccount = null;
   try {
@@ -757,6 +789,7 @@ function logoutAccount(renderAfter = true) {
   state = loadState();
   ui.membersLoaded = false;
   ui.members = [];
+  ui.dailyUsage = null;
   closeModal();
   ui.notificationsOpen = false;
   if (renderAfter) {
@@ -882,7 +915,7 @@ function renderAuthScreen() {
                             ([group, groupLabel]) => `
                               <optgroup label="${escapeHTML(groupLabel)}">
                                 ${Object.entries(ROLE_META)
-                                  .filter(([, meta]) => meta.group === group)
+                                  .filter(([role, meta]) => meta.group === group && role !== "admin")
                                   .map(
                                     ([role, meta]) => `
                                       <option value="${role}" ${
@@ -1007,6 +1040,7 @@ function render() {
     "mutual-aid": renderMutualAid,
     teams: renderTeams,
     resources: renderResources,
+    profile: renderPersonalCenter,
     members: renderMembers,
     feedback: renderFeedback,
     candidate: renderCandidate
@@ -1113,43 +1147,43 @@ function renderDashboard() {
               ${icon("plus")}
               发布班级需求
             </button>
-            <button class="secondary-button" type="button" data-action="navigate" data-page="candidate">
-              ${icon("megaphone")}
-              查看我的承诺
+            <button class="secondary-button" type="button" data-action="navigate" data-page="members">
+              ${icon("users-round")}
+              查看成员身份
             </button>
           </div>
         </div>
       </section>
 
       <section class="metric-grid" aria-label="班级服务概况">
-        <article class="metric">
+        <button class="metric metric-button" type="button" data-action="navigate" data-page="mutual-aid">
           <span class="metric-icon orange">${icon("inbox")}</span>
           <div>
             <strong class="metric-value">${openPosts}</strong>
             <span class="metric-label">进行中的互助</span>
           </div>
-        </article>
-        <article class="metric">
+        </button>
+        <button class="metric metric-button" type="button" data-action="navigate" data-page="profile">
           <span class="metric-icon green">${icon("circle-check-big")}</span>
           <div>
             <strong class="metric-value">${state.counters.solved}</strong>
             <span class="metric-label">累计解决的问题</span>
           </div>
-        </article>
-        <article class="metric">
+        </button>
+        <button class="metric metric-button" type="button" data-action="navigate" data-page="resources">
           <span class="metric-icon blue">${icon("library-big")}</span>
           <div>
             <strong class="metric-value">${resourceCount}</strong>
             <span class="metric-label">班级共享资料</span>
           </div>
-        </article>
-        <article class="metric">
+        </button>
+        <button class="metric metric-button" type="button" data-action="scroll-to" data-target="deadline-panel">
           <span class="metric-icon yellow">${icon("calendar-days")}</span>
           <div>
             <strong class="metric-value">${pendingDeadlines}</strong>
             <span class="metric-label">待关注的截止日</span>
           </div>
-        </article>
+        </button>
       </section>
 
       <section class="content-grid">
@@ -1183,7 +1217,7 @@ function renderDashboard() {
             </div>
           </article>
 
-          <article class="panel">
+          <article class="panel" id="deadline-panel">
             <header class="panel-header">
               <div>
                 <h3>即将截止</h3>
@@ -1270,16 +1304,23 @@ function renderDeadlineItem(item) {
         >
           ${icon(item.done ? "rotate-ccw" : "check")}
         </button>
-        <button
-          class="small-icon-button"
-          type="button"
-          data-action="delete-deadline"
-          data-id="${item.id}"
-          aria-label="删除事项"
-          title="删除事项"
-        >
-          ${icon("trash-2")}
-        </button>
+        ${
+          canManageItem(item)
+            ? `
+              <button
+                class="small-icon-button"
+                type="button"
+                data-action="delete-shared-record"
+                data-record-type="deadline"
+                data-id="${item.id}"
+                aria-label="删除事项"
+                title="删除事项"
+              >
+                ${icon("trash-2")}
+              </button>
+            `
+            : ""
+        }
       </div>
     </div>
   `;
@@ -1403,16 +1444,35 @@ function renderPostCard(item) {
             <small>${resolved ? "已完成互助" : "等待回应"}</small>
           </span>
         </div>
-        <button
-          class="${resolved ? "secondary-button" : "primary-button"}"
-          type="button"
-          data-action="respond-post"
-          data-id="${item.id}"
-          ${resolved ? "disabled" : ""}
-        >
-          ${icon(resolved ? "circle-check" : "hand-heart")}
-          ${resolved ? "已解决" : "我能帮忙"}
-        </button>
+        <div class="row-actions">
+          ${
+            canManageItem(item)
+              ? `
+                <button
+                  class="small-icon-button"
+                  type="button"
+                  data-action="delete-shared-record"
+                  data-record-type="post"
+                  data-id="${item.id}"
+                  aria-label="删除信息"
+                  title="删除信息"
+                >
+                  ${icon("trash-2")}
+                </button>
+              `
+              : ""
+          }
+          <button
+            class="${resolved ? "secondary-button" : "primary-button"}"
+            type="button"
+            data-action="respond-post"
+            data-id="${item.id}"
+            ${resolved ? "disabled" : ""}
+          >
+            ${icon(resolved ? "circle-check" : "hand-heart")}
+            ${resolved ? "已解决" : "我能帮忙"}
+          </button>
+        </div>
       </div>
     </article>
   `;
@@ -1469,16 +1529,35 @@ function renderTeamCard(item) {
       </div>
       <div class="team-footer">
         <span class="team-slots">${item.members}/${item.capacity} 人已加入</span>
-        <button
-          class="${full ? "secondary-button" : "primary-button"}"
-          type="button"
-          data-action="join-team"
-          data-id="${item.id}"
-          ${full ? "disabled" : ""}
-        >
-          ${icon(full ? "circle-check" : "plus")}
-          ${full ? "已满员" : "加入搭子"}
-        </button>
+        <div class="row-actions">
+          ${
+            canManageItem(item)
+              ? `
+                <button
+                  class="small-icon-button"
+                  type="button"
+                  data-action="delete-shared-record"
+                  data-record-type="team"
+                  data-id="${item.id}"
+                  aria-label="删除组队"
+                  title="删除组队"
+                >
+                  ${icon("trash-2")}
+                </button>
+              `
+              : ""
+          }
+          <button
+            class="${full ? "secondary-button" : "primary-button"}"
+            type="button"
+            data-action="join-team"
+            data-id="${item.id}"
+            ${full ? "disabled" : ""}
+          >
+            ${icon(full ? "circle-check" : "plus")}
+            ${full ? "已满员" : "加入搭子"}
+          </button>
+        </div>
       </div>
     </article>
   `;
@@ -1607,8 +1686,238 @@ function renderResourceRows() {
     .join("");
 }
 
+function canManageItem(item) {
+  return (
+    isCurrentAdmin() ||
+    Boolean(
+      item?.authorId &&
+        authState.session?.user?.id &&
+        item.authorId === authState.session.user.id
+    )
+  );
+}
+
+async function deleteSharedRecord(recordType, id) {
+  const collections = {
+    post: state.posts,
+    team: state.teams,
+    suggestion: state.suggestions,
+    deadline: state.deadlines
+  };
+  const collection = collections[recordType];
+  const item = collection?.find((entry) => entry.id === id);
+  if (!item || !canManageItem(item)) {
+    showToast("没有删除权限", "只能删除本人发布的内容，管理员可以删除全部内容。");
+    return;
+  }
+
+  if (item.shared && hasSharedConfig()) {
+    const recordKey = item.recordKey || `${recordType}:${id}`;
+    await mantleRequest(
+      mantleEntryUrl(`records/${encodeURIComponent(recordKey)}`),
+      { method: "DELETE" }
+    );
+  }
+  if (collection) {
+    collection.splice(collection.indexOf(item), 1);
+  }
+  saveState();
+  render();
+  showToast("内容已删除", isCurrentAdmin() ? "管理员已移除这条无用内容。" : "你的发布记录已删除。");
+}
+
+async function loadDailyUsage(force = false) {
+  if (ui.dailyUsageLoading || (ui.dailyUsage && !force)) return;
+  ui.dailyUsageLoading = true;
+  try {
+    ui.dailyUsage = await readDailyUsage();
+  } catch (error) {
+    ui.dailyUsage = { total: 0, post: 0, team: 0, suggestion: 0, deadline: 0 };
+  } finally {
+    ui.dailyUsageLoading = false;
+    if (ui.page === "profile") render();
+  }
+}
+
+function renderPersonalCenter() {
+  if (!ui.dailyUsage) {
+    window.setTimeout(() => void loadDailyUsage(), 0);
+  }
+
+  const userId = authState.session?.user.id;
+  const username = authState.session?.username || state.candidate.name;
+  const roleMeta = getRoleMeta(authState.session?.role);
+  const ownPosts = state.posts.filter(
+    (item) => item.authorId === userId || (!item.shared && item.author === username)
+  );
+  const ownTeams = state.teams.filter(
+    (item) => item.authorId === userId || (!item.shared && item.owner === username)
+  );
+  const ownSuggestions = state.suggestions.filter((item) => item.authorId === userId);
+  const ownDeadlines = state.deadlines.filter((item) => item.authorId === userId);
+  const ownResources = state.resources.filter((item) => item.uploader === username);
+  const records = [
+    ...ownPosts.map((item) => ({
+      id: item.id,
+      recordType: "post",
+      title: item.title,
+      meta: `互助广场 · ${item.type} · ${formatRelativeTime(item.createdAt)}`,
+      item
+    })),
+    ...ownTeams.map((item) => ({
+      id: item.id,
+      recordType: "team",
+      title: item.title,
+      meta: `任务搭子 · ${item.type} · ${formatDateTime(item.date)}`,
+      item
+    })),
+    ...ownSuggestions.map((item) => ({
+      id: item.id,
+      recordType: "suggestion",
+      title: item.text,
+      meta: `匿名意见 · ${item.category} · ${formatRelativeTime(item.createdAt)}`,
+      item
+    })),
+    ...ownDeadlines.map((item) => ({
+      id: item.id,
+      recordType: "deadline",
+      title: item.title,
+      meta: `截止事项 · ${item.category} · ${dueLabel(item.due)}`,
+      item
+    }))
+  ];
+  const usage = ui.dailyUsage || { total: 0 };
+  const remaining = Math.max(0, PUBLISH_LIMITS.total - usage.total);
+  const usagePercent = Math.min(100, Math.round((usage.total / PUBLISH_LIMITS.total) * 100));
+
+  return `
+    <div class="page-stack">
+      <section class="personal-hero">
+        <article class="personal-profile">
+          <span class="personal-avatar">${escapeHTML(getInitials(username))}</span>
+          <div>
+            <div class="member-name-row">
+              <h2>${escapeHTML(username)}</h2>
+              <span class="badge ${roleMeta.color}">${icon(roleMeta.icon)} ${escapeHTML(roleMeta.label)}</span>
+            </div>
+            <p>${escapeHTML(authState.session?.identityNote || "还没有填写职务、课程或负责事项。")}</p>
+            <span class="member-meta">${icon("shield-check")} 身份为自主申报，账号名称全局唯一</span>
+          </div>
+        </article>
+        <aside class="personal-actions">
+          <button class="primary-button full-width" type="button" data-action="open-profile">
+            ${icon("pencil")}
+            编辑个人信息
+          </button>
+          <button class="secondary-button full-width" type="button" data-action="navigate" data-page="candidate">
+            ${icon("megaphone")}
+            查看我的竞选承诺
+          </button>
+        </aside>
+      </section>
+
+      <section class="metric-grid">
+        <article class="metric">
+          <span class="metric-icon orange">${icon("hand-heart")}</span>
+          <div><strong class="metric-value">${ownPosts.length}</strong><span class="metric-label">我的互助发布</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon green">${icon("users-round")}</span>
+          <div><strong class="metric-value">${ownTeams.length}</strong><span class="metric-label">我的组队发布</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon yellow">${icon("message-square-lock")}</span>
+          <div><strong class="metric-value">${ownSuggestions.length}</strong><span class="metric-label">我的匿名意见</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon blue">${icon("library-big")}</span>
+          <div><strong class="metric-value">${ownResources.length}</strong><span class="metric-label">我上传的资料</span></div>
+        </article>
+      </section>
+
+      <section class="personal-grid">
+        <article class="panel">
+          <header class="panel-header">
+            <div>
+              <h3>我的发布记录</h3>
+              <p>可以查看和删除自己的内容</p>
+            </div>
+            <span class="badge blue">${records.length} 条</span>
+          </header>
+          <div class="panel-body personal-record-list">
+            ${
+              records.length
+                ? records
+                    .map(
+                      (record) => `
+                        <div class="personal-record">
+                          <div>
+                            <strong>${escapeHTML(record.title)}</strong>
+                            <span>${escapeHTML(record.meta)}</span>
+                          </div>
+                          <button
+                            class="small-icon-button"
+                            type="button"
+                            data-action="delete-shared-record"
+                            data-record-type="${record.recordType}"
+                            data-id="${record.id}"
+                            aria-label="删除"
+                            title="删除"
+                          >
+                            ${icon("trash-2")}
+                          </button>
+                        </div>
+                      `
+                    )
+                    .join("")
+                : renderEmpty("inbox", "还没有发布记录", "你发布的互助、组队、意见和截止事项会出现在这里。")
+            }
+          </div>
+        </article>
+
+        <aside class="stack">
+          <article class="panel">
+            <header class="panel-header">
+              <div>
+                <h3>今日发布额度</h3>
+                <p>每天最多发布 ${PUBLISH_LIMITS.total} 条，防止重复浪费</p>
+              </div>
+              <span class="badge ${remaining > 0 ? "green" : "red"}">剩余 ${remaining} 条</span>
+            </header>
+            <div class="panel-body">
+              <div class="progress-track" aria-label="今日发布额度使用 ${usagePercent}%">
+                <span style="width: ${usagePercent}%"></span>
+              </div>
+              <p class="eyebrow" style="margin: 10px 0 0">
+                今日已发布 ${usage.total} / ${PUBLISH_LIMITS.total} 条
+              </p>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-body">
+              <span class="badge ${isCurrentAdmin() ? "red" : "blue"}">
+                ${icon(isCurrentAdmin() ? "shield-check" : "user-round")}
+                ${isCurrentAdmin() ? "管理员权限已启用" : "当前身份"}
+              </span>
+              <h3 style="margin-top: 13px">${escapeHTML(roleMeta.label)}</h3>
+              <p style="margin-bottom: 0; color: var(--ink-soft); font-size: 12px">
+                ${
+                  isCurrentAdmin()
+                    ? "你可以在各个内容列表中删除无用消息。"
+                    : "你可以删除自己发布的内容，管理员可以处理全部无用消息。"
+                }
+              </p>
+            </div>
+          </article>
+        </aside>
+      </section>
+    </div>
+  `;
+}
+
 function publicMemberFromAccount(account) {
-  const role = normalizeRole(account?.role);
+  const role = resolveAccountRole(account);
   return {
     id: account?.id || "",
     username: normalizeUsername(account?.username) || "班级成员",
@@ -1655,7 +1964,7 @@ function renderMembers() {
     window.setTimeout(() => void loadMemberDirectory(), 0);
   }
 
-  const filters = ["全部", "教师与辅导员", "班级委员会", "普通同学"];
+  const filters = ["全部", "教师、辅导员与管理员", "班级委员会", "普通同学"];
   const counts = ui.members.reduce(
     (result, member) => {
       result.total += 1;
@@ -1688,7 +1997,7 @@ function renderMembers() {
         </article>
         <article class="metric">
           <span class="metric-icon orange">${icon("school")}</span>
-          <div><strong class="metric-value">${counts.faculty}</strong><span class="metric-label">教师与辅导员</span></div>
+          <div><strong class="metric-value">${counts.faculty}</strong><span class="metric-label">教师、辅导员与管理员</span></div>
         </article>
         <article class="metric">
           <span class="metric-icon blue">${icon("landmark")}</span>
@@ -1809,6 +2118,7 @@ function renderFeedback() {
         </div>
         <div class="page-actions">
           <span class="badge green">${icon("shield-check")} 匿名提交</span>
+          <span class="badge yellow">每日最多 5 条</span>
         </div>
       </header>
 
@@ -1958,16 +2268,23 @@ function renderSuggestionCard(item) {
       <p>${escapeHTML(item.text)}</p>
       <div class="suggestion-footer">
         <span>${escapeHTML(item.category)} · 匿名同学</span>
-        <button
-          class="small-icon-button"
-          type="button"
-          data-action="delete-suggestion"
-          data-id="${item.id}"
-          aria-label="删除意见"
-          title="删除意见"
-        >
-          ${icon("trash-2")}
-        </button>
+        ${
+          canManageItem(item)
+            ? `
+              <button
+                class="small-icon-button"
+                type="button"
+                data-action="delete-shared-record"
+                data-record-type="suggestion"
+                data-id="${item.id}"
+                aria-label="删除意见"
+                title="删除意见"
+              >
+                ${icon("trash-2")}
+              </button>
+            `
+            : ""
+        }
       </div>
     </article>
   `;
@@ -2115,7 +2432,7 @@ function openModal(kind) {
   const templates = {
     deadline: {
       title: "添加截止事项",
-      subtitle: "让重要日期提前被看见",
+      subtitle: "让重要日期提前被看见，每日最多发布 5 条",
       wide: false,
       body: `
         <form id="deadline-form">
@@ -2165,7 +2482,7 @@ function openModal(kind) {
     },
     post: {
       title: "发布班级信息",
-      subtitle: "求助、失物、借用和学习都可以发布",
+      subtitle: "求助、失物、借用和学习都可以发布，每日最多 5 条",
       wide: false,
       body: `
         <form id="post-form">
@@ -2215,7 +2532,7 @@ function openModal(kind) {
     },
     team: {
       title: "发起任务组队",
-      subtitle: "把时间、地点和人数一次说清楚",
+      subtitle: "把时间、地点和人数一次说清楚，每日最多 5 条",
       wide: false,
       body: `
         <form id="team-form">
@@ -2304,7 +2621,11 @@ function openModal(kind) {
                       ([group, groupLabel]) => `
                         <optgroup label="${escapeHTML(groupLabel)}">
                           ${Object.entries(ROLE_META)
-                            .filter(([, meta]) => meta.group === group)
+                            .filter(
+                              ([role, meta]) =>
+                                meta.group === group &&
+                                (role !== "admin" || authState.session?.role === "admin")
+                            )
                             .map(
                               ([role, meta]) => `
                                 <option value="${role}" ${
@@ -2584,6 +2905,71 @@ async function writeRemoteAccount(account) {
   });
 }
 
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate()
+  ).padStart(2, "0")}`;
+}
+
+function dailyUsagePath() {
+  return `usage/${encodeURIComponent(authState.session.user.id)}/${localDateKey()}`;
+}
+
+async function readDailyUsage() {
+  if (!authState.session || !hasSharedConfig()) {
+    return { total: 0, post: 0, team: 0, suggestion: 0, deadline: 0 };
+  }
+  const usage = await mantleRequest(mantleEntryUrl(dailyUsagePath()));
+  return {
+    total: Number(usage?.total || 0),
+    post: Number(usage?.post || 0),
+    team: Number(usage?.team || 0),
+    suggestion: Number(usage?.suggestion || 0),
+    deadline: Number(usage?.deadline || 0)
+  };
+}
+
+async function ensurePublishQuota(recordType) {
+  if (!authState.session || !hasSharedConfig()) return;
+  const usage = await readDailyUsage();
+  if (usage.total >= PUBLISH_LIMITS.total) {
+    throw new Error(`今天已经发布 ${PUBLISH_LIMITS.total} 条，请明天再试。`);
+  }
+  if (usage[recordType] >= PUBLISH_LIMITS[recordType]) {
+    throw new Error(`今天这类信息最多发布 ${PUBLISH_LIMITS[recordType]} 条。`);
+  }
+}
+
+async function incrementDailyUsage(recordType) {
+  if (!authState.session || !hasSharedConfig()) return;
+  const usage = await readDailyUsage();
+  const next = {
+    userId: authState.session.user.id,
+    date: localDateKey(),
+    total: usage.total + 1,
+    post: usage.post,
+    team: usage.team,
+    suggestion: usage.suggestion,
+    deadline: usage.deadline,
+    updatedAt: new Date().toISOString()
+  };
+  next[recordType] += 1;
+  await mantleRequest(mantleEntryUrl(dailyUsagePath()), {
+    method: "POST",
+    body: JSON.stringify(next)
+  });
+  ui.dailyUsage = {
+    total: next.total,
+    post: next.post,
+    team: next.team,
+    suggestion: next.suggestion,
+    deadline: next.deadline
+  };
+  if (ui.page === "profile") {
+    render();
+  }
+}
+
 function getVisitorId() {
   try {
     const existing = localStorage.getItem(VISITOR_KEY);
@@ -2668,24 +3054,76 @@ function applySharedRecords(records) {
     if (!payload?.id) continue;
     const id = String(payload.id);
 
-    if (record.record_type === "post" && !state.posts.some((item) => item.id === id)) {
-      state.posts.push({ ...payload, id, shared: true });
-      changed = true;
+    if (record.record_type === "post") {
+      const existing = state.posts.find((item) => item.id === id);
+      if (!existing) {
+        state.posts.push({
+          ...payload,
+          id,
+          shared: true,
+          recordKey: record.record_key,
+          authorId: record.author_id || ""
+        });
+        changed = true;
+      } else if (record.author_id && existing.authorId !== record.author_id) {
+        existing.authorId = record.author_id;
+        existing.recordKey = record.record_key;
+        changed = true;
+      }
     }
 
-    if (record.record_type === "team" && !state.teams.some((item) => item.id === id)) {
-      state.teams.push({ ...payload, id, shared: true });
-      changed = true;
+    if (record.record_type === "team") {
+      const existing = state.teams.find((item) => item.id === id);
+      if (!existing) {
+        state.teams.push({
+          ...payload,
+          id,
+          shared: true,
+          recordKey: record.record_key,
+          authorId: record.author_id || ""
+        });
+        changed = true;
+      } else if (record.author_id && existing.authorId !== record.author_id) {
+        existing.authorId = record.author_id;
+        existing.recordKey = record.record_key;
+        changed = true;
+      }
     }
 
-    if (record.record_type === "suggestion" && !state.suggestions.some((item) => item.id === id)) {
-      state.suggestions.push({ ...payload, id, shared: true });
-      changed = true;
+    if (record.record_type === "suggestion") {
+      const existing = state.suggestions.find((item) => item.id === id);
+      if (!existing) {
+        state.suggestions.push({
+          ...payload,
+          id,
+          shared: true,
+          recordKey: record.record_key,
+          authorId: record.author_id || ""
+        });
+        changed = true;
+      } else if (record.author_id && existing.authorId !== record.author_id) {
+        existing.authorId = record.author_id;
+        existing.recordKey = record.record_key;
+        changed = true;
+      }
     }
 
-    if (record.record_type === "deadline" && !state.deadlines.some((item) => item.id === id)) {
-      state.deadlines.push({ ...payload, id, shared: true });
-      changed = true;
+    if (record.record_type === "deadline") {
+      const existing = state.deadlines.find((item) => item.id === id);
+      if (!existing) {
+        state.deadlines.push({
+          ...payload,
+          id,
+          shared: true,
+          recordKey: record.record_key,
+          authorId: record.author_id || ""
+        });
+        changed = true;
+      } else if (record.author_id && existing.authorId !== record.author_id) {
+        existing.authorId = record.author_id;
+        existing.recordKey = record.record_key;
+        changed = true;
+      }
     }
   }
 
@@ -2713,17 +3151,19 @@ async function readSharedRecords() {
 }
 
 async function writeSharedRecord(record) {
+  const { skip_quota, ...sharedRecord } = record;
   await mantleRequest(mantleEntryUrl(`records/${encodeURIComponent(record.record_key)}`), {
     method: "POST",
     body: JSON.stringify({
-      ...record,
+      ...sharedRecord,
       author_id: authState.session?.user.id || null
     })
   });
 }
 
-function queueSharedRecord(recordType, payload) {
+function queueSharedRecord(recordType, payload, options = {}) {
   if (!authState.session || !hasSharedConfig() || !payload?.id) return;
+  payload.authorId = authState.session.user.id;
   const recordKey = `${recordType}:${payload.id}`;
   const pending = getPendingSharedRecords().filter((item) => item.record_key !== recordKey);
   pending.push({
@@ -2731,13 +3171,15 @@ function queueSharedRecord(recordType, payload) {
     record_type: recordType,
     payload,
     visitor_id: getVisitorId(),
-    status: "published"
+    status: "published",
+    skip_quota: Boolean(options.skipQuota)
   });
   savePendingSharedRecords(pending);
   void flushPendingSharedRecords()
     .then(() => {
       syncState.available = true;
       setSyncStatus("online", "已同步到班级共享");
+      void loadDailyUsage(true);
     })
     .catch((error) => {
       if (error.status === 404) {
@@ -2759,6 +3201,13 @@ async function flushPendingSharedRecords() {
   for (const record of pending) {
     try {
       await writeSharedRecord(record);
+      if (!record.skip_quota) {
+        try {
+          await incrementDailyUsage(record.record_type);
+        } catch (error) {
+          // Publishing succeeded; usage accounting can retry independently.
+        }
+      }
       uploaded += 1;
       const remaining = getPendingSharedRecords().filter(
         (item) => item.record_key !== record.record_key
@@ -2793,7 +3242,7 @@ async function ensureCurrentAccountShared() {
     await writeRemoteAccount(localAccount);
   } else {
     authState.session.username = remoteAccount.username || authState.session.username;
-    authState.session.role = normalizeRole(remoteAccount.role);
+    authState.session.role = resolveAccountRole(remoteAccount);
     authState.session.identityNote = String(remoteAccount.identityNote || "");
     authState.session.identityStatus = remoteAccount.identityStatus || "self_declared";
     state.candidate.name = authState.session.username;
@@ -2818,7 +3267,7 @@ function importLocalRecordsToShared() {
       .filter((record) => record?.id && !record.shared && !isSeedId(record.id))
       .forEach((record) => {
         record.shared = true;
-        queueSharedRecord(recordType, record);
+        queueSharedRecord(recordType, record, { skipQuota: true });
       });
   }
 
@@ -3021,6 +3470,13 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "scroll-to") {
+    document
+      .getElementById(actionElement.dataset.target)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+
   if (action === "close-modal") {
     closeModal();
     return;
@@ -3102,6 +3558,16 @@ function handleClick(event) {
     saveState();
     render();
     showToast("事项已删除", "列表已经更新。");
+    return;
+  }
+
+  if (action === "delete-shared-record") {
+    void deleteSharedRecord(
+      actionElement.dataset.recordType,
+      actionElement.dataset.id
+    ).catch(() => {
+      showToast("删除失败", "共享服务暂时不可用，请稍后重试。");
+    });
     return;
   }
 
@@ -3193,7 +3659,7 @@ function handleClick(event) {
   }
 }
 
-function handleSubmit(event) {
+async function handleSubmit(event) {
   const form = event.target;
 
   if (form.id === "auth-form") {
@@ -3235,6 +3701,12 @@ function handleSubmit(event) {
   if (form.id === "deadline-form") {
     event.preventDefault();
     const data = new FormData(form);
+    try {
+      await ensurePublishQuota("deadline");
+    } catch (error) {
+      showToast("今日发布次数已用完", error.message);
+      return;
+    }
     const item = {
       id: uid("deadline"),
       title: String(data.get("title")).trim(),
@@ -3255,6 +3727,12 @@ function handleSubmit(event) {
   if (form.id === "post-form") {
     event.preventDefault();
     const data = new FormData(form);
+    try {
+      await ensurePublishQuota("post");
+    } catch (error) {
+      showToast("今日发布次数已用完", error.message);
+      return;
+    }
     const item = {
       id: uid("post"),
       type: String(data.get("type")),
@@ -3278,6 +3756,12 @@ function handleSubmit(event) {
   if (form.id === "team-form") {
     event.preventDefault();
     const data = new FormData(form);
+    try {
+      await ensurePublishQuota("team");
+    } catch (error) {
+      showToast("今日发布次数已用完", error.message);
+      return;
+    }
     const item = {
       id: uid("team"),
       type: String(data.get("type")),
@@ -3301,6 +3785,12 @@ function handleSubmit(event) {
   if (form.id === "feedback-form") {
     event.preventDefault();
     const data = new FormData(form);
+    try {
+      await ensurePublishQuota("suggestion");
+    } catch (error) {
+      showToast("今日发布次数已用完", error.message);
+      return;
+    }
     const item = {
       id: uid("suggestion"),
       category: String(data.get("category")),
