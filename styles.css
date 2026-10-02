@@ -50,6 +50,39 @@ body {
   letter-spacing: 0;
 }
 
+body.identity-student {
+  --identity-accent: var(--primary);
+  --identity-soft: var(--primary-soft);
+}
+
+body.identity-committee {
+  --identity-accent: var(--blue);
+  --identity-soft: var(--blue-soft);
+}
+
+body.identity-faculty {
+  --identity-accent: var(--orange);
+  --identity-soft: var(--orange-soft);
+}
+
+body.is-admin {
+  --identity-accent: var(--red);
+  --identity-soft: var(--red-soft);
+}
+
+body.is-special-role .brand-mark {
+  background: var(--identity-accent);
+}
+
+body.is-special-role .nav-item.is-active {
+  color: var(--identity-accent);
+  background: var(--identity-soft);
+}
+
+body.is-special-role .topbar {
+  box-shadow: inset 0 3px 0 var(--identity-accent);
+}
+
 button,
 input,
 select,
@@ -646,6 +679,40 @@ svg {
   border-color: rgba(255, 255, 255, 0.35);
   color: #ffffff;
   background: rgba(255, 255, 255, 0.12);
+}
+
+.role-workbench {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--identity-accent);
+  border-radius: var(--radius);
+  background: var(--identity-soft);
+}
+
+.role-workbench-copy {
+  min-width: 0;
+}
+
+.role-workbench h2 {
+  margin: 10px 0 5px;
+  font-size: 21px;
+}
+
+.role-workbench p {
+  margin-bottom: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.role-workbench-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .metric-grid {
@@ -2508,6 +2575,16 @@ body.is-auth-required .app-shell {
 
   .page-actions > button {
     flex: 1 1 auto;
+  }
+
+  .role-workbench {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .role-workbench-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .panel-header,
