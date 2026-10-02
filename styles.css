@@ -29,6 +29,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   min-width: 320px;
   background: var(--page);
@@ -205,83 +209,10 @@ svg {
   font-size: 11px;
 }
 
-.class-switcher {
-  display: grid;
-  width: 100%;
-  min-height: 68px;
-  grid-template-columns: 34px minmax(0, 1fr) 16px;
-  align-items: center;
-  gap: 10px;
-  margin-top: 24px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  text-align: left;
-  box-shadow: var(--shadow-sm);
-}
-
-.class-switcher:hover {
-  border-color: var(--line-strong);
-  background: var(--surface-soft);
-}
-
-.class-switcher-icon {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--primary);
-  background: var(--primary-soft);
-}
-
-.class-switcher-copy {
-  min-width: 0;
-}
-
-.class-switcher-copy small,
-.class-switcher-copy strong,
-.class-switcher-copy span {
-  display: block;
-}
-
-.class-switcher-copy small {
-  color: var(--ink-faint);
-  font-size: 9px;
-  font-weight: 700;
-}
-
-.class-switcher-copy strong {
-  overflow: hidden;
-  margin-top: 1px;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.class-switcher-copy span {
-  overflow: hidden;
-  color: var(--ink-faint);
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.class-switcher > svg {
-  width: 15px;
-  height: 15px;
-  color: var(--ink-faint);
-}
-
 .main-nav {
   display: grid;
   gap: 5px;
-  margin-top: 18px;
-}
-
-.nav-item[hidden] {
-  display: none;
+  margin-top: 34px;
 }
 
 .nav-item {
@@ -1711,228 +1642,6 @@ svg {
   align-self: flex-end;
 }
 
-.class-overview {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(150px, 0.55fr));
-  align-items: stretch;
-  gap: 12px;
-}
-
-.class-overview-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.48fr);
-  gap: 18px;
-  padding: 20px;
-}
-
-.class-overview-main h3 {
-  margin: 13px 0 7px;
-  font-size: 20px;
-}
-
-.class-overview-main p {
-  margin-bottom: 0;
-  color: var(--ink-soft);
-  font-size: 12px;
-}
-
-.class-invite {
-  display: grid;
-  align-content: center;
-  gap: 7px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-soft);
-}
-
-.class-invite span {
-  color: var(--ink-faint);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.class-invite strong {
-  overflow-wrap: anywhere;
-  color: var(--primary-strong);
-  font-size: 17px;
-  letter-spacing: 0.02em;
-}
-
-.class-invite .secondary-button {
-  width: 100%;
-  margin-top: 3px;
-}
-
-.class-member-list {
-  display: grid;
-  gap: 8px;
-}
-
-.class-member-row {
-  display: grid;
-  min-height: 66px;
-  grid-template-columns: minmax(180px, 1fr) minmax(135px, 170px) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-soft);
-}
-
-.class-member-person {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 11px;
-}
-
-.class-member-person .member-avatar {
-  width: 38px;
-  height: 38px;
-  font-size: 14px;
-}
-
-.class-member-person strong,
-.class-member-person span {
-  display: block;
-}
-
-.class-member-person strong {
-  font-size: 13px;
-}
-
-.class-member-person > div > span {
-  overflow: hidden;
-  margin-top: 2px;
-  color: var(--ink-faint);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.role-select {
-  width: 100%;
-  height: 38px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--surface);
-  outline: none;
-}
-
-.role-select:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(23, 107, 77, 0.11);
-}
-
-.role-select:disabled {
-  color: var(--ink-faint);
-  background: var(--surface-strong);
-  cursor: not-allowed;
-}
-
-.class-card-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.class-card {
-  display: flex;
-  min-height: 220px;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-}
-
-.class-card.is-current {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(23, 107, 77, 0.08);
-}
-
-.class-card h3 {
-  margin: 0;
-}
-
-.class-card > p {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 12px;
-}
-
-.class-card-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  margin-top: auto;
-  color: var(--ink-faint);
-  font-size: 10px;
-}
-
-.class-card-footer span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.class-card-footer svg {
-  width: 13px;
-  height: 13px;
-}
-
-.class-card .row-actions {
-  flex-wrap: wrap;
-}
-
-.class-card .primary-button,
-.class-card .secondary-button {
-  flex: 1 1 auto;
-}
-
-.current-class-note {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--primary-soft);
-}
-
-.current-class-note > span {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--primary);
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.current-class-note strong,
-.current-class-note small {
-  display: block;
-}
-
-.current-class-note small {
-  margin-top: 2px;
-  color: var(--ink-soft);
-  font-size: 10px;
-}
-
-.form-hint {
-  margin: 0;
-  color: var(--ink-faint);
-  font-size: 11px;
-}
-
 .personal-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.6fr);
@@ -2054,6 +1763,56 @@ svg {
   margin: 7px 0;
   color: var(--ink-soft);
   font-size: 12px;
+}
+
+.class-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.class-card {
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.class-card.is-current {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.class-card h3 {
+  margin-top: 14px;
+}
+
+.class-card > p {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.current-class-panel {
+  border-left: 4px solid var(--identity-accent);
+  background: var(--identity-soft);
+}
+
+.current-class-copy {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.current-class-copy h2 {
+  font-size: 24px;
+}
+
+.current-class-copy p {
+  margin-bottom: 0;
+  color: var(--ink-soft);
 }
 
 .suggestion-card p {
@@ -2695,18 +2454,6 @@ body.is-auth-required .app-shell {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .class-overview {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .class-overview-main {
-    grid-column: 1 / -1;
-  }
-
-  .class-card-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .promise-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2860,8 +2607,7 @@ body.is-auth-required .app-shell {
   .metric-grid,
   .card-list,
   .member-directory,
-  .class-overview,
-  .class-card-grid,
+  .class-grid,
   .form-grid,
   .promise-grid,
   .evidence-grid {
@@ -2870,18 +2616,6 @@ body.is-auth-required .app-shell {
 
   .metric {
     min-height: 86px;
-  }
-
-  .class-overview-main {
-    grid-template-columns: 1fr;
-  }
-
-  .class-member-row {
-    grid-template-columns: 1fr;
-  }
-
-  .class-member-row .role-select {
-    width: 100%;
   }
 
   .page-intro {
