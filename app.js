@@ -147,6 +147,8 @@ const ui = {
   schedule: null,
   scheduleLoading: false,
   scheduleLoaded: false,
+  scheduleImportMessage: "",
+  scheduleImportBookmarklet: "",
   notificationsOpen: false
 };
 
@@ -2207,6 +2209,63 @@ async function deleteScheduleCourse(courseId) {
   showToast("课程已删除", course.name);
 }
 
+function buildAhuImportBookmarklet() {
+  const updaterUrl = new URL("ahu-import.js", location.href);
+  updaterUrl.searchParams.set("owner", authState.session.user.id);
+  updaterUrl.searchParams.set("class", authState.session.classId || DEFAULT_CLASS_ID);
+  updaterUrl.searchParams.set("namespace", sharedConfig.mantleNamespace || "");
+  updaterUrl.searchParams.set("v", Date.now().toString(36));
+  return `javascript:(()=>{const s=document.createElement('script');s.src=${JSON.stringify(
+    updaterUrl.toString()
+  )};document.body.appendChild(s);})()`;
+}
+
+function scheduleNeedsUpdate() {
+  const schedule = ui.schedule;
+  if (!schedule?.autoUpdate || !schedule?.updatedAt) return false;
+  const intervalHours = Number(schedule.intervalHours || 24);
+  return Date.now() - parseDate(schedule.updatedAt).getTime() > intervalHours * 3600000;
+}
+
+function processScheduleImport(text) {
+  const value = String(text || "").trim();
+  if (!value) {
+    ui.scheduleImportMessage = "请粘贴安徽大学课表网址或更新代码。";
+    ui.scheduleImportBookmarklet = "";
+    return;
+  }
+  const recognizedUrl = /jwapp\.ahu\.edu\.cn/i.test(value) || /idToken=/i.test(value);
+  const recognizedCode = /ahu-import\.js/i.test(value);
+  if (recognizedUrl || recognizedCode) {
+    ui.scheduleImportBookmarklet =
+      recognizedCode && /^javascript:/i.test(value)
+        ? value
+        : buildAhuImportBookmarklet();
+    ui.scheduleImportMessage =
+      "已识别安徽大学课表来源。请复制更新代码，在教务课表页面执行一次，完成后刷新本页。";
+  } else {
+    ui.scheduleImportMessage = "没有识别到安徽大学课表网址或更新代码。";
+    ui.scheduleImportBookmarklet = "";
+  }
+}
+
+async function toggleScheduleAutoUpdate() {
+  if (!ui.schedule) return;
+  ui.schedule.autoUpdate = !ui.schedule.autoUpdate;
+  ui.schedule.intervalHours = 24;
+  if (ui.schedule.autoUpdate && !ui.schedule.updatedAt) {
+    ui.schedule.updatedAt = new Date().toISOString();
+  }
+  await writeRemoteSchedule(ui.schedule);
+  render();
+  showToast(
+    ui.schedule.autoUpdate ? "自动更新已开启" : "自动更新已关闭",
+    ui.schedule.autoUpdate
+      ? "课表超过 24 小时未更新时，个人中心会提示。"
+      : "课表不会再提示自动更新。"
+  );
+}
+
 function renderScheduleSection() {
   if (!ui.scheduleLoaded) {
     window.setTimeout(() => void loadSchedule(), 0);
@@ -2243,6 +2302,18 @@ function renderScheduleSection() {
           )}</p>
         </div>
         <div class="page-actions">
+          <button
+            class="${schedule.autoUpdate ? "secondary-button" : "ghost-button"}"
+            type="button"
+            data-action="toggle-schedule-auto"
+          >
+            ${icon(schedule.autoUpdate ? "refresh-cw" : "refresh-cw-off")}
+            ${schedule.autoUpdate ? "自动更新已开启" : "开启自动更新"}
+          </button>
+          <button class="secondary-button" type="button" data-action="open-modal" data-modal="schedule-import">
+            ${icon("link")}
+            导入或更新
+          </button>
           <button class="small-icon-button" type="button" data-action="schedule-week" data-delta="-1" title="上一周" aria-label="上一周">
             ${icon("chevron-left")}
           </button>
@@ -2257,6 +2328,18 @@ function renderScheduleSection() {
         </div>
       </header>
       <div class="panel-body">
+        ${
+          scheduleNeedsUpdate()
+            ? `
+              <div class="schedule-update-callout">
+                <span>${icon("triangle-alert")} 课表超过 24 小时没有更新</span>
+                <button class="secondary-button" type="button" data-action="open-modal" data-modal="schedule-import">
+                  立即更新
+                </button>
+              </div>
+            `
+            : ""
+        }
         <div class="timetable-grid">
           ${weekdayNames
             .map((dayName, index) => {
@@ -3749,6 +3832,44 @@ function openModal(kind) {
         </form>
       `
     },
+    "schedule-import": {
+      title: "导入或更新课表",
+      subtitle: "支持粘贴安徽大学课表网址，也支持识别班集更新代码",
+      wide: true,
+      body: `
+        <div class="modal-body">
+          <div class="modal-field">
+            <label for="schedule-import-input">课表网址或更新代码</label>
+            <textarea
+              id="schedule-import-input"
+              placeholder="粘贴 jwapp.ahu.edu.cn 课表链接，或粘贴班集生成的更新代码"
+            ></textarea>
+          </div>
+          <div class="page-actions">
+            <button class="primary-button" type="button" data-action="process-schedule-import">
+              ${icon("scan-search")}
+              识别来源
+            </button>
+            <button class="secondary-button" type="button" data-action="copy-schedule-updater">
+              ${icon("copy")}
+              复制更新代码
+            </button>
+          </div>
+          <p class="schedule-import-message" id="schedule-import-message">${escapeHTML(
+            ui.scheduleImportMessage
+          )}</p>
+          <div class="modal-field">
+            <label for="schedule-updater-output">更新代码</label>
+            <textarea id="schedule-updater-output" readonly>${escapeHTML(
+              ui.scheduleImportBookmarklet
+            )}</textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary-button" type="button" data-action="close-modal">关闭</button>
+        </div>
+      `
+    },
     profile: {
       title: "编辑账号身份与资料",
       subtitle: "账号名称不可重复，教师和班委身份目前采用自主申报",
@@ -4934,6 +5055,39 @@ function handleClick(event) {
       .catch((error) => {
         showToast("添加失败", error.message || "课程未能添加。");
       });
+    return;
+  }
+
+  if (action === "toggle-schedule-auto") {
+    void toggleScheduleAutoUpdate().catch(() => {
+      showToast("设置失败", "自动更新设置暂时无法保存。");
+    });
+    return;
+  }
+
+  if (action === "process-schedule-import") {
+    const input = document.getElementById("schedule-import-input");
+    processScheduleImport(input?.value || "");
+    const message = document.getElementById("schedule-import-message");
+    const output = document.getElementById("schedule-updater-output");
+    if (message) message.textContent = ui.scheduleImportMessage;
+    if (output) output.value = ui.scheduleImportBookmarklet;
+    return;
+  }
+
+  if (action === "copy-schedule-updater") {
+    const code = ui.scheduleImportBookmarklet || buildAhuImportBookmarklet();
+    ui.scheduleImportBookmarklet = code;
+    const output = document.getElementById("schedule-updater-output");
+    if (output) output.value = code;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(code)
+        .then(() => showToast("更新代码已复制", "在教务课表页面执行一次即可更新。"))
+        .catch(() => showToast("复制失败", "请手动复制下方更新代码。"));
+    } else {
+      showToast("请手动复制", "浏览器不允许自动复制更新代码。");
+    }
     return;
   }
 
