@@ -1828,6 +1828,33 @@ svg {
   font-size: 10px;
 }
 
+.schedule-update-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e7c77f;
+  border-radius: var(--radius);
+  color: var(--yellow);
+  background: var(--yellow-soft);
+  font-size: 12px;
+}
+
+.schedule-update-callout span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.schedule-import-message {
+  min-height: 20px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
 .history-list {
   display: grid;
   gap: 10px;
