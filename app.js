@@ -144,6 +144,9 @@ const ui = {
   classAccounts: [],
   classesLoading: false,
   classesLoaded: false,
+  schedule: null,
+  scheduleLoading: false,
+  scheduleLoaded: false,
   notificationsOpen: false
 };
 
@@ -815,6 +818,8 @@ async function activateAccount(session) {
   ui.classesLoaded = false;
   ui.classes = [];
   ui.classAccounts = [];
+  ui.scheduleLoaded = false;
+  ui.schedule = null;
   saveAuthSession(session);
   activateClassState();
   ui.page = "today";
@@ -958,6 +963,8 @@ function logoutAccount(renderAfter = true) {
   ui.classesLoaded = false;
   ui.classes = [];
   ui.classAccounts = [];
+  ui.scheduleLoaded = false;
+  ui.schedule = null;
   closeModal();
   ui.notificationsOpen = false;
   if (renderAfter) {
@@ -2057,6 +2064,279 @@ async function loadDailyUsage(force = false) {
   }
 }
 
+function scheduleStoragePath() {
+  return `schedules/${encodeURIComponent(authState.session.user.id)}`;
+}
+
+async function readRemoteSchedule() {
+  if (!authState.session || !hasSharedConfig()) return null;
+  return mantleRequest(mantleEntryUrl(scheduleStoragePath()));
+}
+
+async function writeRemoteSchedule(schedule) {
+  if (!authState.session || !hasSharedConfig()) return;
+  await mantleRequest(mantleEntryUrl(scheduleStoragePath()), {
+    method: "POST",
+    body: JSON.stringify({
+      ...schedule,
+      version: 1,
+      ownerId: authState.session.user.id,
+      classId: authState.session.classId || DEFAULT_CLASS_ID,
+      updatedAt: new Date().toISOString()
+    })
+  });
+}
+
+async function loadSchedule(force = false) {
+  if (ui.scheduleLoading || (ui.scheduleLoaded && !force)) return;
+  ui.scheduleLoading = true;
+  try {
+    ui.schedule = await readRemoteSchedule();
+  } catch (error) {
+    ui.schedule = null;
+  }
+  if (!ui.schedule) {
+    ui.schedule = {
+      version: 1,
+      ownerId: authState.session?.user.id || "",
+      classId: authState.session?.classId || DEFAULT_CLASS_ID,
+      source: "手动添加",
+      semester: null,
+      currentWeek: 1,
+      courses: [],
+      sessions: []
+    };
+  }
+  ui.schedule.courses = Array.isArray(ui.schedule.courses)
+    ? ui.schedule.courses
+    : [];
+  ui.schedule.sessions = Array.isArray(ui.schedule.sessions)
+    ? ui.schedule.sessions
+    : [];
+  ui.schedule.currentWeek = Math.max(1, Number(ui.schedule.currentWeek || 1));
+  ui.scheduleLoading = false;
+  ui.scheduleLoaded = true;
+  if (ui.page === "profile") render();
+}
+
+function formatClock(value) {
+  const number = Number(value);
+  if (!number) return "";
+  const text = String(number).padStart(4, "0");
+  return `${text.slice(0, 2)}:${text.slice(2, 4)}`;
+}
+
+function manualUnitTimes(startUnit, endUnit) {
+  const startTimes = [800, 855, 950, 1045, 1140, 1400, 1455, 1550, 1645, 1740, 1900, 1955, 2050];
+  const endTimes = [845, 940, 1035, 1130, 1215, 1445, 1540, 1635, 1730, 1825, 1945, 2040, 2135];
+  return {
+    startTime: startTimes[Math.max(0, Number(startUnit) - 1)] || 800,
+    endTime: endTimes[Math.max(0, Number(endUnit) - 1)] || 845
+  };
+}
+
+function dateForScheduleWeek(weekIndex, weekday) {
+  const semesterStart = ui.schedule?.semester?.startDate
+    ? parseDate(ui.schedule.semester.startDate)
+    : new Date();
+  const date = new Date(semesterStart);
+  date.setDate(date.getDate() + (Number(weekIndex) - 1) * 7 + (Number(weekday) - 1));
+  return date.toISOString().slice(0, 10);
+}
+
+async function addManualCourse(data) {
+  const name = String(data.get("name") || "").trim();
+  const teacher = String(data.get("teacher") || "").trim();
+  const room = String(data.get("room") || "").trim();
+  const weekday = Number(data.get("weekday"));
+  const startUnit = Number(data.get("startUnit"));
+  const endUnit = Number(data.get("endUnit"));
+  const weekStart = Number(data.get("weekStart") || 1);
+  const weekEnd = Number(data.get("weekEnd") || ui.schedule.semester?.weekCount || 16);
+  if (!name || weekday < 1 || weekday > 7 || startUnit < 1 || endUnit < startUnit) {
+    throw new Error("请完整填写课程名称、星期和节次。");
+  }
+  const courseId = `manual-${Date.now().toString(36)}`;
+  const course = {
+    id: courseId,
+    code: String(data.get("code") || "").trim(),
+    name,
+    credits: null,
+    teachers: teacher ? [teacher] : [],
+    type: "手动添加",
+    scheduleText: "",
+    campus: ""
+  };
+  const times = manualUnitTimes(startUnit, endUnit);
+  const sessions = [];
+  for (let week = weekStart; week <= weekEnd; week += 1) {
+    sessions.push({
+      courseId,
+      courseCode: course.code,
+      courseName: name,
+      weekday,
+      weekIndex: week,
+      date: dateForScheduleWeek(week, weekday),
+      startUnit,
+      endUnit,
+      startTime: times.startTime,
+      endTime: times.endTime,
+      teacher,
+      room,
+      campus: "",
+      lessonType: "MANUAL",
+      state: "未完成"
+    });
+  }
+  ui.schedule.courses.push(course);
+  ui.schedule.sessions.push(...sessions);
+  ui.schedule.source = ui.schedule.source || "个人课表";
+  await writeRemoteSchedule(ui.schedule);
+  render();
+}
+
+async function deleteScheduleCourse(courseId) {
+  const course = ui.schedule?.courses?.find((item) => item.id === courseId);
+  if (!course) return;
+  ui.schedule.courses = ui.schedule.courses.filter((item) => item.id !== courseId);
+  ui.schedule.sessions = ui.schedule.sessions.filter(
+    (item) => item.courseId !== courseId
+  );
+  await writeRemoteSchedule(ui.schedule);
+  render();
+  showToast("课程已删除", course.name);
+}
+
+function renderScheduleSection() {
+  if (!ui.scheduleLoaded) {
+    window.setTimeout(() => void loadSchedule(), 0);
+    return `
+      <article class="panel">
+        <div class="panel-body">
+          ${renderEmpty("loader-circle", "正在读取个人课表", "课表加载完成后会显示在这里。")}
+        </div>
+      </article>
+    `;
+  }
+
+  const schedule = ui.schedule;
+  const weekIndex = Number(schedule.currentWeek || 1);
+  const weekdayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  const weekSessions = schedule.sessions.filter(
+    (item) => Number(item.weekIndex) === weekIndex
+  );
+  const startDate = schedule.semester?.startDate
+    ? parseDate(schedule.semester.startDate)
+    : null;
+  const weekStart = startDate ? new Date(startDate) : new Date();
+  if (startDate) {
+    weekStart.setDate(weekStart.getDate() + (weekIndex - 1) * 7);
+  }
+
+  return `
+    <article class="panel schedule-panel">
+      <header class="panel-header">
+        <div>
+          <h3>我的课表</h3>
+          <p>${escapeHTML(schedule.semester?.name || "当前学期")} · ${escapeHTML(
+            schedule.source || "个人课表"
+          )}</p>
+        </div>
+        <div class="page-actions">
+          <button class="small-icon-button" type="button" data-action="schedule-week" data-delta="-1" title="上一周" aria-label="上一周">
+            ${icon("chevron-left")}
+          </button>
+          <span class="badge blue">第 ${weekIndex} 周</span>
+          <button class="small-icon-button" type="button" data-action="schedule-week" data-delta="1" title="下一周" aria-label="下一周">
+            ${icon("chevron-right")}
+          </button>
+          <button class="primary-button" type="button" data-action="open-modal" data-modal="course">
+            ${icon("plus")}
+            添加课程
+          </button>
+        </div>
+      </header>
+      <div class="panel-body">
+        <div class="timetable-grid">
+          ${weekdayNames
+            .map((dayName, index) => {
+              const day = index + 1;
+              const date = new Date(weekStart);
+              date.setDate(date.getDate() + index);
+              const sessions = weekSessions
+                .filter((item) => Number(item.weekday) === day)
+                .sort((a, b) => Number(a.startUnit) - Number(b.startUnit));
+              return `
+                <section class="timetable-day">
+                  <header>
+                    <strong>${dayName}</strong>
+                    <span>${date.getMonth() + 1}/${date.getDate()}</span>
+                  </header>
+                  ${
+                    sessions.length
+                      ? sessions
+                          .map(
+                            (item) => `
+                              <div class="schedule-course">
+                                <strong>${escapeHTML(item.courseName)}</strong>
+                                <span>${item.startUnit}-${item.endUnit} 节 · ${escapeHTML(
+                                  formatClock(item.startTime)
+                                )}-${escapeHTML(formatClock(item.endTime))}</span>
+                                <small>${escapeHTML(item.room || "地点待定")} · ${escapeHTML(
+                                  item.teacher || "教师待定"
+                                )}</small>
+                              </div>
+                            `
+                          )
+                          .join("")
+                      : '<span class="schedule-empty">暂无课程</span>'
+                  }
+                </section>
+              `;
+            })
+            .join("")}
+        </div>
+      </div>
+      <div class="panel-body schedule-course-list">
+        <div class="section-header">
+          <div>
+            <h3>本学期课程</h3>
+            <p class="eyebrow">${schedule.courses.length} 门课程</p>
+          </div>
+        </div>
+        ${
+          schedule.courses.length
+            ? schedule.courses
+                .map(
+                  (course) => `
+                    <div class="schedule-course-row">
+                      <div>
+                        <strong>${escapeHTML(course.name)}</strong>
+                        <span>${escapeHTML(
+                          (course.teachers || []).join("、") || "教师待定"
+                        )} · ${escapeHTML(course.code || "无课程代码")}</span>
+                      </div>
+                      <button
+                        class="small-icon-button"
+                        type="button"
+                        data-action="delete-course"
+                        data-course-id="${escapeHTML(course.id)}"
+                        title="删除课程"
+                        aria-label="删除课程"
+                      >
+                        ${icon("trash-2")}
+                      </button>
+                    </div>
+                  `
+                )
+                .join("")
+            : renderEmpty("calendar-days", "课表还没有课程", "可以手动添加，也可以使用已导入的教务处课表。")
+        }
+      </div>
+    </article>
+  `;
+}
+
 function renderPersonalCenter() {
   if (!ui.dailyUsage) {
     window.setTimeout(() => void loadDailyUsage(), 0);
@@ -2169,6 +2449,8 @@ function renderPersonalCenter() {
           <div><strong class="metric-value">${ownResources.length}</strong><span class="metric-label">我上传的资料</span></div>
         </article>
       </section>
+
+      ${renderScheduleSection()}
 
       <section class="personal-grid">
         <article class="panel">
@@ -3394,6 +3676,79 @@ function openModal(kind) {
         </form>
       `
     },
+    course: {
+      title: "添加课程",
+      subtitle: "课程会保存到当前账号的个人课表中",
+      wide: false,
+      body: `
+        <form id="course-form">
+          <div class="modal-body">
+            <div class="modal-field">
+              <label for="course-name">课程名称</label>
+              <input id="course-name" name="name" maxlength="60" required placeholder="例如：模拟电子技术" />
+            </div>
+            <div class="form-grid">
+              <div class="modal-field">
+                <label for="course-code">课程代码</label>
+                <input id="course-code" name="code" maxlength="30" placeholder="可选" />
+              </div>
+              <div class="modal-field">
+                <label for="course-teacher">任课教师</label>
+                <input id="course-teacher" name="teacher" maxlength="40" placeholder="可选" />
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="modal-field">
+                <label for="course-weekday">星期</label>
+                <select id="course-weekday" name="weekday">
+                  <option value="1">周一</option>
+                  <option value="2">周二</option>
+                  <option value="3">周三</option>
+                  <option value="4">周四</option>
+                  <option value="5">周五</option>
+                  <option value="6">周六</option>
+                  <option value="7">周日</option>
+                </select>
+              </div>
+              <div class="modal-field">
+                <label for="course-room">地点</label>
+                <input id="course-room" name="room" maxlength="60" placeholder="例如：博学北楼 A101" />
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="modal-field">
+                <label for="course-start-unit">开始节次</label>
+                <input id="course-start-unit" name="startUnit" type="number" min="1" max="13" value="1" required />
+              </div>
+              <div class="modal-field">
+                <label for="course-end-unit">结束节次</label>
+                <input id="course-end-unit" name="endUnit" type="number" min="1" max="13" value="2" required />
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="modal-field">
+                <label for="course-week-start">开始周</label>
+                <input id="course-week-start" name="weekStart" type="number" min="1" max="30" value="${Math.max(
+                  1,
+                  Number(ui.schedule?.currentWeek || 1)
+                )}" required />
+              </div>
+              <div class="modal-field">
+                <label for="course-week-end">结束周</label>
+                <input id="course-week-end" name="weekEnd" type="number" min="1" max="30" value="${Math.max(
+                  1,
+                  Number(ui.schedule?.semester?.weekCount || ui.schedule?.currentWeek || 16)
+                )}" required />
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            <button class="primary-button" type="button" data-action="save-course">${icon("save")} 保存课程</button>
+          </div>
+        </form>
+      `
+    },
     profile: {
       title: "编辑账号身份与资料",
       subtitle: "账号名称不可重复，教师和班委身份目前采用自主申报",
@@ -4546,6 +4901,42 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "schedule-week") {
+    const delta = Number(actionElement.dataset.delta || 0);
+    const maxWeek = Math.max(
+      1,
+      Number(ui.schedule?.semester?.weekCount || ui.schedule?.currentWeek || 20)
+    );
+    ui.schedule.currentWeek = Math.min(
+      maxWeek,
+      Math.max(1, Number(ui.schedule?.currentWeek || 1) + delta)
+    );
+    void writeRemoteSchedule(ui.schedule);
+    render();
+    return;
+  }
+
+  if (action === "delete-course") {
+    void deleteScheduleCourse(actionElement.dataset.courseId).catch(() => {
+      showToast("删除失败", "课程暂时无法删除，请稍后重试。");
+    });
+    return;
+  }
+
+  if (action === "save-course") {
+    const form = document.getElementById("course-form");
+    if (!form) return;
+    void addManualCourse(new FormData(form))
+      .then(() => {
+        closeModal();
+        showToast("课程已添加", "个人课表已经更新。");
+      })
+      .catch((error) => {
+        showToast("添加失败", error.message || "课程未能添加。");
+      });
+    return;
+  }
+
   if (action === "respond-post") {
     const item = state.posts.find((post) => post.id === actionElement.dataset.id);
     if (item) {
@@ -4819,6 +5210,18 @@ async function handleSubmit(event) {
       render();
     } catch (error) {
       showToast("创建失败", error.message || "班级未能创建。");
+    }
+    return;
+  }
+
+  if (form.id === "course-form") {
+    event.preventDefault();
+    try {
+      await addManualCourse(new FormData(form));
+      closeModal();
+      showToast("课程已添加", "个人课表已经更新。");
+    } catch (error) {
+      showToast("添加失败", error.message || "课程未能添加。");
     }
     return;
   }
