@@ -22,22 +22,6 @@
           </span>
         </a>
 
-        <button
-          class="class-switcher"
-          type="button"
-          data-action="open-modal"
-          data-modal="join-class"
-          aria-label="切换或加入班级"
-        >
-          <span class="class-switcher-icon"><i data-lucide="school"></i></span>
-          <span class="class-switcher-copy">
-            <small>当前班级</small>
-            <strong id="current-class-name">默认班级</strong>
-            <span id="current-class-code">BANJI-2026</span>
-          </span>
-          <i data-lucide="chevrons-up-down"></i>
-        </button>
-
         <nav class="main-nav" aria-label="主导航">
           <button class="nav-item is-active" type="button" data-action="navigate" data-page="today">
             <i data-lucide="layout-dashboard"></i>
@@ -64,20 +48,13 @@
             <i data-lucide="history"></i>
             <span>历史记录</span>
           </button>
+          <button class="nav-item" id="nav-class-manager" type="button" data-action="navigate" data-page="classes">
+            <i data-lucide="building-2"></i>
+            <span>班级管理</span>
+          </button>
           <button class="nav-item" type="button" data-action="navigate" data-page="members">
             <i data-lucide="contact-round"></i>
             <span>成员身份</span>
-          </button>
-          <button
-            class="nav-item"
-            id="class-management-nav"
-            type="button"
-            data-action="navigate"
-            data-page="classes"
-            hidden
-          >
-            <i data-lucide="building-2"></i>
-            <span>班级管理</span>
           </button>
           <button class="nav-item" type="button" data-action="navigate" data-page="feedback">
             <i data-lucide="message-square-lock"></i>
