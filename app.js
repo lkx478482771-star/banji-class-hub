@@ -580,6 +580,13 @@ function isCurrentAdmin() {
   );
 }
 
+function canViewCampaign() {
+  const username = authState.session?.username;
+  return (sharedConfig.campaignUsernames || []).some(
+    (campaignName) => localUsernameKey(campaignName) === localUsernameKey(username)
+  );
+}
+
 function hasRolePermission(roles) {
   return isCurrentAdmin() || roles.includes(authState.session?.role);
 }
@@ -1087,11 +1094,30 @@ function updateShell() {
     : roleLabel;
   document.getElementById("readiness-label").textContent =
     roleMeta.group === "faculty" ? "身份资料完整度" : "竞选主页";
+  document.getElementById("campaign-progress-card").hidden = !canViewCampaign();
   document.getElementById("top-avatar").textContent = initials;
   document.getElementById("nav-post-count").textContent = String(openPosts);
   document.getElementById("candidate-readiness").textContent = `${readiness}%`;
   document.getElementById("candidate-progress-bar").style.width = `${readiness}%`;
   document.getElementById("notification-dot").classList.toggle("is-read", unreadCount === 0);
+}
+
+function applyIdentityTheme() {
+  const roleMeta = getRoleMeta(authState.session?.role);
+  document.body.classList.remove(
+    "identity-student",
+    "identity-committee",
+    "identity-faculty",
+    "is-admin",
+    "is-special-role"
+  );
+  document.body.classList.add(`identity-${roleMeta.group}`);
+  if (roleMeta.group !== "student") {
+    document.body.classList.add("is-special-role");
+  }
+  if (isCurrentAdmin()) {
+    document.body.classList.add("is-admin");
+  }
 }
 
 function render() {
@@ -1108,6 +1134,7 @@ function render() {
 
   document.body.classList.remove("is-auth-required");
   authRoot.innerHTML = "";
+  applyIdentityTheme();
   const info = PAGE_INFO[ui.page] || PAGE_INFO.today;
   document.getElementById("page-title").textContent = info.title;
   document.getElementById("page-eyebrow").textContent = info.eyebrow;
@@ -1136,6 +1163,10 @@ function render() {
 
 function navigate(page) {
   if (!PAGE_INFO[page]) return;
+  if (page === "candidate" && !canViewCampaign()) {
+    showToast("没有访问权限", "竞选栏目仅对作品作者账号开放。");
+    page = "profile";
+  }
   ui.page = page;
   ui.notificationsOpen = false;
   document.getElementById("notification-panel").hidden = true;
@@ -1159,6 +1190,18 @@ function renderDashboard() {
     .filter((item) => !item.done)
     .sort((a, b) => parseDate(a.due) - parseDate(b.due))
     .slice(0, 4);
+  const roleMeta = getRoleMeta(authState.session?.role);
+  const isSpecialRole = roleMeta.group !== "student";
+  const heroTitle = canViewCampaign()
+    ? state.candidate.slogan || "让每个声音有回应，让每件小事有结果"
+    : isSpecialRole
+      ? `${roleMeta.label}工作台：把班级事务处理到位`
+      : "今天，班级有什么需要一起解决？";
+  const heroText = canViewCampaign()
+    ? "把同学每天会遇到的小麻烦，变成有入口、有进度、有结果的服务。"
+    : isSpecialRole
+      ? "集中处理任务、日程、成员身份与反馈，让每项安排都有负责人和结果。"
+      : "查看互助、共享资源、任务搭子和班级安排，也可以发布自己的真实需求。";
 
   const radarItems = [
     {
@@ -1220,9 +1263,11 @@ function renderDashboard() {
     <div class="page-stack">
       <section class="hero-band">
         <div class="hero-content">
-          <span class="hero-badge">${icon("flag")} 竞选作品 · 班级共建站</span>
-          <h2>${escapeHTML(state.candidate.slogan || "让每个声音有回应，让每件小事有结果")}</h2>
-          <p>把同学每天会遇到的小麻烦，变成有入口、有进度、有结果的服务。</p>
+          <span class="hero-badge">${icon(canViewCampaign() ? "flag" : "layout-dashboard")} ${
+            canViewCampaign() ? "竞选作品 · 班级共建站" : `${escapeHTML(roleMeta.label)} · 班级服务台`
+          }</span>
+          <h2>${escapeHTML(heroTitle)}</h2>
+          <p>${escapeHTML(heroText)}</p>
           <div class="hero-actions">
             <button class="primary-button" type="button" data-action="open-modal" data-modal="post">
               ${icon("plus")}
@@ -1235,6 +1280,60 @@ function renderDashboard() {
           </div>
         </div>
       </section>
+
+      ${
+        isSpecialRole
+          ? `
+            <section class="role-workbench">
+              <div class="role-workbench-copy">
+                <span class="badge ${roleMeta.color}">${icon(roleMeta.icon)} ${escapeHTML(roleMeta.label)}</span>
+                <h2>${escapeHTML(roleMeta.label)}工作台</h2>
+                <p>${escapeHTML(
+                  isCurrentAdmin()
+                    ? "管理员拥有全部权限，可审核身份、发布任务、编辑日程和清理历史记录。"
+                    : "这里集中展示与你职责相关的管理和编辑入口。"
+                )}</p>
+              </div>
+              <div class="role-workbench-actions">
+                ${
+                  canPublishTask()
+                    ? `
+                      <button class="secondary-button" type="button" data-action="open-modal" data-modal="team">
+                        ${icon("user-round-plus")}
+                        发布任务
+                      </button>
+                    `
+                    : ""
+                }
+                ${
+                  canEditSchedule()
+                    ? `
+                      <button class="secondary-button" type="button" data-action="open-modal" data-modal="deadline">
+                        ${icon("calendar-plus")}
+                        编辑日程
+                      </button>
+                    `
+                    : ""
+                }
+                ${
+                  isCurrentAdmin()
+                    ? `
+                      <button class="secondary-button" type="button" data-action="navigate" data-page="members">
+                        ${icon("shield-check")}
+                        身份审核
+                      </button>
+                      <button class="secondary-button" type="button" data-action="navigate" data-page="history">
+                        ${icon("archive")}
+                        历史记录
+                      </button>
+                    `
+                    : ""
+                }
+              </div>
+            </section>
+          `
+          : ""
+      }
 
       <section class="metric-grid" aria-label="班级服务概况">
         <button class="metric metric-button" type="button" data-action="navigate" data-page="mutual-aid">
@@ -1932,10 +2031,16 @@ function renderPersonalCenter() {
             ${icon("pencil")}
             编辑个人信息
           </button>
-          <button class="secondary-button full-width" type="button" data-action="navigate" data-page="candidate">
-            ${icon("megaphone")}
-            查看我的竞选承诺
-          </button>
+          ${
+            canViewCampaign()
+              ? `
+                <button class="secondary-button full-width" type="button" data-action="navigate" data-page="candidate">
+                  ${icon("megaphone")}
+                  查看我的竞选承诺
+                </button>
+              `
+              : ""
+          }
         </aside>
       </section>
 
