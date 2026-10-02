@@ -6,6 +6,9 @@ const PENDING_SHARED_KEY = "banji-shared-pending-v1";
 const VISITOR_KEY = "banji-visitor-v1";
 const AUTH_SESSION_KEY = "banji-auth-session-v1";
 const LOCAL_ACCOUNTS_KEY = "banji-local-accounts-v1";
+const CLASSES_CACHE_KEY = "banji-classes-cache-v1";
+const DEFAULT_CLASS_ID = "class-default";
+const DEFAULT_CLASS_CODE = "BANJI-2026";
 const sharedConfig = window.BANJI_CONFIG || {};
 const authState = {
   ready: false,
@@ -15,14 +18,17 @@ const authState = {
   session: null,
   passwordVisible: false,
   role: "student",
-  identityNote: ""
+  identityNote: "",
+  classCode: DEFAULT_CLASS_CODE
 };
 const syncState = {
   inFlight: false,
   retryTimer: null,
   available: null,
   accountChecked: false,
-  localImported: false
+  localImported: false,
+  classesLoaded: false,
+  classesInFlight: false
 };
 
 const PAGE_INFO = {
@@ -33,6 +39,7 @@ const PAGE_INFO = {
   profile: { title: "个人中心", eyebrow: "我的身份与发布记录" },
   history: { title: "历史记录", eyebrow: "已经过期但可以继续查看" },
   members: { title: "成员身份", eyebrow: "让每个人知道自己该找谁" },
+  classes: { title: "班级管理", eyebrow: "按班级隔离成员、内容与权限" },
   feedback: { title: "匿名意见箱", eyebrow: "认真收集，公开改进" },
   candidate: { title: "我的竞选页", eyebrow: "用作品证明行动力" }
 };
@@ -104,6 +111,13 @@ const SCHEDULE_EDIT_ROLES = [
   "counselor"
 ];
 
+const CLASS_MANAGER_ROLES = [
+  "monitor",
+  "vice_monitor",
+  "head_teacher",
+  "counselor"
+];
+
 const PROMISE_DEFAULTS = [
   {
     title: "需求有回音",
@@ -129,8 +143,12 @@ const ui = {
   memberFilter: "全部",
   memberQuery: "",
   members: [],
+  directoryMembers: [],
   membersLoading: false,
   membersLoaded: false,
+  classes: [],
+  classesLoading: false,
+  classesLoaded: false,
   dailyUsage: null,
   dailyUsageLoading: false,
   history: [],
@@ -152,6 +170,7 @@ function dateAtOffset(days, hour = 20, minute = 0) {
 
 function createSeedState() {
   return {
+    classId: DEFAULT_CLASS_ID,
     candidate: {
       name: "候选人",
       slogan: "让每个声音有回应，让每件小事有结果",
@@ -412,7 +431,15 @@ function createSeedState() {
 function loadState() {
   const defaults = createSeedState();
   try {
-    const saved = JSON.parse(localStorage.getItem(currentStorageKey) || "null");
+    const legacyUserKey =
+      authState.session?.user?.id && getCurrentClassId() === DEFAULT_CLASS_ID
+        ? `${STORAGE_KEY}:${authState.session.user.id}`
+        : "";
+    const saved = JSON.parse(
+      localStorage.getItem(currentStorageKey) ||
+        (legacyUserKey ? localStorage.getItem(legacyUserKey) : "") ||
+        "null"
+    );
     if (!saved) {
       return defaults;
     }
@@ -420,6 +447,7 @@ function loadState() {
     return {
       ...defaults,
       ...saved,
+      classId: getCurrentClassId(),
       candidate: {
         ...defaults.candidate,
         ...(saved.candidate || {}),
@@ -445,6 +473,8 @@ function loadState() {
 
 let currentStorageKey = STORAGE_KEY;
 let state = loadState();
+ui.classes = getCachedClasses();
+ui.classesLoaded = ui.classes.length > 0;
 
 function escapeHTML(value) {
   return String(value ?? "")
@@ -561,6 +591,63 @@ function normalizeRole(role) {
   return ROLE_META[role] ? role : "student";
 }
 
+function normalizeClassCode(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
+}
+
+function validateClassCode(value) {
+  const code = normalizeClassCode(value);
+  if (code.length < 4 || code.length > 24) {
+    return "班级邀请码需要 4 到 24 个字符。";
+  }
+  if (!/^[\p{L}\p{N}_-]+$/u.test(code)) {
+    return "班级邀请码只能包含文字、数字、下划线或短横线。";
+  }
+  return "";
+}
+
+function getAccountMemberships(account) {
+  return Array.isArray(account?.classMemberships)
+    ? account.classMemberships
+    : Array.isArray(account?.memberships)
+      ? account.memberships
+      : [];
+}
+
+function getCurrentClassId(account = authState.session) {
+  return (
+    String(account?.currentClassId || "").trim() ||
+    getAccountMemberships(account)[0]?.classId ||
+    DEFAULT_CLASS_ID
+  );
+}
+
+function getMembershipForClass(account, classId) {
+  const targetClassId = String(classId || "").trim();
+  if (!targetClassId) return null;
+  return (
+    getAccountMemberships(account).find(
+      (membership) =>
+        membership?.classId === targetClassId &&
+        membership.status !== "removed" &&
+        membership.status !== "disabled"
+    ) || null
+  );
+}
+
+function getActiveMembershipForClass(account, classId) {
+  const membership = getMembershipForClass(account, classId);
+  return membership?.status === "active" ? membership : null;
+}
+
+function getCurrentMembership(account = authState.session) {
+  return getMembershipForClass(account, getCurrentClassId(account));
+}
+
 function isAdminUsername(username) {
   const key = localUsernameKey(username);
   return (sharedConfig.adminUsernames || []).some(
@@ -570,7 +657,8 @@ function isAdminUsername(username) {
 
 function resolveAccountRole(account) {
   if (isAdminUsername(account?.username)) return "admin";
-  return normalizeRole(account?.role);
+  const membership = getCurrentMembership(account);
+  return normalizeRole(membership?.role || account?.role);
 }
 
 function isCurrentAdmin() {
@@ -587,8 +675,38 @@ function canViewCampaign() {
   );
 }
 
+function getCurrentClass() {
+  const classId = getCurrentClassId();
+  return (
+    ui.classes.find((classItem) => classItem.id === classId) || {
+      id: classId,
+      name: authState.session?.className || "默认班级",
+      code: authState.session?.classCode || "",
+      active: true
+    }
+  );
+}
+
+function isClassManagerFor(classId) {
+  if (isCurrentAdmin()) return true;
+  const membership = getMembershipForClass(authState.session, classId);
+  return (
+    membership?.status === "active" &&
+    CLASS_MANAGER_ROLES.includes(normalizeRole(membership.role))
+  );
+}
+
+function canManageClass(classId = getCurrentClassId()) {
+  return Boolean(classId) && isClassManagerFor(classId);
+}
+
 function hasRolePermission(roles) {
-  return isCurrentAdmin() || roles.includes(authState.session?.role);
+  if (isCurrentAdmin()) return true;
+  const membership = getCurrentMembership();
+  return (
+    membership?.status === "active" &&
+    roles.includes(normalizeRole(membership.role))
+  );
 }
 
 function canPublishTask() {
@@ -620,6 +738,67 @@ function validateUsername(value) {
     return "账号名称只能包含文字、数字、空格、下划线、短横线或间隔点。";
   }
   return "";
+}
+
+function normalizeNickname(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, "");
+}
+
+function validateNickname(value) {
+  const nickname = normalizeNickname(value);
+  if (!/^[\u3007\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]{2,8}$/u.test(nickname)) {
+    return "昵称只能使用 2 到 8 个汉字。";
+  }
+  return "";
+}
+
+function getAccountNickname(account) {
+  return (
+    normalizeNickname(account?.nickname) ||
+    normalizeUsername(account?.username) ||
+    "班级成员"
+  );
+}
+
+function getCurrentNickname() {
+  return getAccountNickname(authState.session) || "班级成员";
+}
+
+function getNicknameChangeInfo(account = authState.session) {
+  const lastChangedDate = String(account?.nicknameUpdatedDate || "").trim();
+  const today = localDateKey();
+  if (!lastChangedDate || lastChangedDate !== today) {
+    return { allowed: true, nextChangeAt: "", message: "" };
+  }
+  const nextChange = new Date();
+  nextChange.setHours(24, 0, 0, 0);
+  return {
+    allowed: false,
+    nextChangeAt: nextChange.toISOString(),
+    message: `今天已经修改过昵称，请在 ${formatShortDate(
+      nextChange.toISOString()
+    )} 后再试。`
+  };
+}
+
+function applyLatestNickname(account, localAccount, remoteAccount) {
+  const localChangedAt = Date.parse(localAccount?.nicknameUpdatedAt || "");
+  const remoteChangedAt = Date.parse(remoteAccount?.nicknameUpdatedAt || "");
+  if (
+    localAccount?.nickname &&
+    (!remoteAccount?.nickname || localChangedAt > remoteChangedAt)
+  ) {
+    account.nickname = normalizeNickname(localAccount.nickname);
+    account.nicknameUpdatedAt = localAccount.nicknameUpdatedAt || "";
+    account.nicknameUpdatedDate = localAccount.nicknameUpdatedDate || "";
+  }
+  account.nickname = getAccountNickname(account);
+  account.nicknameUpdatedAt = String(account.nicknameUpdatedAt || "");
+  account.nicknameUpdatedDate = String(account.nicknameUpdatedDate || "");
+  return account;
 }
 
 function fallbackHash(value) {
@@ -687,7 +866,68 @@ async function deriveLocalPassword(password, saltHex, algorithm) {
   return fallbackHash(`${saltHex}:${password}`);
 }
 
+function ensureAccountMemberships(account, classId = "") {
+  if (!account) return [];
+  const memberships = getAccountMemberships(account).slice();
+  if (!memberships.length) {
+    memberships.push({
+      classId: classId || account.currentClassId || DEFAULT_CLASS_ID,
+      role: isAdminUsername(account.username) ? "admin" : normalizeRole(account.role),
+      pendingRole: account.pendingRole ? normalizeRole(account.pendingRole) : "",
+      identityNote: String(account.identityNote || "").trim(),
+      identityStatus: account.identityStatus || "student",
+      status: "active",
+      joinedAt: account.createdAt || new Date().toISOString()
+    });
+  }
+  account.classMemberships = memberships;
+  account.memberships = memberships;
+  if (!account.currentClassId) {
+    account.currentClassId = memberships[0]?.classId || DEFAULT_CLASS_ID;
+  }
+  return memberships;
+}
+
+function setAccountMembership(account, classId, changes = {}) {
+  const memberships = ensureAccountMemberships(account, classId).slice();
+  const existingIndex = memberships.findIndex(
+    (membership) => membership?.classId === classId
+  );
+  const existing = existingIndex >= 0 ? memberships[existingIndex] : {};
+  const next = {
+    classId,
+    role: "student",
+    pendingRole: "",
+    identityNote: "",
+    identityStatus: "student",
+    status: "active",
+    joinedAt: new Date().toISOString(),
+    ...existing,
+    ...changes,
+    updatedAt: new Date().toISOString()
+  };
+  if (existingIndex >= 0) {
+    memberships[existingIndex] = next;
+  } else {
+    memberships.push(next);
+  }
+  account.classMemberships = memberships;
+  account.memberships = memberships;
+  account.currentClassId = classId;
+  account.role = next.role;
+  account.pendingRole = next.pendingRole;
+  account.identityNote = next.identityNote;
+  account.identityStatus = next.identityStatus;
+  account.updatedAt = new Date().toISOString();
+  return next;
+}
+
 function createLocalSession(account) {
+  const memberships = ensureAccountMemberships(account);
+  const currentClassId =
+    account.currentClassId || memberships[0]?.classId || DEFAULT_CLASS_ID;
+  const membership = memberships.find((item) => item.classId === currentClassId);
+  const classInfo = ui.classes.find((item) => item.id === currentClassId);
   return {
     access_token: "",
     refresh_token: "",
@@ -697,10 +937,15 @@ function createLocalSession(account) {
       email: ""
     },
     username: account.username,
-    role: resolveAccountRole(account),
-    pendingRole: account.pendingRole ? normalizeRole(account.pendingRole) : "",
-    identityNote: String(account.identityNote || ""),
-    identityStatus: account.identityStatus || "student",
+    nickname: getAccountNickname(account),
+    role: resolveAccountRole({ ...account, currentClassId }),
+    pendingRole: membership?.pendingRole ? normalizeRole(membership.pendingRole) : "",
+    identityNote: String(membership?.identityNote || ""),
+    identityStatus: membership?.identityStatus || "student",
+    currentClassId,
+    className: classInfo?.name || account.className || "默认班级",
+    classCode: classInfo?.code || account.classCode || "",
+    classMemberships: memberships,
     local: true,
     offline: false
   };
@@ -735,7 +980,13 @@ async function restoreAuthSession() {
 }
 
 async function activateAccount(session) {
-  authState.session = session;
+  let nextSession = session;
+  try {
+    nextSession = await prepareAccountForSession(session);
+  } catch (error) {
+    nextSession = session;
+  }
+  authState.session = nextSession;
   authState.error = "";
   authState.busy = false;
   authState.ready = true;
@@ -743,24 +994,37 @@ async function activateAccount(session) {
   syncState.localImported = false;
   ui.membersLoaded = false;
   ui.members = [];
+  ui.directoryMembers = [];
   ui.dailyUsage = null;
   ui.historyLoaded = false;
   ui.history = [];
-  saveAuthSession(session);
-  currentStorageKey = `${STORAGE_KEY}:${session.user.id}`;
+  saveAuthSession(nextSession);
+  currentStorageKey = `${STORAGE_KEY}:${nextSession.user.id}:${getCurrentClassId(
+    nextSession
+  )}`;
   state = loadState();
   applySharedRecords(getCachedSharedRecords());
-  state.candidate.name = session.username || state.candidate.name;
+  state.candidate.name = getAccountNickname(nextSession) || state.candidate.name;
   saveState();
   ui.page = "today";
   history.replaceState(null, "", "#today");
   render();
+  void loadClasses();
   void syncSharedRecords();
 }
 
-async function registerAccount(username, password, confirmPassword, role, identityNote) {
+async function registerAccount(
+  username,
+  password,
+  confirmPassword,
+  role,
+  identityNote,
+  classCode
+) {
   const nameError = validateUsername(username);
   if (nameError) throw new Error(nameError);
+  const classCodeError = validateClassCode(classCode);
+  if (classCodeError) throw new Error(classCodeError);
   if (password.length < 6 || password.length > 72) {
     throw new Error("密码需要 6 到 72 个字符。");
   }
@@ -770,6 +1034,10 @@ async function registerAccount(username, password, confirmPassword, role, identi
 
   const cleanName = normalizeUsername(username);
   const usernameKey = localUsernameKey(cleanName);
+  const targetClass = await findClassByCode(classCode);
+  if (!targetClass) {
+    throw new Error("没有找到这个班级邀请码，请向班委或辅导员确认。");
+  }
   const requestedRole = normalizeRole(role);
   const normalizedRole = isAdminUsername(cleanName)
     ? "admin"
@@ -802,6 +1070,7 @@ async function registerAccount(username, password, confirmPassword, role, identi
   const algorithm = crypto.subtle?.importKey ? "pbkdf2" : "fallback";
   const saltHex = bytesToHex(salt);
   const passwordHash = await deriveLocalPassword(password, saltHex, algorithm);
+  const createdAt = new Date().toISOString();
   const account = {
     id: crypto.randomUUID?.() || `local-${Date.now().toString(36)}`,
     username: cleanName,
@@ -809,12 +1078,28 @@ async function registerAccount(username, password, confirmPassword, role, identi
     salt: saltHex,
     passwordHash,
     algorithm,
+    nickname: cleanName,
+    nicknameUpdatedAt: "",
+    nicknameUpdatedDate: "",
     role: normalizedRole,
     pendingRole,
     identityNote: cleanIdentityNote,
     identityStatus,
-    createdAt: new Date().toISOString()
+    currentClassId: targetClass.id,
+    classMemberships: [
+      {
+        classId: targetClass.id,
+        role: normalizedRole,
+        pendingRole,
+        identityNote: cleanIdentityNote,
+        identityStatus,
+        status: "active",
+        joinedAt: createdAt
+      }
+    ],
+    createdAt
   };
+  account.memberships = account.classMemberships;
   accounts.push(account);
   saveLocalAccounts(accounts);
   try {
@@ -826,10 +1111,12 @@ async function registerAccount(username, password, confirmPassword, role, identi
   const session = createLocalSession(account);
   await activateAccount(session);
   showToast(
-    pendingRole ? "账号已创建，身份待审核" : "账号已创建",
+    pendingRole ? "已加入班级，身份待审核" : "账号已创建并加入班级",
     pendingRole
-      ? `你申请的“${getRoleMeta(pendingRole).label}”需要管理员确认。`
-      : `欢迎你，${cleanName}。`
+      ? `已加入“${targetClass.name}”，你申请的“${getRoleMeta(
+          pendingRole
+        ).label}”需要班级管理员确认。`
+      : `欢迎你，${cleanName}。当前班级：${targetClass.name}。`
   );
 }
 
@@ -859,7 +1146,7 @@ async function loginAccount(username, password) {
   localAccounts.push({ ...account, passwordHash, salt: account.salt, algorithm: account.algorithm });
   saveLocalAccounts(localAccounts);
   await activateAccount(createLocalSession(account));
-  showToast("登录成功", `欢迎回来，${account.username}。`);
+  showToast("登录成功", `欢迎回来，${getAccountNickname(account)}。`);
 }
 
 function logoutAccount(renderAfter = true) {
@@ -872,6 +1159,7 @@ function logoutAccount(renderAfter = true) {
   state = loadState();
   ui.membersLoaded = false;
   ui.members = [];
+  ui.directoryMembers = [];
   ui.dailyUsage = null;
   ui.historyLoaded = false;
   ui.history = [];
@@ -909,7 +1197,11 @@ function renderAuthScreen() {
         <div class="auth-card">
           <p class="eyebrow">${isRegister ? "第一次使用" : "本机身份识别"}</p>
           <h2>${isRegister ? "创建班级账号" : "欢迎回到班集"}</h2>
-          <p>${isRegister ? "账号名称不能重复，密码至少 6 位。" : "输入账号名称和密码即可继续。"}</p>
+          <p>${
+            isRegister
+              ? "注册时需要班级邀请码；加入后只能看到本班成员与内容。"
+              : "输入账号名称和密码即可继续。"
+          }</p>
           <div class="auth-tabs" role="tablist" aria-label="账号操作">
             <button
               class="auth-tab ${isRegister ? "" : "is-active"}"
@@ -991,6 +1283,21 @@ function renderAuthScreen() {
                     </div>
                   </div>
                   <div class="auth-field">
+                    <label for="auth-class-code">班级邀请码</label>
+                    <div class="auth-input-wrap">
+                      ${icon("key-round")}
+                      <input
+                        id="auth-class-code"
+                        name="classCode"
+                        maxlength="24"
+                        autocomplete="off"
+                        value="${escapeHTML(authState.classCode || DEFAULT_CLASS_CODE)}"
+                        placeholder="例如：BANJI-2026"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div class="auth-field">
                     <label for="auth-role">班级身份</label>
                     <div class="auth-input-wrap">
                       ${icon("badge-check")}
@@ -1042,7 +1349,7 @@ function renderAuthScreen() {
           </form>
           <div class="auth-footnote">
             ${icon("shield-check")}
-            <span>登录状态保存在这台设备中，下次打开会自动识别；退出登录后才需要重新输入。</span>
+            <span>登录状态保存在这台设备中；账号、班级与权限均由共享数据库同步。首次使用可向班委获取邀请码。</span>
           </div>
         </div>
       </section>
@@ -1081,12 +1388,14 @@ function getReadiness() {
 
 function updateShell() {
   const openPosts = state.posts.filter((item) => item.status === "open").length;
-  const candidateName = authState.session?.username || state.candidate.name || "候选人";
+  const candidateName = getCurrentNickname() || state.candidate.name || "候选人";
   const roleMeta = getRoleMeta(authState.session?.role);
   const roleLabel = roleMeta.label;
   const initials = getInitials(candidateName);
   const readiness = getReadiness();
   const unreadCount = state.notifications.filter((item) => !item.read).length;
+  const currentClass = getCurrentClass();
+  const classManagementNav = document.getElementById("class-management-nav");
 
   document.getElementById("top-candidate-name").textContent = candidateName;
   document.getElementById("top-role-label").textContent = authState.session?.pendingRole
@@ -1100,6 +1409,12 @@ function updateShell() {
   document.getElementById("candidate-readiness").textContent = `${readiness}%`;
   document.getElementById("candidate-progress-bar").style.width = `${readiness}%`;
   document.getElementById("notification-dot").classList.toggle("is-read", unreadCount === 0);
+  document.getElementById("current-class-name").textContent = currentClass.name;
+  document.getElementById("current-class-code").textContent =
+    currentClass.code || "未设置邀请码";
+  if (classManagementNav) {
+    classManagementNav.hidden = !canManageClass(currentClass.id);
+  }
 }
 
 function applyIdentityTheme() {
@@ -1150,6 +1465,7 @@ function render() {
     profile: renderPersonalCenter,
     history: renderHistory,
     members: renderMembers,
+    classes: renderClassManagement,
     feedback: renderFeedback,
     candidate: renderCandidate
   };
@@ -1263,9 +1579,11 @@ function renderDashboard() {
     <div class="page-stack">
       <section class="hero-band">
         <div class="hero-content">
-          <span class="hero-badge">${icon(canViewCampaign() ? "flag" : "layout-dashboard")} ${
-            canViewCampaign() ? "竞选作品 · 班级共建站" : `${escapeHTML(roleMeta.label)} · 班级服务台`
-          }</span>
+          <span class="hero-badge">${icon(canViewCampaign() ? "flag" : "school")} ${escapeHTML(
+            canViewCampaign()
+              ? `${getCurrentClass().name} · 竞选作品`
+              : `${getCurrentClass().name} · ${roleMeta.label}服务台`
+          )}</span>
           <h2>${escapeHTML(heroTitle)}</h2>
           <p>${escapeHTML(heroText)}</p>
           <div class="hero-actions">
@@ -1290,8 +1608,8 @@ function renderDashboard() {
                 <h2>${escapeHTML(roleMeta.label)}工作台</h2>
                 <p>${escapeHTML(
                   isCurrentAdmin()
-                    ? "管理员拥有全部权限，可审核身份、发布任务、编辑日程和清理历史记录。"
-                    : "这里集中展示与你职责相关的管理和编辑入口。"
+                    ? "管理员拥有全站权限，可管理所有班级、审核身份、发布任务、编辑日程和清理历史记录。"
+                    : `这里集中展示你在“${getCurrentClass().name}”内可使用的管理入口。`
                 )}</p>
               </div>
               <div class="role-workbench-actions">
@@ -1311,6 +1629,16 @@ function renderDashboard() {
                       <button class="secondary-button" type="button" data-action="open-modal" data-modal="deadline">
                         ${icon("calendar-plus")}
                         编辑日程
+                      </button>
+                    `
+                    : ""
+                }
+                ${
+                  canManageClass()
+                    ? `
+                      <button class="secondary-button" type="button" data-action="navigate" data-page="classes">
+                        ${icon("building-2")}
+                        班级管理
                       </button>
                     `
                     : ""
@@ -1900,6 +2228,7 @@ function renderResourceRows() {
 function canManageItem(item) {
   return (
     isCurrentAdmin() ||
+    canManageClass(item?.classId || getCurrentClassId()) ||
     Boolean(
       item?.authorId &&
         authState.session?.user?.id &&
@@ -1918,7 +2247,7 @@ async function deleteSharedRecord(recordType, id) {
   const collection = collections[recordType];
   const item = collection?.find((entry) => entry.id === id);
   if (!item || !canManageItem(item)) {
-    showToast("没有删除权限", "只能删除本人发布的内容，管理员可以删除全部内容。");
+    showToast("没有删除权限", "只能删除本人发布的内容；本班管理员和站点管理员可以维护全部内容。");
     return;
   }
 
@@ -1956,17 +2285,18 @@ function renderPersonalCenter() {
   }
 
   const userId = authState.session?.user.id;
-  const username = authState.session?.username || state.candidate.name;
+  const nickname = getCurrentNickname();
+  const loginName = authState.session?.username || nickname;
   const roleMeta = getRoleMeta(authState.session?.role);
   const ownPosts = state.posts.filter(
-    (item) => item.authorId === userId || (!item.shared && item.author === username)
+    (item) => item.authorId === userId || (!item.shared && item.author === nickname)
   );
   const ownTeams = state.teams.filter(
-    (item) => item.authorId === userId || (!item.shared && item.owner === username)
+    (item) => item.authorId === userId || (!item.shared && item.owner === nickname)
   );
   const ownSuggestions = state.suggestions.filter((item) => item.authorId === userId);
   const ownDeadlines = state.deadlines.filter((item) => item.authorId === userId);
-  const ownResources = state.resources.filter((item) => item.uploader === username);
+  const ownResources = state.resources.filter((item) => item.uploader === nickname);
   const records = [
     ...ownPosts.map((item) => ({
       id: item.id,
@@ -2005,10 +2335,10 @@ function renderPersonalCenter() {
     <div class="page-stack">
       <section class="personal-hero">
         <article class="personal-profile">
-          <span class="personal-avatar">${escapeHTML(getInitials(username))}</span>
+          <span class="personal-avatar">${escapeHTML(getInitials(nickname))}</span>
           <div>
             <div class="member-name-row">
-              <h2>${escapeHTML(username)}</h2>
+              <h2>${escapeHTML(nickname)}</h2>
               <span class="badge ${roleMeta.color}">${icon(roleMeta.icon)} ${escapeHTML(roleMeta.label)}</span>
               ${
                 authState.session?.pendingRole
@@ -2021,8 +2351,8 @@ function renderPersonalCenter() {
             <p>${escapeHTML(authState.session?.identityNote || "还没有填写职务、课程或负责事项。")}</p>
             <span class="member-meta">${icon("shield-check")} ${
               authState.session?.pendingRole
-                ? "特殊身份需要管理员审核，通过前保持普通同学权限"
-                : "账号名称全局唯一，身份状态已同步"
+                ? "班级身份需要本班管理员审核，通过前保持普通同学权限"
+                : `登录账号：${escapeHTML(loginName)} · 昵称每天最多修改一次`
             }</span>
           </div>
         </article>
@@ -2126,14 +2456,22 @@ function renderPersonalCenter() {
             <div class="panel-body">
               <span class="badge ${isCurrentAdmin() ? "red" : "blue"}">
                 ${icon(isCurrentAdmin() ? "shield-check" : "user-round")}
-                ${isCurrentAdmin() ? "管理员权限已启用" : "当前身份"}
+                ${
+                  isCurrentAdmin()
+                    ? "站点管理员权限"
+                    : canManageClass()
+                      ? "本班管理权限"
+                      : "当前身份"
+                }
               </span>
               <h3 style="margin-top: 13px">${escapeHTML(roleMeta.label)}</h3>
               <p style="margin-bottom: 0; color: var(--ink-soft); font-size: 12px">
                 ${
                   isCurrentAdmin()
-                    ? "你可以在各个内容列表中删除无用消息。"
-                    : "你可以删除自己发布的内容，管理员可以处理全部无用消息。"
+                    ? "你可以管理所有班级、审核身份并维护全部内容。"
+                    : canManageClass()
+                      ? `你可以管理“${getCurrentClass().name}”的成员身份与班级内容。`
+                      : "你可以删除自己发布的内容，本班管理员可以维护全部无用消息。"
                 }
               </p>
             </div>
@@ -2160,8 +2498,8 @@ async function loadHistory(force = false) {
 }
 
 async function deleteHistoryRecord(recordKey) {
-  if (!isCurrentAdmin()) {
-    showToast("没有删除权限", "只有管理员可以删除历史记录。");
+  if (!canManageClass()) {
+    showToast("没有删除权限", "只有本班管理员或站点管理员可以删除历史记录。");
     return;
   }
   await mantleRequest(
@@ -2169,7 +2507,7 @@ async function deleteHistoryRecord(recordKey) {
     { method: "DELETE" }
   );
   await loadHistory(true);
-  showToast("历史记录已删除", "管理员已移除这条归档内容。");
+  showToast("历史记录已删除", "本班管理员已移除这条归档内容。");
 }
 
 function historyRecordTitle(record) {
@@ -2226,7 +2564,7 @@ function renderHistory() {
                           </div>
                         </div>
                         ${
-                          isCurrentAdmin()
+                          canManageClass()
                             ? `
                               <button
                                 class="small-icon-button"
@@ -2252,19 +2590,48 @@ function renderHistory() {
   `;
 }
 
-function publicMemberFromAccount(account) {
-  const role = resolveAccountRole(account);
-  return {
-    id: account?.id || "",
-    username: normalizeUsername(account?.username) || "班级成员",
-    usernameKey: account?.usernameKey || localUsernameKey(account?.username),
-    role,
-    roleLabel: getRoleMeta(role).label,
-    pendingRole: account?.pendingRole ? normalizeRole(account.pendingRole) : "",
-    identityNote: String(account?.identityNote || "").trim(),
-    createdAt: account?.createdAt || "",
-    identityStatus: account?.identityStatus || "student"
-  };
+function getMemberDisplayName(member) {
+  return (
+    normalizeNickname(member?.nickname) ||
+    normalizeUsername(member?.username) ||
+    "班级成员"
+  );
+}
+
+function publicMembersFromAccount(account) {
+  const accountCopy = { ...account };
+  const memberships = ensureAccountMemberships(accountCopy);
+  return memberships
+    .filter(
+      (membership) =>
+        membership?.classId &&
+        membership.status !== "removed" &&
+        membership.status !== "disabled"
+    )
+    .map((membership) => {
+      const role = isAdminUsername(accountCopy.username)
+        ? "admin"
+        : normalizeRole(membership.role);
+      return {
+        id: accountCopy?.id || "",
+        accountId: accountCopy?.id || "",
+        username: normalizeUsername(accountCopy?.username) || "班级成员",
+        nickname: getAccountNickname(accountCopy),
+        usernameKey:
+          accountCopy?.usernameKey || localUsernameKey(accountCopy?.username),
+        classId: membership.classId,
+        role,
+        roleLabel: getRoleMeta(role).label,
+        pendingRole: membership?.pendingRole
+          ? normalizeRole(membership.pendingRole)
+          : "",
+        identityNote: String(membership?.identityNote || "").trim(),
+        joinedAt: membership?.joinedAt || accountCopy?.createdAt || "",
+        createdAt: accountCopy?.createdAt || "",
+        identityStatus: membership?.identityStatus || "student",
+        membershipStatus: membership?.status || "active"
+      };
+    });
 }
 
 async function loadMemberDirectory(force = false) {
@@ -2281,19 +2648,25 @@ async function loadMemberDirectory(force = false) {
       const remoteAccounts = await Promise.all(
         accountPaths.map((path) => mantleRequest(mantleEntryUrl(path)))
       );
-      ui.members = remoteAccounts
+      ui.directoryMembers = remoteAccounts
         .filter((account) => account?.username)
-        .map(publicMemberFromAccount);
+        .flatMap(publicMembersFromAccount);
     } else {
-      ui.members = getLocalAccounts().map(publicMemberFromAccount);
+      ui.directoryMembers = getLocalAccounts().flatMap(publicMembersFromAccount);
     }
+    ui.members = ui.directoryMembers.filter(
+      (member) => member.classId === getCurrentClassId()
+    );
   } catch (error) {
-    ui.members = getLocalAccounts().map(publicMemberFromAccount);
+    ui.directoryMembers = getLocalAccounts().flatMap(publicMembersFromAccount);
+    ui.members = ui.directoryMembers.filter(
+      (member) => member.classId === getCurrentClassId()
+    );
     showToast("成员名单同步较慢", "当前先显示本机已经识别到的成员。");
   } finally {
     ui.membersLoading = false;
     ui.membersLoaded = true;
-    if (ui.page === "members") render();
+    if (ui.page === "members" || ui.page === "classes") render();
   }
 }
 
@@ -2302,6 +2675,7 @@ function renderMembers() {
     window.setTimeout(() => void loadMemberDirectory(), 0);
   }
 
+  const currentClass = getCurrentClass();
   const filters = ["全部", "教师、辅导员与管理员", "班级委员会", "普通同学"];
   const counts = ui.members.reduce(
     (result, member) => {
@@ -2317,10 +2691,14 @@ function renderMembers() {
       <header class="page-intro">
         <div>
           <p class="eyebrow">身份公开，职责清楚，找人不再靠猜</p>
-          <h2>班级成员与职责目录</h2>
-          <p>集中展示任课老师、班主任、辅导员、各班委和普通同学，帮助班级事务快速找到对应负责人。</p>
+          <h2>${escapeHTML(currentClass.name)} · 成员与职责目录</h2>
+          <p>这里只展示当前班级成员。班委、教师与辅导员的权限也仅在本班生效。</p>
         </div>
         <div class="page-actions">
+          <button class="secondary-button" type="button" data-action="open-modal" data-modal="join-class">
+            ${icon("door-open")}
+            加入或切换班级
+          </button>
           <button class="primary-button" type="button" data-action="open-profile">
             ${icon("badge-plus")}
             修改我的身份
@@ -2393,13 +2771,13 @@ function renderMemberCards() {
       const pendingLabel = member.pendingRole
         ? getRoleMeta(member.pendingRole).label
         : "";
-      const haystack = `${member.username} ${member.roleLabel} ${pendingLabel} ${member.identityNote}`.toLowerCase();
+      const haystack = `${getMemberDisplayName(member)} ${member.username} ${member.roleLabel} ${pendingLabel} ${member.identityNote}`.toLowerCase();
       return matchesFilter && (!query || haystack.includes(query));
     })
     .sort((a, b) => {
       const order = { faculty: 0, committee: 1, student: 2 };
       return order[getRoleMeta(a.role).group] - order[getRoleMeta(b.role).group] ||
-        a.username.localeCompare(b.username, "zh-CN");
+        getMemberDisplayName(a).localeCompare(getMemberDisplayName(b), "zh-CN");
     });
 
   if (!filtered.length) {
@@ -2414,10 +2792,10 @@ function renderMemberCards() {
       return `
         <article class="member-card">
           <div class="member-card-main">
-            <span class="member-avatar ${meta.color}">${escapeHTML(getInitials(member.username))}</span>
+            <span class="member-avatar ${meta.color}">${escapeHTML(getInitials(getMemberDisplayName(member)))}</span>
             <div class="member-copy">
               <div class="member-name-row">
-                <strong>${escapeHTML(member.username)}</strong>
+                <strong>${escapeHTML(getMemberDisplayName(member))}</strong>
                 <span class="badge ${meta.color}">${icon(meta.icon)} ${escapeHTML(meta.label)}</span>
                 ${
                   pendingMeta
@@ -2445,13 +2823,14 @@ function renderMemberCards() {
                 : ""
             }
             ${
-              isCurrentAdmin() && pendingMeta
+              canManageClass(member.classId) && pendingMeta
                 ? `
                   <button
                     class="primary-button"
                     type="button"
                     data-action="approve-identity"
                     data-username-key="${escapeHTML(member.usernameKey)}"
+                    data-class-id="${escapeHTML(member.classId)}"
                   >
                     ${icon("check")}
                     通过
@@ -2461,6 +2840,7 @@ function renderMemberCards() {
                     type="button"
                     data-action="reject-identity"
                     data-username-key="${escapeHTML(member.usernameKey)}"
+                    data-class-id="${escapeHTML(member.classId)}"
                   >
                     ${icon("x")}
                     驳回
@@ -2475,36 +2855,48 @@ function renderMemberCards() {
     .join("");
 }
 
-async function reviewMemberIdentity(usernameKey, approved) {
-  if (!isCurrentAdmin()) {
-    showToast("没有审核权限", "只有管理员可以审核班级身份。");
+async function reviewMemberIdentity(usernameKey, approved, classId = getCurrentClassId()) {
+  if (!canManageClass(classId)) {
+    showToast("没有审核权限", "只有本班班委、辅导员或站点管理员可以审核身份。");
     return;
   }
   const account = await readRemoteAccount(usernameKey);
   if (!account) throw new Error("Account not found");
-  if (!account.pendingRole) {
+  ensureAccountMemberships(account, classId);
+  const membership = getMembershipForClass(account, classId);
+  if (!membership?.pendingRole) {
     showToast("没有待审核申请", "该成员当前没有新的身份申请。");
     return;
   }
 
   if (approved) {
-    account.role = normalizeRole(account.pendingRole);
-    account.identityStatus = "approved";
-    account.approvedAt = new Date().toISOString();
-    account.approvedBy = authState.session.user.id;
+    setAccountMembership(account, classId, {
+      role: normalizeRole(membership.pendingRole),
+      pendingRole: "",
+      identityStatus: "approved",
+      approvedAt: new Date().toISOString(),
+      approvedBy: authState.session.user.id
+    });
   } else {
-    account.role = "student";
-    account.identityStatus = "rejected";
-    account.rejectedAt = new Date().toISOString();
+    setAccountMembership(account, classId, {
+      role: "student",
+      pendingRole: "",
+      identityStatus: "rejected",
+      rejectedAt: new Date().toISOString()
+    });
   }
-  account.pendingRole = "";
   account.updatedAt = new Date().toISOString();
-  await writeRemoteAccount(account);
+  await commitAccount(account);
 
   if (authState.session.username === account.username) {
-    authState.session.role = resolveAccountRole(account);
-    authState.session.pendingRole = "";
-    authState.session.identityStatus = account.identityStatus;
+    authState.session.classMemberships = getAccountMemberships(account);
+    const currentMembership = getMembershipForClass(account, classId);
+    authState.session.role = resolveAccountRole({
+      ...account,
+      currentClassId: classId
+    });
+    authState.session.pendingRole = currentMembership?.pendingRole || "";
+    authState.session.identityStatus = currentMembership?.identityStatus || "student";
     saveAuthSession(authState.session);
   }
   syncState.accountChecked = false;
@@ -2512,7 +2904,9 @@ async function reviewMemberIdentity(usernameKey, approved) {
   render();
   showToast(
     approved ? "身份申请已通过" : "身份申请已驳回",
-    `${account.username} · ${approved ? getRoleMeta(account.role).label : "普通同学"}`
+    `${getAccountNickname(account)} · ${
+      approved ? getRoleMeta(getMembershipForClass(account, classId)?.role).label : "普通同学"
+    }`
   );
 }
 
@@ -2521,6 +2915,366 @@ function updateMemberResults() {
   if (!container) return;
   container.innerHTML = renderMemberCards();
   refreshIcons(container);
+}
+
+async function updateClassMemberRole(usernameKey, classId, role) {
+  if (!canManageClass(classId)) {
+    showToast("没有管理权限", "你只能管理自己所在班级的成员身份。");
+    return;
+  }
+  const nextRole = normalizeRole(role);
+  const account = await readRemoteAccount(usernameKey);
+  if (!account) throw new Error("Account not found");
+  setAccountMembership(account, classId, {
+    role: nextRole,
+    pendingRole: "",
+    identityStatus: nextRole === "student" ? "student" : "approved",
+    approvedAt: new Date().toISOString(),
+    approvedBy: authState.session.user.id
+  });
+  await commitAccount(account);
+  if (authState.session.username === account.username) {
+    authState.session.classMemberships = getAccountMemberships(account);
+    authState.session.role = resolveAccountRole({
+      ...account,
+      currentClassId: classId
+    });
+    authState.session.pendingRole = "";
+    authState.session.identityStatus = nextRole === "student" ? "student" : "approved";
+    saveAuthSession(authState.session);
+  }
+  syncState.accountChecked = false;
+  await loadMemberDirectory(true);
+  render();
+  showToast("成员身份已更新", `${getAccountNickname(account)} · ${getRoleMeta(nextRole).label}`);
+}
+
+async function removeClassMember(usernameKey, classId) {
+  if (!canManageClass(classId)) {
+    showToast("没有管理权限", "你只能管理自己所在班级的成员。");
+    return;
+  }
+  const account = await readRemoteAccount(usernameKey);
+  if (!account) throw new Error("Account not found");
+  if (localUsernameKey(account.username) === localUsernameKey(authState.session.username)) {
+    showToast("不能移除自己", "请联系其他班级管理员或站点管理员处理。");
+    return;
+  }
+  setAccountMembership(account, classId, { status: "removed" });
+  await commitAccount(account);
+  await loadMemberDirectory(true);
+  render();
+  showToast("成员已移出班级", getAccountNickname(account));
+}
+
+async function toggleClassActive(classId) {
+  if (!isCurrentAdmin()) {
+    showToast("没有管理权限", "只有站点管理员可以停用或恢复班级。");
+    return;
+  }
+  const classItem = ui.classes.find((item) => item.id === classId);
+  if (!classItem) return;
+  const next = { ...classItem, active: classItem.active === false, updatedAt: new Date().toISOString() };
+  await writeRemoteClass(next);
+  render();
+  showToast(next.active ? "班级已恢复" : "班级已停用", classItem.name);
+}
+
+function renderClassManagement() {
+  if (!ui.classesLoaded) {
+    window.setTimeout(() => void loadClasses(), 0);
+  }
+  if (!ui.membersLoaded) {
+    window.setTimeout(() => void loadMemberDirectory(), 0);
+  }
+
+  const currentClass = getCurrentClass();
+  if (!canManageClass(currentClass.id)) {
+    return `
+      <div class="page-stack">
+        <header class="page-intro">
+          <div>
+            <p class="eyebrow">班级权限按成员身份自动生效</p>
+            <h2>当前账号没有班级管理权限</h2>
+            <p>普通同学可以查看本班成员和内容；班长、副班长、辅导员、班主任与站点管理员可以审核身份和维护成员。</p>
+          </div>
+          <button class="primary-button" type="button" data-action="open-modal" data-modal="join-class">
+            ${icon("door-open")}
+            切换班级
+          </button>
+        </header>
+      </div>
+    `;
+  }
+
+  const classMembers = ui.directoryMembers.filter(
+    (member) => member.classId === currentClass.id
+  );
+  const pendingMembers = classMembers.filter((member) => member.pendingRole);
+  const committeeCount = classMembers.filter(
+    (member) => getRoleMeta(member.role).group === "committee"
+  ).length;
+  const facultyCount = classMembers.filter(
+    (member) => getRoleMeta(member.role).group === "faculty"
+  ).length;
+  const roleOptions = Object.entries(ROLE_META).filter(
+    ([role]) => role !== "admin"
+  );
+
+  const renderMemberRow = (member) => {
+    const isSiteAdmin = member.role === "admin";
+    const memberRoleOptions = isSiteAdmin
+      ? [["admin", ROLE_META.admin], ...roleOptions]
+      : roleOptions;
+    return `
+      <div class="class-member-row">
+        <div class="class-member-person">
+          <span class="member-avatar ${getRoleMeta(member.role).color}">${escapeHTML(
+            getInitials(getMemberDisplayName(member))
+          )}</span>
+          <div>
+            <strong>${escapeHTML(getMemberDisplayName(member))}</strong>
+            <span>${escapeHTML(member.identityNote || "未填写职责说明")}</span>
+          </div>
+        </div>
+        <select
+          class="role-select"
+          data-action="set-member-role"
+          data-username-key="${escapeHTML(member.usernameKey)}"
+          data-class-id="${escapeHTML(member.classId)}"
+          aria-label="设置 ${escapeHTML(getMemberDisplayName(member))} 的班级身份"
+          ${isSiteAdmin ? "disabled" : ""}
+        >
+          ${memberRoleOptions
+            .map(
+              ([role, meta]) => `
+                <option value="${role}" ${member.role === role ? "selected" : ""}>
+                  ${escapeHTML(meta.label)}
+                </option>
+              `
+            )
+            .join("")}
+        </select>
+        ${
+          isSiteAdmin
+            ? `<span class="badge red">${icon("shield-check")} 站点管理员</span>`
+            : `
+              <button
+                class="small-icon-button"
+                type="button"
+                data-action="remove-class-member"
+                data-username-key="${escapeHTML(member.usernameKey)}"
+                data-class-id="${escapeHTML(member.classId)}"
+                title="移出班级"
+                aria-label="将 ${escapeHTML(getMemberDisplayName(member))} 移出班级"
+              >
+                ${icon("user-minus")}
+              </button>
+            `
+        }
+      </div>
+    `;
+  };
+
+  return `
+    <div class="page-stack">
+      <header class="page-intro">
+        <div>
+          <p class="eyebrow">班级范围清晰，管理责任不越界</p>
+          <h2>${escapeHTML(currentClass.name)} · 班级管理</h2>
+          <p>本班班委与辅导员只能审核本班申请、调整本班成员身份；站点管理员可以管理全部班级。</p>
+        </div>
+        <div class="page-actions">
+          <button class="secondary-button" type="button" data-action="open-modal" data-modal="join-class">
+            ${icon("door-open")}
+            加入或切换班级
+          </button>
+          ${
+            isCurrentAdmin()
+              ? `
+                <button class="primary-button" type="button" data-action="open-modal" data-modal="create-class">
+                  ${icon("plus")}
+                  新建班级
+                </button>
+              `
+              : ""
+          }
+        </div>
+      </header>
+
+      <section class="class-overview">
+        <article class="panel class-overview-main">
+          <div>
+            <span class="badge ${currentClass.active === false ? "red" : "green"}">
+              ${icon(currentClass.active === false ? "ban" : "circle-check")}
+              ${currentClass.active === false ? "已停用" : "正常开放"}
+            </span>
+            <h3>${escapeHTML(currentClass.name)}</h3>
+            <p>${escapeHTML(currentClass.description || "班级成员共享互助、资料、组队和班级日程。")}</p>
+          </div>
+          <div class="class-invite">
+            <span>班级邀请码</span>
+            <strong>${escapeHTML(currentClass.code || "未设置")}</strong>
+            <button class="secondary-button" type="button" data-action="copy-class-code">
+              ${icon("copy")}
+              复制邀请码
+            </button>
+          </div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon green">${icon("users-round")}</span>
+          <div><strong class="metric-value">${classMembers.length}</strong><span class="metric-label">本班成员</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon blue">${icon("landmark")}</span>
+          <div><strong class="metric-value">${committeeCount}</strong><span class="metric-label">班委成员</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon orange">${icon("briefcase-business")}</span>
+          <div><strong class="metric-value">${facultyCount}</strong><span class="metric-label">教师与辅导员</span></div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <header class="panel-header">
+          <div>
+            <h3>待审核身份</h3>
+            <p>通过后成员在本班获得对应管理或发布权限</p>
+          </div>
+          <span class="badge ${pendingMembers.length ? "yellow" : "green"}">${pendingMembers.length} 项待处理</span>
+        </header>
+        <div class="panel-body">
+          ${
+            pendingMembers.length
+              ? `<div class="class-member-list">${pendingMembers
+                  .map(
+                    (member) => `
+                      <div class="class-member-row">
+                        <div class="class-member-person">
+                          <span class="member-avatar yellow">${escapeHTML(
+                            getInitials(getMemberDisplayName(member))
+                          )}</span>
+                          <div>
+                            <strong>${escapeHTML(getMemberDisplayName(member))}</strong>
+                            <span>申请：${escapeHTML(
+                              getRoleMeta(member.pendingRole).label
+                            )}</span>
+                          </div>
+                        </div>
+                        <div class="row-actions">
+                          <button class="primary-button" type="button" data-action="approve-identity" data-username-key="${escapeHTML(
+                            member.usernameKey
+                          )}" data-class-id="${escapeHTML(member.classId)}">
+                            ${icon("check")}
+                            通过
+                          </button>
+                          <button class="secondary-button" type="button" data-action="reject-identity" data-username-key="${escapeHTML(
+                            member.usernameKey
+                          )}" data-class-id="${escapeHTML(member.classId)}">
+                            ${icon("x")}
+                            驳回
+                          </button>
+                        </div>
+                      </div>
+                    `
+                  )
+                  .join("")}</div>`
+              : renderEmpty("badge-check", "没有待审核申请", "成员提交新身份后会自动出现在这里。")
+          }
+        </div>
+      </section>
+
+      <section class="panel">
+        <header class="panel-header">
+          <div>
+            <h3>本班成员与权限</h3>
+            <p>身份修改只影响 ${escapeHTML(currentClass.name)}</p>
+          </div>
+          <span class="badge blue">${classMembers.length} 人</span>
+        </header>
+        <div class="panel-body">
+          ${
+            classMembers.length
+              ? `<div class="class-member-list">${classMembers
+                  .sort(
+                    (a, b) =>
+                      getRoleMeta(a.role).group.localeCompare(getRoleMeta(b.role).group) ||
+                      a.username.localeCompare(b.username, "zh-CN")
+                  )
+                  .map(renderMemberRow)
+                  .join("")}</div>`
+              : renderEmpty("users-round", "本班暂时没有成员", "分享邀请码后，成员加入就会显示在这里。")
+          }
+        </div>
+      </section>
+
+      ${
+        isCurrentAdmin()
+          ? `
+            <section>
+              <header class="section-header" style="margin-bottom: 12px">
+                <div>
+                  <h2>全部班级</h2>
+                  <p class="eyebrow">站点管理员可以进入任意班级并查看成员</p>
+                </div>
+              </header>
+              <div class="class-card-grid">
+                ${
+                  ui.classesLoading && !ui.classes.length
+                    ? renderEmpty("loader-circle", "正在读取班级", "共享班级列表加载后显示在这里。")
+                    : ui.classes
+                        .map((classItem) => {
+                          const count = ui.directoryMembers.filter(
+                            (member) => member.classId === classItem.id
+                          ).length;
+                          const isCurrent = classItem.id === currentClass.id;
+                          return `
+                            <article class="class-card ${isCurrent ? "is-current" : ""}">
+                              <div class="card-top-row">
+                                <span class="badge ${classItem.active === false ? "red" : "green"}">
+                                  ${icon(classItem.active === false ? "ban" : "school")}
+                                  ${classItem.active === false ? "已停用" : "开放中"}
+                                </span>
+                                ${isCurrent ? `<span class="badge blue">当前班级</span>` : ""}
+                              </div>
+                              <h3>${escapeHTML(classItem.name)}</h3>
+                              <p>${escapeHTML(classItem.description || "暂无班级说明")}</p>
+                              <div class="class-card-footer">
+                                <span>${icon("key-round")} ${escapeHTML(classItem.code)}</span>
+                                <span>${icon("users-round")} ${count} 人</span>
+                              </div>
+                              <div class="row-actions">
+                                <button class="primary-button" type="button" data-action="switch-class" data-class-id="${escapeHTML(
+                                  classItem.id
+                                )}">
+                                  ${icon("arrow-right-left")}
+                                  进入班级
+                                </button>
+                                ${
+                                  classItem.id !== DEFAULT_CLASS_ID
+                                    ? `
+                                      <button class="secondary-button" type="button" data-action="toggle-class-active" data-class-id="${escapeHTML(
+                                        classItem.id
+                                      )}">
+                                        ${icon(classItem.active === false ? "rotate-ccw" : "ban")}
+                                        ${classItem.active === false ? "恢复" : "停用"}
+                                      </button>
+                                    `
+                                    : ""
+                                }
+                              </div>
+                            </article>
+                          `;
+                        })
+                        .join("")
+                }
+              </div>
+            </section>
+          `
+          : ""
+      }
+    </div>
+  `;
 }
 
 function renderFeedback() {
@@ -2847,6 +3601,13 @@ function renderNotificationPanel() {
 
 function openModal(kind) {
   const modalRoot = document.getElementById("modal-root");
+  const currentAccount =
+    getLocalAccounts().find(
+      (account) =>
+        account.usernameKey === localUsernameKey(authState.session?.username)
+    ) || authState.session;
+  const currentNickname = getAccountNickname(currentAccount);
+  const nicknameChange = getNicknameChangeInfo(currentAccount);
   const templates = {
     deadline: {
       title: "添加截止事项",
@@ -3037,26 +3798,167 @@ function openModal(kind) {
         </form>
       `
     },
+    "join-class": {
+      title: "加入或切换班级",
+      subtitle: "凭班级邀请码加入；账号可同时属于多个班级",
+      wide: false,
+      body: `
+        <form id="join-class-form">
+          <div class="modal-body">
+            <div class="current-class-note">
+              <span>${icon("school")}</span>
+              <div>
+                <strong>${escapeHTML(getCurrentClass().name)}</strong>
+                <small>当前班级 · ${escapeHTML(getCurrentClass().code || "未设置邀请码")}</small>
+              </div>
+            </div>
+            <div class="modal-field">
+              <label for="join-class-code">班级邀请码</label>
+              <input
+                id="join-class-code"
+                name="classCode"
+                maxlength="24"
+                autocomplete="off"
+                placeholder="例如：BANJI-2026"
+                required
+              />
+            </div>
+            <div class="modal-field">
+              <label for="join-class-role">加入身份</label>
+              <select id="join-class-role" name="role">
+                ${Object.entries(ROLE_GROUPS)
+                  .map(
+                    ([group, groupLabel]) => `
+                      <optgroup label="${escapeHTML(groupLabel)}">
+                        ${Object.entries(ROLE_META)
+                          .filter(
+                            ([role, meta]) => meta.group === group && role !== "admin"
+                          )
+                          .map(
+                            ([role, meta]) => `
+                              <option value="${role}" ${role === "student" ? "selected" : ""}>
+                                ${escapeHTML(meta.label)}
+                              </option>
+                            `
+                          )
+                          .join("")}
+                      </optgroup>
+                    `
+                  )
+                  .join("")}
+              </select>
+            </div>
+            <div class="modal-field">
+              <label for="join-class-note">职务、课程或负责事项</label>
+              <input
+                id="join-class-note"
+                name="identityNote"
+                maxlength="60"
+                placeholder="例如：负责班级学习与竞赛信息"
+              />
+            </div>
+            <p class="form-hint">普通同学凭邀请码直接加入；申请班委、教师或辅导员身份后，需要本班管理员审核。</p>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            <button class="primary-button" type="submit">${icon("door-open")} 加入班级</button>
+          </div>
+        </form>
+      `
+    },
+    "create-class": {
+      title: "创建新班级",
+      subtitle: "仅站点管理员可创建，创建后自动进入该班级",
+      wide: false,
+      body: `
+        <form id="create-class-form">
+          <div class="modal-body">
+            <div class="modal-field">
+              <label for="create-class-name">班级名称</label>
+              <input
+                id="create-class-name"
+                name="name"
+                maxlength="40"
+                placeholder="例如：2026级软件工程1班"
+                required
+              />
+            </div>
+            <div class="modal-field">
+              <label for="create-class-code">班级邀请码</label>
+              <input
+                id="create-class-code"
+                name="code"
+                maxlength="24"
+                autocomplete="off"
+                placeholder="例如：SE-2026-01"
+                required
+              />
+            </div>
+            <div class="modal-field">
+              <label for="create-class-description">班级说明</label>
+              <textarea
+                id="create-class-description"
+                name="description"
+                maxlength="100"
+                placeholder="例如：用于本班互助、任务与资源共享"
+              ></textarea>
+            </div>
+            <p class="form-hint">邀请码在全部班级中必须唯一，建议同时包含学院、年级和班号。</p>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            <button class="primary-button" type="submit">${icon("plus")} 创建班级</button>
+          </div>
+        </form>
+      `
+    },
     profile: {
-      title: "编辑账号身份与资料",
-      subtitle: "账号名称不可重复，教师和班委身份目前采用自主申报",
+      title: "编辑昵称与账号资料",
+      subtitle: "昵称每天最多修改一次，班级身份按班级保存并需要审核",
       wide: true,
       body: `
         <form id="profile-form">
           <div class="modal-body">
+            <div class="current-class-note">
+              <span>${icon("school")}</span>
+              <div>
+                <strong>${escapeHTML(getCurrentClass().name)}</strong>
+                <small>本次修改只影响当前班级的身份与职责</small>
+              </div>
+            </div>
             <div class="form-grid">
               <div class="modal-field">
-                <label for="profile-name">账号名称</label>
-                <input id="profile-name" name="name" maxlength="20" value="${escapeHTML(
-                  authState.session?.username || state.candidate.name
+                <label for="profile-name">登录账号</label>
+                <input id="profile-name" name="username" maxlength="20" value="${escapeHTML(
+                  authState.session?.username || ""
                 )}" readonly />
               </div>
               <div class="modal-field">
-                <label for="profile-slogan">竞选主张</label>
-                <input id="profile-slogan" name="slogan" maxlength="60" value="${escapeHTML(
-                  state.candidate.slogan
-                )}" required />
+                <label for="profile-nickname">昵称</label>
+                <input
+                  id="profile-nickname"
+                  name="nickname"
+                  maxlength="8"
+                  value="${escapeHTML(currentNickname)}"
+                  placeholder="请输入 2 到 8 个汉字"
+                  aria-describedby="profile-nickname-hint"
+                  ${nicknameChange.allowed ? "" : "readonly"}
+                  required
+                />
+                <small class="form-hint" id="profile-nickname-hint">
+                  ${escapeHTML(
+                    nicknameChange.allowed
+                      ? "昵称仅限 2 到 8 个汉字，每天最多修改一次。"
+                      : nicknameChange.message
+                  )}
+                </small>
               </div>
+            </div>
+            <div class="modal-field">
+              <label for="profile-slogan">竞选主张</label>
+              <input id="profile-slogan" name="slogan" maxlength="60" value="${escapeHTML(
+                state.candidate.slogan
+              )}" required />
             </div>
             <div class="form-grid">
               <div class="modal-field">
@@ -3070,7 +3972,7 @@ function openModal(kind) {
                             .filter(
                               ([role, meta]) =>
                                 meta.group === group &&
-                                (role !== "admin" || authState.session?.role === "admin")
+                                role !== "admin"
                             )
                             .map(
                               ([role, meta]) => `
@@ -3339,8 +4241,20 @@ async function mantleRequest(url, options = {}) {
 }
 
 async function readRemoteAccount(usernameKey) {
-  if (!hasSharedConfig()) return null;
-  return mantleRequest(mantleEntryUrl(`accounts/${encodeURIComponent(usernameKey)}`));
+  if (!hasSharedConfig()) {
+    return (
+      getLocalAccounts().find((account) => account.usernameKey === usernameKey) ||
+      null
+    );
+  }
+  const remoteAccount = await mantleRequest(
+    mantleEntryUrl(`accounts/${encodeURIComponent(usernameKey)}`)
+  );
+  return (
+    remoteAccount ||
+    getLocalAccounts().find((account) => account.usernameKey === usernameKey) ||
+    null
+  );
 }
 
 async function writeRemoteAccount(account) {
@@ -3351,6 +4265,345 @@ async function writeRemoteAccount(account) {
   });
 }
 
+async function commitAccount(account) {
+  const accounts = getLocalAccounts().filter(
+    (item) => item.usernameKey !== account.usernameKey
+  );
+  accounts.push(account);
+  saveLocalAccounts(accounts);
+  await writeRemoteAccount(account);
+}
+
+function getCachedClasses() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CLASSES_CACHE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveCachedClasses(classes) {
+  const unique = new Map();
+  classes
+    .filter((classItem) => classItem?.id && classItem?.name && classItem?.code)
+    .forEach((classItem) => unique.set(classItem.id, classItem));
+  ui.classes = [...unique.values()].sort((a, b) =>
+    String(a.name).localeCompare(String(b.name), "zh-CN")
+  );
+  ui.classesLoaded = true;
+  try {
+    localStorage.setItem(CLASSES_CACHE_KEY, JSON.stringify(ui.classes));
+  } catch (error) {
+    // Class caching is best effort when browser storage is unavailable.
+  }
+  return ui.classes;
+}
+
+async function readRemoteClasses() {
+  if (!hasSharedConfig()) return getCachedClasses();
+  const list = await mantleRequest(mantleListUrl());
+  const classPaths = (list?.entries || [])
+    .map((entry) => entry?.path)
+    .filter((path) => typeof path === "string" && path.startsWith("classes/"))
+    .slice(0, 200);
+  const classes = await Promise.all(
+    classPaths.map((path) => mantleRequest(mantleEntryUrl(path)))
+  );
+  return classes.filter((classItem) => classItem?.id && classItem?.name && classItem?.code);
+}
+
+async function writeRemoteClass(classItem) {
+  saveCachedClasses([...ui.classes.filter((item) => item.id !== classItem.id), classItem]);
+  if (!hasSharedConfig()) return;
+  await mantleRequest(
+    mantleEntryUrl(`classes/${encodeURIComponent(classItem.id)}`),
+    {
+      method: "POST",
+      body: JSON.stringify(classItem)
+    }
+  );
+}
+
+function createDefaultClass() {
+  const createdAt = new Date().toISOString();
+  return {
+    id: DEFAULT_CLASS_ID,
+    name: "默认班级",
+    code: DEFAULT_CLASS_CODE,
+    description: "旧数据与首批同学默认加入的班级，管理员可继续创建其他班级。",
+    active: true,
+    createdBy: "system",
+    createdAt
+  };
+}
+
+async function ensureDefaultClass() {
+  let classes = [];
+  try {
+    classes = await readRemoteClasses();
+  } catch (error) {
+    classes = getCachedClasses();
+  }
+  let defaultClass = classes.find((classItem) => classItem.id === DEFAULT_CLASS_ID);
+  if (!defaultClass && !classes.some((classItem) => classItem.code === DEFAULT_CLASS_CODE)) {
+    defaultClass = createDefaultClass();
+    classes = [...classes, defaultClass];
+    if (hasSharedConfig()) {
+      await mantleRequest(
+        mantleEntryUrl(`classes/${encodeURIComponent(defaultClass.id)}`),
+        {
+          method: "POST",
+          body: JSON.stringify(defaultClass)
+        }
+      ).catch(() => {});
+    }
+  }
+  saveCachedClasses(classes);
+  return defaultClass || classes[0] || null;
+}
+
+async function findClassByCode(value) {
+  const code = normalizeClassCode(value);
+  const codeError = validateClassCode(code);
+  if (codeError) return null;
+  let classes = [];
+  try {
+    classes = await readRemoteClasses();
+  } catch (error) {
+    classes = getCachedClasses();
+  }
+  if (!classes.length && code === DEFAULT_CLASS_CODE) {
+    await ensureDefaultClass();
+    classes = ui.classes;
+  }
+  saveCachedClasses(classes);
+  return classes.find((classItem) => normalizeClassCode(classItem.code) === code) || null;
+}
+
+async function loadClasses(force = false) {
+  if (
+    syncState.classesInFlight ||
+    (syncState.classesLoaded && ui.classesLoaded && !force)
+  ) {
+    return ui.classes;
+  }
+  syncState.classesInFlight = true;
+  ui.classesLoading = true;
+  if (ui.page === "classes" && !ui.classesLoaded) render();
+  try {
+    const classes = await readRemoteClasses();
+    saveCachedClasses(classes);
+    syncState.classesLoaded = true;
+  } catch (error) {
+    saveCachedClasses(getCachedClasses());
+  } finally {
+    syncState.classesInFlight = false;
+    ui.classesLoading = false;
+    if (ui.page === "classes") render();
+  }
+  return ui.classes;
+}
+
+async function prepareAccountForSession(session) {
+  const usernameKey = localUsernameKey(session?.username);
+  const localAccount =
+    getLocalAccounts().find((account) => account.usernameKey === usernameKey) || null;
+  let remoteAccount = null;
+  try {
+    remoteAccount = await readRemoteAccount(usernameKey);
+  } catch (error) {
+    remoteAccount = null;
+  }
+  const account = {
+    ...(localAccount || {}),
+    ...(remoteAccount || {}),
+    id: session.user.id,
+    username: session.username,
+    usernameKey
+  };
+  applyLatestNickname(account, localAccount, remoteAccount);
+  await ensureDefaultClass();
+  ensureAccountMemberships(account, DEFAULT_CLASS_ID);
+  let currentClassId =
+    session.currentClassId || remoteAccount?.currentClassId || localAccount?.currentClassId;
+  if (!getMembershipForClass(account, currentClassId)) {
+    currentClassId = getAccountMemberships(account)[0]?.classId || DEFAULT_CLASS_ID;
+  }
+  if (!getMembershipForClass(account, currentClassId)) {
+    setAccountMembership(account, currentClassId, {
+      role: isAdminUsername(account.username) ? "admin" : "student",
+      status: "active"
+    });
+  }
+  account.currentClassId = currentClassId;
+  const classInfo =
+    ui.classes.find((classItem) => classItem.id === currentClassId) ||
+    ui.classes.find((classItem) => classItem.code === DEFAULT_CLASS_CODE);
+  const membership = getMembershipForClass(account, currentClassId);
+  const localAccounts = getLocalAccounts().filter(
+    (item) => item.usernameKey !== usernameKey
+  );
+  localAccounts.push({ ...(localAccount || {}), ...account, currentClassId });
+  saveLocalAccounts(localAccounts);
+  if (remoteAccount) {
+    void writeRemoteAccount(account).catch(() => {});
+  }
+  return {
+    ...session,
+    username: account.username,
+    nickname: getAccountNickname(account),
+    role: resolveAccountRole({ ...account, currentClassId }),
+    pendingRole: membership?.pendingRole ? normalizeRole(membership.pendingRole) : "",
+    identityNote: String(membership?.identityNote || ""),
+    identityStatus: membership?.identityStatus || "student",
+    currentClassId,
+    className: classInfo?.name || "默认班级",
+    classCode: classInfo?.code || "",
+    classMemberships: getAccountMemberships(account)
+  };
+}
+
+async function switchClass(classId) {
+  const classItem =
+    ui.classes.find((item) => item.id === classId) ||
+    (await loadClasses(true)).find((item) => item.id === classId);
+  if (!classItem) {
+    showToast("班级不存在", "请刷新班级列表后再试。");
+    return;
+  }
+  if (!isCurrentAdmin() && !getActiveMembershipForClass(authState.session, classId)) {
+    openModal("join-class");
+    return;
+  }
+  const membership = isCurrentAdmin()
+    ? getActiveMembershipForClass(authState.session, classId) || {
+        role: "admin"
+      }
+    : getActiveMembershipForClass(authState.session, classId);
+  authState.session = {
+    ...authState.session,
+    currentClassId: classId,
+    className: classItem.name,
+    classCode: classItem.code,
+    role: resolveAccountRole({
+      ...authState.session,
+      currentClassId: classId
+    }),
+    pendingRole: membership?.pendingRole ? normalizeRole(membership.pendingRole) : "",
+    identityNote: String(membership?.identityNote || ""),
+    identityStatus: membership?.identityStatus || "student"
+  };
+  saveAuthSession(authState.session);
+  const accounts = getLocalAccounts();
+  const account = accounts.find(
+    (item) => item.usernameKey === localUsernameKey(authState.session.username)
+  );
+  if (account) {
+    if (isCurrentAdmin() && !getMembershipForClass(account, classId)) {
+      setAccountMembership(account, classId, {
+        role: "admin",
+        identityStatus: "approved",
+        status: "active"
+      });
+    } else {
+      account.currentClassId = classId;
+    }
+    account.updatedAt = new Date().toISOString();
+    saveLocalAccounts(accounts);
+    authState.session.classMemberships = getAccountMemberships(account);
+    void writeRemoteAccount(account).catch(() => {});
+  }
+  currentStorageKey = `${STORAGE_KEY}:${authState.session.user.id}:${classId}`;
+  state = loadState();
+  applySharedRecords(getCachedSharedRecords());
+  ui.membersLoaded = false;
+  ui.members = [];
+  ui.directoryMembers = [];
+  ui.historyLoaded = false;
+  ui.history = [];
+  ui.dailyUsage = null;
+  ui.page = "today";
+  closeModal();
+  render();
+  showToast("已切换班级", `当前进入：${classItem.name}`);
+  void syncSharedRecords();
+}
+
+async function joinClassByCode(classCode, role = "student", identityNote = "") {
+  const classItem = await findClassByCode(classCode);
+  if (!classItem) {
+    throw new Error("没有找到这个班级邀请码。");
+  }
+  const usernameKey = localUsernameKey(authState.session.username);
+  const accounts = getLocalAccounts();
+  const account = accounts.find((item) => item.usernameKey === usernameKey);
+  if (!account) throw new Error("本机账号资料不可用，请重新登录。");
+  const existing = getActiveMembershipForClass(account, classItem.id);
+  if (existing) {
+    await switchClass(classItem.id);
+    showToast("已进入班级", classItem.name);
+    return;
+  }
+  const requestedRole = normalizeRole(role);
+  const activeRole =
+    isAdminUsername(account.username) || requestedRole === "student"
+      ? requestedRole
+      : "student";
+  const pendingRole =
+    isAdminUsername(account.username) || requestedRole === "student"
+      ? ""
+      : requestedRole;
+  setAccountMembership(account, classItem.id, {
+    role: activeRole,
+    pendingRole,
+    identityNote: String(identityNote || "").trim().slice(0, 60),
+    identityStatus: isAdminUsername(account.username)
+      ? "approved"
+      : requestedRole === "student"
+        ? "student"
+        : "pending",
+    status: "active"
+  });
+  account.currentClassId = classItem.id;
+  saveLocalAccounts(accounts);
+  await writeRemoteAccount(account);
+  const session = createLocalSession(account);
+  await activateAccount(session);
+  closeModal();
+  showToast(
+    pendingRole ? "已加入班级，身份待审核" : "已加入班级",
+    `当前班级：${classItem.name}`
+  );
+}
+
+async function createClass(name, code, description) {
+  if (!isCurrentAdmin()) {
+    throw new Error("只有站点管理员可以创建班级。");
+  }
+  const cleanName = String(name || "").trim().slice(0, 40);
+  if (cleanName.length < 2) throw new Error("班级名称至少需要 2 个字符。");
+  const classCodeError = validateClassCode(code);
+  if (classCodeError) throw new Error(classCodeError);
+  const normalizedCode = normalizeClassCode(code);
+  const classes = await readRemoteClasses().catch(() => ui.classes);
+  if (classes.some((classItem) => normalizeClassCode(classItem.code) === normalizedCode)) {
+    throw new Error("这个班级邀请码已经被使用。");
+  }
+  const classItem = {
+    id: uid("class"),
+    name: cleanName,
+    code: normalizedCode,
+    description: String(description || "").trim().slice(0, 100),
+    active: true,
+    createdBy: authState.session.user.id,
+    createdAt: new Date().toISOString()
+  };
+  await writeRemoteClass(classItem);
+  await switchClass(classItem.id);
+  showToast("班级已创建", `${classItem.name} · ${classItem.code}`);
+}
+
 function localDateKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
     date.getDate()
@@ -3358,7 +4611,9 @@ function localDateKey(date = new Date()) {
 }
 
 function dailyUsagePath() {
-  return `usage/${encodeURIComponent(authState.session.user.id)}/${localDateKey()}`;
+  return `usage/${encodeURIComponent(
+    getCurrentClassId()
+  )}/${encodeURIComponent(authState.session.user.id)}/${localDateKey()}`;
 }
 
 async function readDailyUsage() {
@@ -3500,6 +4755,11 @@ function applySharedRecords(records) {
     const payload = record?.payload;
     if (!payload?.id) continue;
     const id = String(payload.id);
+    const recordClassId = String(
+      record.class_id || payload.classId || DEFAULT_CLASS_ID
+    );
+    if (recordClassId !== getCurrentClassId()) continue;
+    payload.classId = recordClassId;
 
     if (record.record_type === "post") {
       const existing = state.posts.find((item) => item.id === id);
@@ -3607,7 +4867,13 @@ async function readSharedHistory() {
   const records = await Promise.all(
     historyPaths.map((path) => mantleRequest(mantleEntryUrl(path)))
   );
-  return records.filter((record) => record?.record_key && record?.payload);
+  return records.filter(
+    (record) =>
+      record?.record_key &&
+      record?.payload &&
+      String(record.class_id || record.payload?.classId || DEFAULT_CLASS_ID) ===
+        getCurrentClassId()
+  );
 }
 
 async function archiveAndDeleteExpiredRecord(record) {
@@ -3645,10 +4911,18 @@ function purgeExpiredLocalRecords() {
 
 async function writeSharedRecord(record) {
   const { skip_quota, ...sharedRecord } = record;
+  const classId = String(
+    record.class_id || record.payload?.classId || DEFAULT_CLASS_ID
+  );
   await mantleRequest(mantleEntryUrl(`records/${encodeURIComponent(record.record_key)}`), {
     method: "POST",
     body: JSON.stringify({
       ...sharedRecord,
+      class_id: classId,
+      payload: {
+        ...sharedRecord.payload,
+        classId
+      },
       author_id: authState.session?.user.id || null
     })
   });
@@ -3657,12 +4931,14 @@ async function writeSharedRecord(record) {
 function queueSharedRecord(recordType, payload, options = {}) {
   if (!authState.session || !hasSharedConfig() || !payload?.id) return;
   payload.authorId = authState.session.user.id;
+  payload.classId = String(payload.classId || getCurrentClassId());
   const recordKey = `${recordType}:${payload.id}`;
   const pending = getPendingSharedRecords().filter((item) => item.record_key !== recordKey);
   pending.push({
     record_key: recordKey,
     record_type: recordType,
     payload,
+    class_id: payload.classId,
     visitor_id: getVisitorId(),
     status: "published",
     skip_quota: Boolean(options.skipQuota)
@@ -3737,13 +5013,53 @@ async function ensureCurrentAccountShared() {
     return false;
   } else {
     let changed = false;
-    const nextRole = resolveAccountRole(remoteAccount);
-    const nextPendingRole = remoteAccount.pendingRole
-      ? normalizeRole(remoteAccount.pendingRole)
+    const account = {
+      ...localAccount,
+      ...remoteAccount,
+      classMemberships: getAccountMemberships(remoteAccount).length
+        ? getAccountMemberships(remoteAccount)
+        : getAccountMemberships(localAccount)
+    };
+    applyLatestNickname(account, localAccount, remoteAccount);
+    let needsAccountWrite =
+      getAccountNickname(account) !== getAccountNickname(remoteAccount);
+    ensureAccountMemberships(account, getCurrentClassId());
+    let currentClassId = getCurrentClassId();
+    if (!getMembershipForClass(account, currentClassId)) {
+      const fallbackMembership = getAccountMemberships(account).find(
+        (membership) => membership.status === "active"
+      );
+      currentClassId =
+        fallbackMembership?.classId ||
+        getAccountMemberships(account)[0]?.classId ||
+        DEFAULT_CLASS_ID;
+      if (!getMembershipForClass(account, currentClassId)) {
+        setAccountMembership(account, currentClassId, {
+          role: isAdminUsername(account.username) ? "admin" : "student"
+        });
+      }
+      changed = true;
+      needsAccountWrite = true;
+    }
+    const membership = getMembershipForClass(account, currentClassId);
+    const classInfo = ui.classes.find((classItem) => classItem.id === currentClassId);
+    const nextRole = resolveAccountRole({ ...account, currentClassId });
+    const nextPendingRole = membership?.pendingRole
+      ? normalizeRole(membership.pendingRole)
       : "";
-    const nextNote = String(remoteAccount.identityNote || "");
-    if (authState.session.username !== remoteAccount.username) {
-      authState.session.username = remoteAccount.username;
+    const nextNote = String(membership?.identityNote || "");
+    if (authState.session.username !== account.username) {
+      authState.session.username = account.username;
+      changed = true;
+    }
+    if (authState.session.nickname !== getAccountNickname(account)) {
+      authState.session.nickname = getAccountNickname(account);
+      changed = true;
+    }
+    if (getCurrentClassId() !== currentClassId) {
+      authState.session.currentClassId = currentClassId;
+      currentStorageKey = `${STORAGE_KEY}:${authState.session.user.id}:${currentClassId}`;
+      state = loadState();
       changed = true;
     }
     if (authState.session.role !== nextRole) {
@@ -3758,12 +5074,29 @@ async function ensureCurrentAccountShared() {
       authState.session.identityNote = nextNote;
       changed = true;
     }
-    if ((authState.session.identityStatus || "") !== (remoteAccount.identityStatus || "student")) {
-      authState.session.identityStatus = remoteAccount.identityStatus || "student";
+    if ((authState.session.identityStatus || "") !== (membership?.identityStatus || "student")) {
+      authState.session.identityStatus = membership?.identityStatus || "student";
       changed = true;
     }
-    state.candidate.name = authState.session.username;
+    if (authState.session.className !== (classInfo?.name || "默认班级")) {
+      authState.session.className = classInfo?.name || "默认班级";
+      changed = true;
+    }
+    if (authState.session.classCode !== (classInfo?.code || "")) {
+      authState.session.classCode = classInfo?.code || "";
+      changed = true;
+    }
+    authState.session.classMemberships = getAccountMemberships(account);
+    state.candidate.name = getAccountNickname(authState.session);
     saveAuthSession(authState.session);
+    const localAccounts = getLocalAccounts().filter(
+      (item) => item.usernameKey !== usernameKey
+    );
+    localAccounts.push({ ...(localAccount || {}), ...account, currentClassId });
+    saveLocalAccounts(localAccounts);
+    if (!getAccountMemberships(remoteAccount).length || needsAccountWrite) {
+      await writeRemoteAccount({ ...account, currentClassId });
+    }
     saveState();
     syncState.accountChecked = true;
     return changed;
@@ -3805,6 +5138,9 @@ async function syncSharedRecords() {
   syncState.inFlight = true;
   setSyncStatus("syncing");
   try {
+    if (!ui.classesLoaded) {
+      await loadClasses();
+    }
     const accountChanged = await ensureCurrentAccountShared();
     importLocalRecordsToShared();
     await flushPendingSharedRecords();
@@ -3970,9 +5306,13 @@ function handleClick(event) {
     const usernameInput = document.getElementById("auth-username");
     const roleInput = document.getElementById("auth-role");
     const identityNoteInput = document.getElementById("auth-identity-note");
+    const classCodeInput = document.getElementById("auth-class-code");
     authState.username = usernameInput?.value || authState.username || "";
     authState.role = normalizeRole(roleInput?.value || authState.role);
     authState.identityNote = identityNoteInput?.value || authState.identityNote || "";
+    authState.classCode =
+      normalizeClassCode(classCodeInput?.value || authState.classCode) ||
+      DEFAULT_CLASS_CODE;
     authState.mode = actionElement.dataset.mode === "register" ? "register" : "login";
     authState.error = "";
     authState.busy = false;
@@ -4089,6 +5429,43 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "copy-class-code") {
+    const code = getCurrentClass().code || "";
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(code)
+        .then(() => showToast("邀请码已复制", `${getCurrentClass().name} · ${code}`))
+        .catch(() => showToast("班级邀请码", code));
+    } else {
+      showToast("班级邀请码", code);
+    }
+    return;
+  }
+
+  if (action === "switch-class") {
+    void switchClass(actionElement.dataset.classId).catch(() => {
+      showToast("切换失败", "班级列表暂时不可用，请稍后重试。");
+    });
+    return;
+  }
+
+  if (action === "toggle-class-active") {
+    void toggleClassActive(actionElement.dataset.classId).catch(() => {
+      showToast("操作失败", "共享服务暂时不可用，请稍后重试。");
+    });
+    return;
+  }
+
+  if (action === "remove-class-member") {
+    void removeClassMember(
+      actionElement.dataset.usernameKey,
+      actionElement.dataset.classId
+    ).catch(() => {
+      showToast("移除失败", "共享服务暂时不可用，请稍后重试。");
+    });
+    return;
+  }
+
   if (action === "delete-shared-record") {
     void deleteSharedRecord(
       actionElement.dataset.recordType,
@@ -4102,7 +5479,8 @@ function handleClick(event) {
   if (action === "approve-identity" || action === "reject-identity") {
     void reviewMemberIdentity(
       actionElement.dataset.usernameKey,
-      action === "approve-identity"
+      action === "approve-identity",
+      actionElement.dataset.classId || getCurrentClassId()
     ).catch(() => {
       showToast("审核失败", "共享服务暂时不可用，请稍后重试。");
     });
@@ -4215,16 +5593,25 @@ async function handleSubmit(event) {
     const confirmPassword = String(data.get("confirmPassword") || "");
     const role = normalizeRole(data.get("role") || authState.role);
     const identityNote = String(data.get("identityNote") || "").trim().slice(0, 60);
+    const classCode = normalizeClassCode(data.get("classCode") || authState.classCode);
     authState.username = username;
     authState.role = role;
     authState.identityNote = identityNote;
+    authState.classCode = classCode || DEFAULT_CLASS_CODE;
     authState.error = "";
     authState.busy = true;
     render();
 
     const action =
       authState.mode === "register"
-        ? registerAccount(username, password, confirmPassword, role, identityNote)
+        ? registerAccount(
+            username,
+            password,
+            confirmPassword,
+            role,
+            identityNote,
+            authState.classCode
+          )
         : loginAccount(username, password);
 
     action
@@ -4366,25 +5753,87 @@ async function handleSubmit(event) {
     return;
   }
 
+  if (form.id === "join-class-form") {
+    event.preventDefault();
+    const data = new FormData(form);
+    try {
+      await joinClassByCode(
+        data.get("classCode"),
+        data.get("role"),
+        data.get("identityNote")
+      );
+    } catch (error) {
+      showToast("加入班级失败", error.message || "请检查邀请码后重试。");
+    }
+    return;
+  }
+
+  if (form.id === "create-class-form") {
+    event.preventDefault();
+    const data = new FormData(form);
+    try {
+      await createClass(
+        data.get("name"),
+        data.get("code"),
+        data.get("description")
+      );
+    } catch (error) {
+      showToast("创建班级失败", error.message || "请检查填写内容后重试。");
+    }
+    return;
+  }
+
   if (form.id === "profile-form") {
     event.preventDefault();
     const data = new FormData(form);
+    const currentClassId = getCurrentClassId();
+    const accounts = getLocalAccounts();
+    const account = accounts.find(
+      (item) => item.usernameKey === localUsernameKey(authState.session.username)
+    );
+    const currentNickname = getAccountNickname(account || authState.session);
+    const requestedNickname = normalizeNickname(
+      data.get("nickname") || currentNickname
+    );
+    const nicknameChanged = requestedNickname !== currentNickname;
+    if (nicknameChanged) {
+      const nicknameError = validateNickname(requestedNickname);
+      if (nicknameError) {
+        showToast("昵称格式不正确", nicknameError);
+        requestAnimationFrame(() => document.getElementById("profile-nickname")?.focus());
+        return;
+      }
+      const nicknameChange = getNicknameChangeInfo(account || authState.session);
+      if (!nicknameChange.allowed) {
+        showToast("今天不能再次修改昵称", nicknameChange.message);
+        requestAnimationFrame(() => document.getElementById("profile-nickname")?.focus());
+        return;
+      }
+      if (!account) {
+        showToast("昵称保存失败", "本机账号资料不可用，请重新登录后再试。");
+        return;
+      }
+    }
+    const currentMembership = getCurrentMembership();
     const requestedRole = normalizeRole(data.get("role"));
-    const role = isCurrentAdmin()
-      ? "admin"
-      : requestedRole === "student"
-        ? "student"
-        : "student";
+    const alreadyApproved = normalizeRole(currentMembership?.role) === requestedRole;
+    const role = isCurrentAdmin() || alreadyApproved ? requestedRole : "student";
     const pendingRole =
-      isCurrentAdmin() || requestedRole === "student" ? "" : requestedRole;
+      isCurrentAdmin() || alreadyApproved || requestedRole === "student"
+        ? ""
+        : requestedRole;
     const identityStatus = isCurrentAdmin()
-      ? "approved"
+      ? requestedRole === "student"
+        ? "student"
+        : "approved"
       : requestedRole === "student"
         ? "student"
-        : "pending";
+        : alreadyApproved
+          ? "approved"
+          : "pending";
     const identityNote = String(data.get("identityNote") || "").trim().slice(0, 60);
     state.candidate = {
-      name: authState.session?.username || String(data.get("name")).trim(),
+      name: requestedNickname,
       slogan: String(data.get("slogan")).trim(),
       intro: String(data.get("intro")).trim(),
       letter: String(data.get("letter")).trim(),
@@ -4393,23 +5842,51 @@ async function handleSubmit(event) {
         text: String(data.get(`promiseText${index}`)).trim()
       }))
     };
-    saveState();
-    authState.session.role = role;
-    authState.session.pendingRole = pendingRole;
-    authState.session.identityNote = identityNote;
-    authState.session.identityStatus = identityStatus;
-    saveAuthSession(authState.session);
-    const accounts = getLocalAccounts();
-    const account = accounts.find(
-      (item) => item.usernameKey === localUsernameKey(authState.session.username)
-    );
     if (account) {
-      account.role = role;
-      account.pendingRole = pendingRole;
-      account.identityNote = identityNote;
-      account.identityStatus = identityStatus;
-      account.updatedAt = new Date().toISOString();
+      if (nicknameChanged) {
+        const changedAt = new Date().toISOString();
+        const previousNickname = currentNickname;
+        account.nickname = requestedNickname;
+        account.nicknameUpdatedAt = changedAt;
+        account.nicknameUpdatedDate = localDateKey();
+        authState.session.nickname = requestedNickname;
+        state.candidate.name = requestedNickname;
+        const userId = authState.session.user.id;
+        state.posts.forEach((item) => {
+          if (item.authorId === userId || (!item.shared && item.author === previousNickname)) {
+            item.author = requestedNickname;
+            if (item.shared) queueSharedRecord("post", item, { skipQuota: true });
+          }
+        });
+        state.teams.forEach((item) => {
+          if (item.authorId === userId || (!item.shared && item.owner === previousNickname)) {
+            item.owner = requestedNickname;
+            if (item.shared) queueSharedRecord("team", item, { skipQuota: true });
+          }
+        });
+        state.resources.forEach((item) => {
+          if (item.uploader === previousNickname) {
+            item.uploader = requestedNickname;
+          }
+        });
+      }
+      setAccountMembership(account, currentClassId, {
+        role,
+        pendingRole,
+        identityNote,
+        identityStatus
+      });
       saveLocalAccounts(accounts);
+      authState.session.classMemberships = getAccountMemberships(account);
+      authState.session.role = resolveAccountRole({
+        ...account,
+        currentClassId
+      });
+      authState.session.pendingRole = pendingRole;
+      authState.session.identityNote = identityNote;
+      authState.session.identityStatus = identityStatus;
+      saveAuthSession(authState.session);
+      saveState();
       void writeRemoteAccount(account)
         .then(() => {
           syncState.accountChecked = true;
@@ -4417,8 +5894,10 @@ async function handleSubmit(event) {
           showToast(
             pendingRole ? "身份申请已提交" : "身份资料已同步",
             pendingRole
-              ? `你申请的“${getRoleMeta(pendingRole).label}”需要管理员审核。`
-              : "成员身份目录已经更新。"
+              ? `你申请的“${getRoleMeta(
+                  pendingRole
+                ).label}”需要本班班委、辅导员或站点管理员审核。`
+              : "当前班级的成员身份目录已经更新。"
           );
         })
         .catch(() => {
@@ -4429,7 +5908,12 @@ async function handleSubmit(event) {
     }
     closeModal();
     render();
-    showToast("账号资料已更新", "首页、竞选页和身份标签已经同步。");
+    showToast(
+      nicknameChanged ? "昵称已修改" : "账号资料已更新",
+      nicknameChanged
+        ? "昵称每天只能修改一次，其他资料也已同步。"
+        : "首页、竞选页和身份标签已经同步。"
+    );
   }
 }
 
@@ -4466,6 +5950,16 @@ function handleInput(event) {
 function handleChange(event) {
   if (event.target.id === "resource-file") {
     handleFileUpload(event);
+    return;
+  }
+  if (event.target.dataset.action === "set-member-role") {
+    void updateClassMemberRole(
+      event.target.dataset.usernameKey,
+      event.target.dataset.classId,
+      event.target.value
+    ).catch(() => {
+      showToast("身份更新失败", "共享服务暂时不可用，请稍后重试。");
+    });
   }
 }
 
@@ -4503,8 +5997,11 @@ function initialize() {
   window.setInterval(() => {
     if (authState.session && document.visibilityState === "visible") {
       void syncSharedRecords();
-      if (ui.page === "members") {
+      if (ui.page === "members" || ui.page === "classes") {
         void loadMemberDirectory(true);
+      }
+      if (ui.page === "classes") {
+        void loadClasses(true);
       }
       if (ui.page === "history") {
         void loadHistory(true);
