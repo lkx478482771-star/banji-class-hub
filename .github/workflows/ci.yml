@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    name: 语法 / 图标 / 体积
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 这个仓库是零构建的纯静态站点：只做"不让明显错误上线"的门禁，不做打包。
+      - name: 语法检查
+        run: |
+          node --check app.js
+          node --check ahu-import.js
+          node --check config.js
+          node --check assets/icons.js
+          node --check scripts/check-icons.mjs
+          node --check scripts/check-size.mjs
+          node --check scripts/build-icons.mjs
+          node --check scripts/verify-icons.mjs
+
+      - name: 图标名一致性
+        run: node scripts/check-icons.mjs
+
+      - name: 图标渲染自检
+        run: node scripts/verify-icons.mjs .
+
+      - name: 体积预算
+        run: node scripts/check-size.mjs

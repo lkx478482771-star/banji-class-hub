@@ -1,0 +1,14 @@
+# 数据备份文件（含同学真实信息与口令摘要）——绝不入库、绝不上线
+mantle-backup*.json
+mantledb-backup*.json
+*-backup-*.json
+
+# 图标生成脚本的临时下载缓存
+node_modules/
+.cache-lucide.min.js
+
+# 编辑器 / 系统垃圾
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

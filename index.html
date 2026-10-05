@@ -2,14 +2,14 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
       content="班集是一个面向大学生的班级共建工具，聚合互助、组队、资源共享、截止提醒与匿名意见。"
     />
     <meta name="theme-color" content="#f4f5f1" />
     <title>班集 · 班级共建站</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20261005" />
   </head>
   <body>
     <div class="app-shell">
@@ -48,7 +48,14 @@
             <i data-lucide="history"></i>
             <span>历史记录</span>
           </button>
-          <button class="nav-item" id="nav-class-manager" type="button" data-action="navigate" data-page="classes">
+          <button
+            class="nav-item"
+            id="nav-class-manager"
+            type="button"
+            data-action="navigate"
+            data-page="classes"
+            hidden
+          >
             <i data-lucide="building-2"></i>
             <span>班级管理</span>
           </button>
@@ -185,8 +192,8 @@
     <div class="modal-root" id="modal-root"></div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-    <script src="config.js"></script>
-    <script src="assets/lucide.min.js"></script>
-    <script src="app.js"></script>
+    <script src="config.js?v=20261005" defer></script>
+    <script src="assets/icons.js?v=20261005" defer></script>
+    <script src="app.js?v=20261005" defer></script>
   </body>
 </html>

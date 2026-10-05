@@ -25,8 +25,11 @@ const syncState = {
   retryTimer: null,
   available: null,
   accountChecked: false,
-  localImported: false
+  localImported: false,
+  usageFailed: false
 };
+// 本轮刚刚上传成功的记录：即使列表接口暂时还没返回它们，也不能被对账误删。
+const recentlyUploadedSharedKeys = new Set();
 
 const PAGE_INFO = {
   today: { title: "今日班级", eyebrow: "班级服务台" },
@@ -452,6 +455,12 @@ function loadState() {
       counters: { ...defaults.counters, ...(saved.counters || {}) }
     };
   } catch (error) {
+    // 本地数据损坏时不能静默回默认值，否则用户会以为内容丢了。
+    try {
+      showToast("本地数据解析失败，已重置", "已恢复为初始数据。");
+    } catch (notifyError) {
+      // 启动早期通知区域可能尚未就绪，忽略。
+    }
     return defaults;
   }
 }
@@ -701,28 +710,52 @@ function localUsernameKey(username) {
   return normalizeUsername(username).toLocaleLowerCase("zh-CN");
 }
 
-async function deriveLocalPassword(password, saltHex, algorithm) {
-  if (algorithm === "pbkdf2" && crypto.subtle?.importKey) {
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(password),
-      "PBKDF2",
-      false,
-      ["deriveBits"]
-    );
-    const bits = await crypto.subtle.deriveBits(
-      {
-        name: "PBKDF2",
-        salt: hexToBytes(saltHex),
-        iterations: 120000,
-        hash: "SHA-256"
-      },
-      key,
-      256
-    );
-    return bytesToHex(new Uint8Array(bits));
+// 口令派生。新账号用 60 万次迭代；老账号记录里没有 iterations 字段，按其历史上使用的
+// 12 万次校验，登录成功后再静默升级（见 loginAccount）。
+const PASSWORD_ITERATIONS = 600000;
+const LEGACY_PASSWORD_ITERATIONS = 120000;
+const PASSWORD_MIN_LENGTH = 8;
+
+async function deriveLocalPassword(password, saltHex, algorithm, iterations) {
+  if (algorithm === "fallback") {
+    // 历史遗留：极早期在没有 WebCrypto 的环境里注册的账号，只能用这个非密码学散列验证，
+    // 否则那些账号会永久登不进来。新注册一律走 PBKDF2（见 deriveNewPassword）。
+    return fallbackHash(`${saltHex}:${password}`);
   }
-  return fallbackHash(`${saltHex}:${password}`);
+  if (!crypto.subtle?.importKey) {
+    throw new Error(
+      "当前浏览器不支持 WebCrypto，无法安全校验口令。请改用 https 打开本站。"
+    );
+  }
+  const rounds = Number(iterations) || LEGACY_PASSWORD_ITERATIONS;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt: hexToBytes(saltHex),
+      iterations: rounds,
+      hash: "SHA-256"
+    },
+    key,
+    256
+  );
+  return bytesToHex(new Uint8Array(bits));
+}
+
+async function deriveNewPassword(password, saltHex) {
+  if (!crypto.subtle?.importKey) {
+    // 不要退回非密码学散列：那只会给出"看起来加密过"的错觉。
+    throw new Error(
+      "当前浏览器不支持 WebCrypto，无法安全保存口令。请改用 https 打开本站。"
+    );
+  }
+  return deriveLocalPassword(password, saltHex, "pbkdf2", PASSWORD_ITERATIONS);
 }
 
 function createLocalSession(account) {
@@ -840,8 +873,10 @@ async function registerAccount(
 ) {
   const nameError = validateUsername(username);
   if (nameError) throw new Error(nameError);
-  if (password.length < 6 || password.length > 72) {
-    throw new Error("密码需要 6 到 72 个字符。");
+  if (password.length < PASSWORD_MIN_LENGTH || password.length > 72) {
+    throw new Error(
+      `密码需要 ${PASSWORD_MIN_LENGTH} 到 72 个字符，并且不要使用你在其他网站用过的密码。`
+    );
   }
   if (password !== confirmPassword) {
     throw new Error("两次输入的密码不一致。");
@@ -883,16 +918,16 @@ async function registerAccount(
   }
 
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const algorithm = crypto.subtle?.importKey ? "pbkdf2" : "fallback";
   const saltHex = bytesToHex(salt);
-  const passwordHash = await deriveLocalPassword(password, saltHex, algorithm);
+  const passwordHash = await deriveNewPassword(password, saltHex);
   const account = {
     id: crypto.randomUUID?.() || `local-${Date.now().toString(36)}`,
     username: cleanName,
     usernameKey,
     salt: saltHex,
     passwordHash,
-    algorithm,
+    algorithm: "pbkdf2",
+    iterations: PASSWORD_ITERATIONS,
     role: normalizedRole,
     pendingRole,
     identityNote: cleanIdentityNote,
@@ -936,17 +971,43 @@ async function loginAccount(username, password) {
     account = getLocalAccounts().find((item) => item.usernameKey === usernameKey) || null;
   }
   if (!account) throw new Error("账号名称或密码不正确。");
-  const passwordHash = await deriveLocalPassword(password, account.salt, account.algorithm);
+  const passwordHash = await deriveLocalPassword(
+    password,
+    account.salt,
+    account.algorithm,
+    account.iterations
+  );
   if (passwordHash !== account.passwordHash) {
     throw new Error("账号名称或密码不正确。");
   }
+
+  // 老账号用的是更少的迭代次数：这次登录成功后顺手升到当前标准。
+  // 升级失败（例如离线）不影响本次登录。
+  let storedAccount = account;
+  const currentRounds = Number(account.iterations || LEGACY_PASSWORD_ITERATIONS);
+  if (account.algorithm === "pbkdf2" && currentRounds < PASSWORD_ITERATIONS) {
+    try {
+      storedAccount = {
+        ...account,
+        passwordHash: await deriveNewPassword(password, account.salt),
+        algorithm: "pbkdf2",
+        iterations: PASSWORD_ITERATIONS
+      };
+    } catch (error) {
+      storedAccount = account;
+    }
+  }
+
   const localAccounts = getLocalAccounts().filter(
     (item) => item.usernameKey !== usernameKey
   );
-  localAccounts.push({ ...account, passwordHash, salt: account.salt, algorithm: account.algorithm });
+  localAccounts.push({ ...storedAccount, salt: storedAccount.salt });
   saveLocalAccounts(localAccounts);
-  await activateAccount(createLocalSession(account));
-  showToast("登录成功", `欢迎回来，${account.username}。`);
+  if (storedAccount !== account && hasSharedConfig()) {
+    void writeRemoteAccount(storedAccount).catch(() => {});
+  }
+  await activateAccount(createLocalSession(storedAccount));
+  showToast("登录成功", `欢迎回来，${storedAccount.username}。`);
 }
 
 function logoutAccount(renderAfter = true) {
@@ -1263,10 +1324,60 @@ function render() {
   };
 
   const app = document.getElementById("app");
+  const focusSnapshot = captureFocusState();
   app.innerHTML = (renderers[ui.page] || renderDashboard)();
   updateShell();
   renderNotificationPanel();
   refreshIcons(app);
+  restoreFocusState(focusSnapshot);
+}
+
+// 全量重渲染会重建输入框，这里记住并恢复焦点与光标位置。
+function focusSelector(node) {
+  if (!node || node === document.body) return null;
+  const escape = (value) => String(value).replace(/["\\]/g, "\\$&");
+  if (node.id) return `[id="${escape(node.id)}"]`;
+  const action = node.dataset ? node.dataset.action : "";
+  if (!action) return null;
+  const parts = [`data-action="${escape(action)}"`];
+  ["page", "id", "key"].forEach((name) => {
+    const value = node.dataset[name];
+    if (value) parts.push(`data-${name}="${escape(value)}"`);
+  });
+  return `[${parts.join("][")}]`;
+}
+
+function captureFocusState() {
+  const node = document.activeElement;
+  const selector = focusSelector(node);
+  if (!selector) return null;
+  const snapshot = { selector };
+  try {
+    if (typeof node.selectionStart === "number") {
+      snapshot.selectionStart = node.selectionStart;
+      snapshot.selectionEnd = node.selectionEnd;
+    }
+  } catch (error) {
+    // 部分输入类型不支持读取选区，忽略即可。
+  }
+  return snapshot;
+}
+
+function restoreFocusState(snapshot) {
+  if (!snapshot || !snapshot.selector) return;
+  try {
+    const node = document.querySelector(snapshot.selector);
+    if (!node) return;
+    node.focus({ preventScroll: true });
+    if (
+      typeof snapshot.selectionStart === "number" &&
+      typeof node.setSelectionRange === "function"
+    ) {
+      node.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+    }
+  } catch (error) {
+    // 恢复焦点失败不影响渲染。
+  }
 }
 
 function navigate(page) {
@@ -1616,7 +1727,7 @@ function renderDeadlineItem(item) {
           class="small-icon-button"
           type="button"
           data-action="toggle-deadline"
-          data-id="${item.id}"
+          data-id="${escapeHTML(item.id)}"
           aria-label="${item.done ? "标记为未完成" : "标记为完成"}"
           title="${item.done ? "标记为未完成" : "标记为完成"}"
         >
@@ -1630,7 +1741,7 @@ function renderDeadlineItem(item) {
                 type="button"
                 data-action="delete-shared-record"
                 data-record-type="deadline"
-                data-id="${item.id}"
+                data-id="${escapeHTML(item.id)}"
                 aria-label="删除事项"
                 title="删除事项"
               >
@@ -1771,7 +1882,7 @@ function renderPostCard(item) {
                   type="button"
                   data-action="delete-shared-record"
                   data-record-type="post"
-                  data-id="${item.id}"
+                  data-id="${escapeHTML(item.id)}"
                   aria-label="删除信息"
                   title="删除信息"
                 >
@@ -1784,7 +1895,7 @@ function renderPostCard(item) {
             class="${resolved ? "secondary-button" : "primary-button"}"
             type="button"
             data-action="respond-post"
-            data-id="${item.id}"
+            data-id="${escapeHTML(item.id)}"
             ${resolved ? "disabled" : ""}
           >
             ${icon(resolved ? "circle-check" : "hand-heart")}
@@ -1865,7 +1976,7 @@ function renderTeamCard(item) {
                   type="button"
                   data-action="delete-shared-record"
                   data-record-type="team"
-                  data-id="${item.id}"
+                  data-id="${escapeHTML(item.id)}"
                   aria-label="删除组队"
                   title="删除组队"
                 >
@@ -1878,7 +1989,7 @@ function renderTeamCard(item) {
             class="${full ? "secondary-button" : "primary-button"}"
             type="button"
             data-action="join-team"
-            data-id="${item.id}"
+            data-id="${escapeHTML(item.id)}"
             ${full ? "disabled" : ""}
           >
             ${icon(full ? "circle-check" : "plus")}
@@ -1990,7 +2101,7 @@ function renderResourceRows() {
               class="small-icon-button"
               type="button"
               data-action="download-resource"
-              data-id="${item.id}"
+              data-id="${escapeHTML(item.id)}"
               aria-label="下载"
               title="下载"
             >
@@ -2000,7 +2111,7 @@ function renderResourceRows() {
               class="small-icon-button"
               type="button"
               data-action="delete-resource"
-              data-id="${item.id}"
+              data-id="${escapeHTML(item.id)}"
               aria-label="删除"
               title="删除"
             >
@@ -2093,32 +2204,41 @@ async function loadSchedule(force = false) {
   if (ui.scheduleLoading || (ui.scheduleLoaded && !force)) return;
   ui.scheduleLoading = true;
   try {
-    ui.schedule = await readRemoteSchedule();
-  } catch (error) {
-    ui.schedule = null;
+    try {
+      ui.schedule = await readRemoteSchedule();
+    } catch (error) {
+      // 读取失败时保留已有课表，不要整页清空。
+      if (ui.schedule) {
+        showToast("课表同步失败", "当前显示的是本地缓存的课表。");
+      } else {
+        showToast("课表读取失败", "暂时无法显示课表，稍后可再试。");
+      }
+    }
+    if (!ui.schedule) {
+      ui.schedule = {
+        version: 1,
+        ownerId: authState.session?.user.id || "",
+        classId: authState.session?.classId || DEFAULT_CLASS_ID,
+        source: "手动添加",
+        semester: null,
+        currentWeek: 1,
+        courses: [],
+        sessions: []
+      };
+    }
+    ui.schedule.courses = Array.isArray(ui.schedule.courses)
+      ? ui.schedule.courses
+      : [];
+    ui.schedule.sessions = Array.isArray(ui.schedule.sessions)
+      ? ui.schedule.sessions
+      : [];
+    ui.schedule.currentWeek = Math.max(1, Number(ui.schedule.currentWeek || 1));
+    ui.scheduleLoaded = true;
+    if (ui.page === "profile") render();
+  } finally {
+    // 任何异常都不能让课表永久停在加载中。
+    ui.scheduleLoading = false;
   }
-  if (!ui.schedule) {
-    ui.schedule = {
-      version: 1,
-      ownerId: authState.session?.user.id || "",
-      classId: authState.session?.classId || DEFAULT_CLASS_ID,
-      source: "手动添加",
-      semester: null,
-      currentWeek: 1,
-      courses: [],
-      sessions: []
-    };
-  }
-  ui.schedule.courses = Array.isArray(ui.schedule.courses)
-    ? ui.schedule.courses
-    : [];
-  ui.schedule.sessions = Array.isArray(ui.schedule.sessions)
-    ? ui.schedule.sessions
-    : [];
-  ui.schedule.currentWeek = Math.max(1, Number(ui.schedule.currentWeek || 1));
-  ui.scheduleLoading = false;
-  ui.scheduleLoaded = true;
-  if (ui.page === "profile") render();
 }
 
 function formatClock(value) {
@@ -2559,8 +2679,8 @@ function renderPersonalCenter() {
                             class="small-icon-button"
                             type="button"
                             data-action="delete-shared-record"
-                            data-record-type="${record.recordType}"
-                            data-id="${record.id}"
+                            data-record-type="${escapeHTML(record.recordType)}"
+                            data-id="${escapeHTML(record.id)}"
                             aria-label="删除"
                             title="删除"
                           >
@@ -2735,13 +2855,16 @@ async function loadClassDirectory(force = false) {
       .filter((path) => typeof path === "string" && path.startsWith("accounts/"));
     const [classes, accounts] = await Promise.all([
       listRemoteClasses(),
-      Promise.all(accountPaths.map((path) => mantleRequest(mantleEntryUrl(path))))
+      mapLimit(accountPaths, MANTLE_MAX_CONCURRENCY, (path) =>
+        mantleRequest(mantleEntryUrl(path))
+      )
     ]);
     ui.classes = classes;
     ui.classAccounts = accounts.filter((account) => account?.username);
   } catch (error) {
-    ui.classes = [];
-    ui.classAccounts = [];
+    // 失败时保留旧数据，并明确告诉用户，不要静默清空。
+    setSyncStatus("offline");
+    showToast("班级列表加载失败", "稍后再试，当前显示的是已有数据。");
   } finally {
     ui.classesLoading = false;
     ui.classesLoaded = true;
@@ -2950,8 +3073,8 @@ async function loadMemberDirectory(force = false) {
       const accountPaths = (list?.entries || [])
         .map((entry) => entry?.path)
         .filter((path) => typeof path === "string" && path.startsWith("accounts/"));
-      const remoteAccounts = await Promise.all(
-        accountPaths.map((path) => mantleRequest(mantleEntryUrl(path)))
+      const remoteAccounts = await mapLimit(accountPaths, MANTLE_MAX_CONCURRENCY, (path) =>
+        mantleRequest(mantleEntryUrl(path))
       );
       ui.members = remoteAccounts
         .filter(
@@ -3370,7 +3493,7 @@ function renderSuggestionCard(item) {
                 type="button"
                 data-action="delete-shared-record"
                 data-record-type="suggestion"
-                data-id="${item.id}"
+                data-id="${escapeHTML(item.id)}"
                 aria-label="删除意见"
                 title="删除意见"
               >
@@ -4151,24 +4274,116 @@ function mantleListUrl() {
   )}`;
 }
 
-async function mantleRequest(url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...(options.headers || {})
-    },
-    cache: "no-store"
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    const error = new Error(`Shared storage request failed: ${response.status}`);
-    error.status = response.status;
-    throw error;
+const MANTLE_TIMEOUT_MS = 8000;
+const MANTLE_CACHE_TTL_MS = 5000;
+const MANTLE_MAX_CONCURRENCY = 6;
+const mantleValueCache = new Map();
+const mantleInFlight = new Map();
+let mantleCacheEpoch = 0;
+
+// 按并发上限跑任务，避免一次 list 后对几百条 path 同时发起请求。
+async function mapLimit(items, limit, worker) {
+  const list = Array.from(items || []);
+  if (!list.length) return [];
+  const results = new Array(list.length);
+  let cursor = 0;
+  const runners = [];
+  const runnerCount = Math.max(1, Math.min(limit, list.length));
+  for (let index = 0; index < runnerCount; index += 1) {
+    runners.push(
+      (async () => {
+        while (cursor < list.length) {
+          const current = cursor;
+          cursor += 1;
+          results[current] = await worker(list[current], current);
+        }
+      })()
+    );
   }
-  if (response.status === 204) return null;
-  return response.json();
+  await Promise.all(runners);
+  return results;
+}
+
+async function fetchMantle(url, options) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), MANTLE_TIMEOUT_MS);
+  try {
+    let response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          ...(options.headers || {})
+        },
+        cache: "no-store"
+      });
+    } catch (error) {
+      throw toMantleTimeoutError(error, controller);
+    }
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      const error = new Error(`Shared storage request failed: ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    if (response.status === 204) return null;
+    // 读取响应体也要在超时保护之内：只等头部是不够的，body 卡住同样会挂死同步。
+    try {
+      return await response.json();
+    } catch (error) {
+      throw toMantleTimeoutError(error, controller);
+    }
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+function toMantleTimeoutError(error, controller) {
+  if (controller.signal.aborted) {
+    const timeoutError = new Error("共享服务响应超时，请稍后再试。");
+    timeoutError.name = "MantleTimeoutError";
+    timeoutError.status = 0;
+    timeoutError.timeout = true;
+    return timeoutError;
+  }
+  return error;
+}
+
+async function mantleRequest(url, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  if (method !== "GET") {
+    const result = await fetchMantle(url, options);
+    // 写入成功后立刻让短时缓存失效，避免随后读到旧列表。
+    mantleCacheEpoch += 1;
+    mantleValueCache.clear();
+    return result;
+  }
+  const key = String(url);
+  const cached = mantleValueCache.get(key);
+  if (cached && Date.now() - cached.at < MANTLE_CACHE_TTL_MS) {
+    return cached.value;
+  }
+  const pending = mantleInFlight.get(key);
+  if (pending) return pending;
+  const epoch = mantleCacheEpoch;
+  const request = fetchMantle(url, options).then(
+    (value) => {
+      mantleInFlight.delete(key);
+      if (epoch === mantleCacheEpoch) {
+        mantleValueCache.set(key, { at: Date.now(), value });
+      }
+      return value;
+    },
+    (error) => {
+      mantleInFlight.delete(key);
+      throw error;
+    }
+  );
+  mantleInFlight.set(key, request);
+  return request;
 }
 
 async function readRemoteAccount(usernameKey) {
@@ -4206,8 +4421,8 @@ async function listRemoteClasses() {
   const classPaths = (list?.entries || [])
     .map((entry) => entry?.path)
     .filter((path) => typeof path === "string" && path.startsWith("classes/"));
-  const classes = await Promise.all(
-    classPaths.map((path) => mantleRequest(mantleEntryUrl(path)))
+  const classes = await mapLimit(classPaths, MANTLE_MAX_CONCURRENCY, (path) =>
+    mantleRequest(mantleEntryUrl(path))
   );
   return classes.filter((item) => item?.id && item?.code);
 }
@@ -4239,12 +4454,24 @@ async function readDailyUsage() {
 async function ensurePublishQuota(recordType) {
   if (isCurrentAdmin()) return;
   if (!authState.session || !hasSharedConfig()) return;
-  const usage = await readDailyUsage();
+  let usage;
+  try {
+    usage = await readDailyUsage();
+  } catch (error) {
+    // 配额读不到时放行：离线或网络故障不该阻止已经写好的离线队列。
+    setSyncStatus("offline");
+    scheduleSharedSync();
+    return;
+  }
   if (usage.total >= PUBLISH_LIMITS.total) {
-    throw new Error(`今天已经发布 ${PUBLISH_LIMITS.total} 条，请明天再试。`);
+    const limitError = new Error(`今天已经发布 ${PUBLISH_LIMITS.total} 条，请明天再试。`);
+    limitError.quotaLimit = true;
+    throw limitError;
   }
   if (usage[recordType] >= PUBLISH_LIMITS[recordType]) {
-    throw new Error(`今天这类信息最多发布 ${PUBLISH_LIMITS[recordType]} 条。`);
+    const limitError = new Error(`今天这类信息最多发布 ${PUBLISH_LIMITS[recordType]} 条。`);
+    limitError.quotaLimit = true;
+    throw limitError;
   }
 }
 
@@ -4360,9 +4587,11 @@ function setSyncStatus(status, detail = "") {
   label.textContent = messages[status] || messages.offline;
 }
 
-function applySharedRecords(records) {
+function applySharedRecords(records, reconcile = false) {
   let changed = false;
+  const remoteKeys = new Set();
   for (const record of records) {
+    if (record?.record_key) remoteKeys.add(record.record_key);
     const payload = record?.payload;
     if (!payload?.id) continue;
     const id = String(payload.id);
@@ -4440,6 +4669,26 @@ function applySharedRecords(records) {
     }
   }
 
+  // 只在远端成功返回时做对账：本地已经缓存的共享记录若在远端消失，就一并移除。
+  if (reconcile) {
+    const pendingKeys = new Set(getPendingSharedRecords().map((item) => item.record_key));
+    for (const collectionName of ["posts", "teams", "suggestions", "deadlines"]) {
+      const collection = state[collectionName];
+      const kept = collection.filter((item) => {
+        if (!item?.shared || !item.recordKey) return true;
+        if (remoteKeys.has(item.recordKey)) return true;
+        // 还在待发队列里、或本轮刚上传成功的记录绝不能删，否则会真的丢内容。
+        return (
+          pendingKeys.has(item.recordKey) || recentlyUploadedSharedKeys.has(item.recordKey)
+        );
+      });
+      if (kept.length !== collection.length) {
+        state[collectionName] = kept;
+        changed = true;
+      }
+    }
+  }
+
   if (changed) {
     state.posts.sort((a, b) => parseDate(b.createdAt) - parseDate(a.createdAt));
     state.teams.sort((a, b) => parseDate(a.date) - parseDate(b.date));
@@ -4453,19 +4702,22 @@ function applySharedRecords(records) {
 async function readSharedRecords() {
   if (!hasSharedConfig()) return [];
   const list = await mantleRequest(mantleListUrl());
-  const recordPaths = (list?.entries || [])
+  const allPaths = (list?.entries || [])
     .map((entry) => entry?.path)
-    .filter((path) => typeof path === "string" && path.startsWith("records/"))
-    .slice(0, 500);
-  const records = await Promise.all(
-    recordPaths.map((path) => mantleRequest(mantleEntryUrl(path)))
+    .filter((path) => typeof path === "string" && path.startsWith("records/"));
+  const recordPaths = allPaths.slice(0, 500);
+  const records = await mapLimit(recordPaths, MANTLE_MAX_CONCURRENCY, (path) =>
+    mantleRequest(mantleEntryUrl(path))
   );
-  return records.filter(
+  const visible = records.filter(
     (record) =>
       record?.record_key &&
       record?.payload &&
       (record.class_id || DEFAULT_CLASS_ID) === currentClassId()
   );
+  // 超过 500 条时这份列表并不完整，不能据此删除本地缓存。
+  visible.complete = allPaths.length <= 500;
+  return visible;
 }
 
 async function readSharedHistory() {
@@ -4475,8 +4727,8 @@ async function readSharedHistory() {
     .map((entry) => entry?.path)
     .filter((path) => typeof path === "string" && path.startsWith("history/"))
     .slice(0, 500);
-  const records = await Promise.all(
-    historyPaths.map((path) => mantleRequest(mantleEntryUrl(path)))
+  const records = await mapLimit(historyPaths, MANTLE_MAX_CONCURRENCY, (path) =>
+    mantleRequest(mantleEntryUrl(path))
   );
   return records.filter(
     (record) =>
@@ -4521,11 +4773,18 @@ function purgeExpiredLocalRecords() {
 
 async function writeSharedRecord(record) {
   const { skip_quota, ...sharedRecord } = record;
+  const isAnonymous = record.record_type === "suggestion";
+  if (isAnonymous && sharedRecord.payload && typeof sharedRecord.payload === "object") {
+    // 用副本剥掉身份字段，别动本地对象（作者还要靠它认出自己的内容）。
+    const { authorId, ...anonymousPayload } = sharedRecord.payload;
+    sharedRecord.payload = anonymousPayload;
+  }
   await mantleRequest(mantleEntryUrl(`records/${encodeURIComponent(record.record_key)}`), {
     method: "POST",
     body: JSON.stringify({
       ...sharedRecord,
-      author_id: authState.session?.user.id || null,
+      author_id: isAnonymous ? null : authState.session?.user.id || null,
+      visitor_id: isAnonymous ? null : record.visitor_id || null,
       class_id: record.class_id || authState.session?.classId || DEFAULT_CLASS_ID
     })
   });
@@ -4533,14 +4792,19 @@ async function writeSharedRecord(record) {
 
 function queueSharedRecord(recordType, payload, options = {}) {
   if (!authState.session || !hasSharedConfig() || !payload?.id) return;
+  // 本地保留 authorId，方便作者在自己的设备上找到并删除自己的内容；
+  // 但"匿名意见"上传时不带任何身份字段（见 outgoing / writeSharedRecord）。
   payload.authorId = authState.session.user.id;
+  const isAnonymous = recordType === "suggestion";
+  const outgoing = { ...payload };
+  if (isAnonymous) delete outgoing.authorId;
   const recordKey = `${recordType}:${payload.id}`;
   const pending = getPendingSharedRecords().filter((item) => item.record_key !== recordKey);
   pending.push({
     record_key: recordKey,
     record_type: recordType,
-    payload,
-    visitor_id: getVisitorId(),
+    payload: outgoing,
+    visitor_id: isAnonymous ? "" : getVisitorId(),
     class_id: authState.session?.classId || DEFAULT_CLASS_ID,
     status: "published",
     skip_quota: Boolean(options.skipQuota)
@@ -4563,11 +4827,20 @@ function queueSharedRecord(recordType, payload, options = {}) {
     });
 }
 
+// 断网、超时、跨域这类没有 HTTP 状态码的失败都属于临时故障，不该计入「脏数据」次数。
+function isTransientSyncError(error) {
+  if (!error) return false;
+  if (error.timeout === true) return true;
+  return !Number(error.status || 0);
+}
+
 async function flushPendingSharedRecords() {
   if (!hasSharedConfig()) return 0;
   const pending = getPendingSharedRecords();
   if (!pending.length) return 0;
   let uploaded = 0;
+  const skipped = [];
+  recentlyUploadedSharedKeys.clear();
 
   for (const record of pending) {
     try {
@@ -4576,17 +4849,44 @@ async function flushPendingSharedRecords() {
         try {
           await incrementDailyUsage(record.record_type);
         } catch (error) {
-          // Publishing succeeded; usage accounting can retry independently.
+          // 内容已经发布成功，只有今日用量没记上；只标记状态，不打断用户。
+          syncState.usageFailed = true;
         }
       }
       uploaded += 1;
-      const remaining = getPendingSharedRecords().filter(
-        (item) => item.record_key !== record.record_key
+      recentlyUploadedSharedKeys.add(record.record_key);
+      savePendingSharedRecords(
+        getPendingSharedRecords().filter((item) => item.record_key !== record.record_key)
       );
-      savePendingSharedRecords(remaining);
     } catch (error) {
-      throw error;
+      // 单条失败不能让队头阻塞后面的内容。
+      // 断网/超时属于临时故障：保留待发队列，等恢复网络后继续发，绝不能因此丢内容。
+      if (isTransientSyncError(error)) {
+        syncState.available = false;
+        setSyncStatus("offline");
+        scheduleSharedSync();
+        continue;
+      }
+      // 服务端明确拒绝（脏数据）才计数，累计 5 次移出队列。
+      const attempts = Number(record.attempts || 0) + 1;
+      if (attempts >= 5) {
+        skipped.push(record);
+        savePendingSharedRecords(
+          getPendingSharedRecords().filter((item) => item.record_key !== record.record_key)
+        );
+      } else {
+        const next = getPendingSharedRecords().map((item) =>
+          item.record_key === record.record_key ? { ...item, attempts } : item
+        );
+        savePendingSharedRecords(next);
+      }
     }
+  }
+
+  if (skipped.length) {
+    showToast("部分内容未能同步", `有 ${skipped.length} 条内容同步失败，已跳过。`);
+    setSyncStatus("offline");
+    scheduleSharedSync();
   }
 
   return uploaded;
@@ -4702,6 +5002,7 @@ async function syncSharedRecords() {
   syncState.inFlight = true;
   setSyncStatus("syncing");
   try {
+    syncState.usageFailed = false;
     const accountChanged = await ensureCurrentAccountShared();
     importLocalRecordsToShared();
     await flushPendingSharedRecords();
@@ -4709,21 +5010,34 @@ async function syncSharedRecords() {
     const allRecords = await readSharedRecords();
     const expiredRecords = allRecords.filter((record) => isRecordExpired(record?.payload));
     const records = allRecords.filter((record) => !isRecordExpired(record?.payload));
+    let archiveFailed = false;
     await Promise.all(
-      expiredRecords.map((record) => archiveAndDeleteExpiredRecord(record).catch(() => {}))
+      expiredRecords.map((record) =>
+        archiveAndDeleteExpiredRecord(record).catch(() => {
+          // 归档失败：内容仍留在本地，只提示同步状态，不弹技术错误。
+          archiveFailed = true;
+        })
+      )
     );
     if (expiredRecords.length) {
       ui.historyLoaded = false;
       if (ui.page === "history") void loadHistory(true);
     }
     cacheSharedRecords(records);
-    const changed = applySharedRecords(records);
+    // 只有本次请求完整成功返回时才按远端结果对账删除本地缓存。
+    const reconcile = allRecords.complete !== false;
+    const changed = applySharedRecords(records, reconcile);
     syncState.available = true;
     if (changed || accountChanged) {
       saveState();
       render();
     }
-    setSyncStatus("online", `班级共享已同步 · ${records.length} 条`);
+    if (archiveFailed || syncState.usageFailed) {
+      setSyncStatus("offline");
+      scheduleSharedSync();
+    } else {
+      setSyncStatus("online", `班级共享已同步 · ${records.length} 条`);
+    }
   } catch (error) {
     if (error.status === 404) {
       syncState.available = false;
@@ -4792,12 +5106,36 @@ function readableFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// 上传限制：文件始终只存在你这台设备的 IndexedDB 里，不会上传到共享接口。
+// 这里挡掉的是"浏览器会当成网页/脚本执行"的类型——它们下载后一旦被直接打开，
+// 有可能在本站域名下跑起来；课程作业类文件（.v/.c/.sch 等）不受限制。
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+const BLOCKED_UPLOAD_EXTENSIONS = new Set([
+  "html", "htm", "xhtml", "svg", "xml", "xht",
+  "js", "mjs", "cjs", "jse", "exe", "msi", "bat", "cmd", "com", "scr",
+  "ps1", "vbs", "vbe", "wsf", "wsh", "jar", "apk", "hta", "lnk", "reg"
+]);
+
+function uploadFileExtension(name) {
+  const match = /\.([a-z0-9]+)$/i.exec(String(name || ""));
+  return match ? match[1].toLowerCase() : "";
+}
+
 async function handleFileUpload(event) {
   const input = event.target;
   const file = input.files?.[0];
   if (!file) return;
-  if (file.size > 15 * 1024 * 1024) {
+  if (file.size > MAX_UPLOAD_BYTES) {
     showToast("文件过大", "单个文件请控制在 15 MB 以内。");
+    input.value = "";
+    return;
+  }
+  const extension = uploadFileExtension(file.name);
+  if (BLOCKED_UPLOAD_EXTENSIONS.has(extension)) {
+    showToast(
+      "这个类型的文件不能上传",
+      `为了安全，.${extension} 这类会被浏览器当作网页或程序执行的格式不允许上传。`
+    );
     input.value = "";
     return;
   }
@@ -5237,8 +5575,13 @@ async function handleSubmit(event) {
     try {
       await ensurePublishQuota("deadline");
     } catch (error) {
-      showToast("今日发布次数已用完", error.message);
-      return;
+      if (error?.quotaLimit) {
+        showToast("今日发布次数已用完", error.message);
+        return;
+      }
+      // 额度读不到（离线/网络故障）时不拦截，内容进入离线待同步队列。
+      setSyncStatus("offline");
+      scheduleSharedSync();
     }
     const item = {
       id: uid("deadline"),
@@ -5266,8 +5609,13 @@ async function handleSubmit(event) {
     try {
       await ensurePublishQuota("post");
     } catch (error) {
-      showToast("今日发布次数已用完", error.message);
-      return;
+      if (error?.quotaLimit) {
+        showToast("今日发布次数已用完", error.message);
+        return;
+      }
+      // 额度读不到（离线/网络故障）时不拦截，内容进入离线待同步队列。
+      setSyncStatus("offline");
+      scheduleSharedSync();
     }
     const item = {
       id: uid("post"),
@@ -5299,8 +5647,13 @@ async function handleSubmit(event) {
     try {
       await ensurePublishQuota("team");
     } catch (error) {
-      showToast("今日发布次数已用完", error.message);
-      return;
+      if (error?.quotaLimit) {
+        showToast("今日发布次数已用完", error.message);
+        return;
+      }
+      // 额度读不到（离线/网络故障）时不拦截，内容进入离线待同步队列。
+      setSyncStatus("offline");
+      scheduleSharedSync();
     }
     const item = {
       id: uid("team"),
@@ -5331,8 +5684,13 @@ async function handleSubmit(event) {
     try {
       await ensurePublishQuota("suggestion");
     } catch (error) {
-      showToast("今日发布次数已用完", error.message);
-      return;
+      if (error?.quotaLimit) {
+        showToast("今日发布次数已用完", error.message);
+        return;
+      }
+      // 额度读不到（离线/网络故障）时不拦截，内容进入离线待同步队列。
+      setSyncStatus("offline");
+      scheduleSharedSync();
     }
     const item = {
       id: uid("suggestion"),

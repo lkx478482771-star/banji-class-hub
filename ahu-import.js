@@ -15,6 +15,33 @@
     return;
   }
 
+  // 这个脚本是在教务页面里执行的，它唯一的目的就是拿课表。
+  // 先确认当前页面确实是教务站，避免这段代码被拿到别的站点上复用去偷令牌。
+  if (!/(^|\.)ahu\.edu\.cn$/i.test(location.hostname)) {
+    alert(
+      "班集课表更新代码只能在安徽大学教务页面上运行。\n" +
+        "当前页面是：" +
+        location.hostname +
+        "\n请在课表页面重新执行。"
+    );
+    window[marker] = false;
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "班集课表更新将要：\n" +
+      "1. 读取当前页面的教务登录令牌（只在内存里用，不会保存）；\n" +
+      "2. 用该令牌从教务系统拉取你的课表；\n" +
+      "3. 把课表写入班集的共享数据库（schedules/" +
+      ownerId +
+      "，同班同学可读）。\n\n" +
+      "继续吗？"
+  );
+  if (!confirmed) {
+    window[marker] = false;
+    return;
+  }
+
   const token = new URLSearchParams(location.search).get("idToken");
   if (!token) {
     alert("没有检测到教务登录令牌。请先通过安徽大学课表页面打开此页面，再运行更新代码。");
