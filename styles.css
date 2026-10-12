@@ -3243,3 +3243,150 @@ body.is-auth-required .app-shell {
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
 }
+
+.sports-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.sports-photo-notice {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-size: 13px;
+}
+
+.sports-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(10, 17, 32, 0.62);
+  overflow-y: auto;
+}
+
+.sports-dialog-card {
+  width: min(94vw, 520px);
+  max-height: 88vh;
+  overflow-y: auto;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.sports-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sports-dialog-head h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.sports-dialog-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.sports-dialog-preview {
+  display: block;
+  width: calc(100% - 36px);
+  max-height: 320px;
+  margin: 16px 18px 0;
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+  object-fit: cover;
+}
+
+.sports-dialog-hint {
+  margin: 12px 18px 0;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.sports-review-list .sports-dialog-hint {
+  margin: 0;
+}
+
+.sports-dialog-field {
+  display: grid;
+  gap: 6px;
+  margin: 14px 18px 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.sports-dialog-field input {
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  font: inherit;
+}
+
+.sports-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 18px;
+}
+
+.sports-review-list {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.sports-review-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.sports-review-item img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+  object-fit: cover;
+}
+
+.sports-review-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.sports-review-meta strong {
+  font-size: 14px;
+}
+
+.sports-review-meta small {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.sports-review-actions {
+  display: flex;
+  gap: 8px;
+}

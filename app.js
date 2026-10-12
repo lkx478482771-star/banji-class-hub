@@ -5274,8 +5274,16 @@ const sportsUi = {
   photos: null,
   timer: 0,
   lightbox: -1,
-  onResize: null
+  onResize: null,
+  photoDraft: null,
+  photoBusy: false,
+  photoNotice: ""
 };
+
+const SPORTS_PHOTO_PATH = "photos/";
+const SPORTS_PHOTO_MAX_BYTES = 45000;
+const SPORTS_PHOTO_REVIEW_ROLES = SCHEDULE_EDIT_ROLES.concat(["publicity", "league_secretary"]);
+const sportsPhotos = { approved: [], pending: [] };
 
 function sportsAthleteId(index) {
   return "IC4-" + String(index + 1).padStart(3, "0");
@@ -5438,6 +5446,46 @@ function renderSportsMomentSlots() {
   ).join("");
 }
 
+function sportsPhotoId() {
+  return "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function sportsMomentList() {
+  const repo = (sportsUi.photos || []).map((photo) => ({
+    src: SPORTS_MEET.momentsDir + photo.file,
+    title: photo.title || "美好片刻",
+    note: photo.date || SPORTS_MEET.dateLabel
+  }));
+  const shared = sportsPhotos.approved.map((record) => ({
+    src: record.data_url,
+    title: record.title || "美好片刻",
+    note: `${record.uploader_name || "同学"} 投稿`
+  }));
+  return repo.concat(shared);
+}
+
+function renderSportsMomentsPanel() {
+  const photos = sportsMomentList();
+  const actions = [];
+  if (authState.session) {
+    actions.push(`<button class="primary-button" type="button" data-action="sports-photo-upload">${icon("cloud-upload")} 上传照片</button>`);
+  }
+  if (hasRolePermission(SPORTS_PHOTO_REVIEW_ROLES)) {
+    actions.push(`<button class="secondary-button" type="button" data-action="sports-photo-review">${icon("check")} 审核投稿${sportsPhotos.pending.length ? `（${sportsPhotos.pending.length}）` : ""}</button>`);
+  }
+  const grid = photos.length
+    ? photos.map((photo, index) => `<figure class="sports-moment"><button class="sports-moment-thumb" type="button" data-action="sports-photo" data-index="${index}"><img src="${escapeHTML(photo.src)}" alt="${escapeHTML(photo.title)}" loading="lazy" /></button><figcaption><strong>${escapeHTML(photo.title)}</strong><small>${escapeHTML(photo.note)}</small></figcaption></figure>`).join("")
+    : renderSportsMomentSlots();
+  return `<header class="panel-header"><div><h3>美好片刻</h3><p>全班可投稿，管理员/班委审核后显示</p></div><span class="badge${photos.length ? " green" : " yellow"}" id="sports-moments-state">${photos.length ? `${photos.length} 张` : "待收录"}</span></header><div class="panel-body">${actions.length ? `<div class="sports-photo-actions">${actions.join("")}</div>` : ""}${sportsUi.photoNotice ? `<p class="sports-photo-notice">${escapeHTML(sportsUi.photoNotice)}</p>` : ""}<div class="sports-moments-grid" id="sports-moments-grid">${grid}</div></div>`;
+}
+
+function refreshSportsMoments() {
+  const panel = document.getElementById("sports-moments-panel");
+  if (!panel) return;
+  panel.innerHTML = renderSportsMomentsPanel();
+  refreshIcons(panel);
+}
+
 function renderSports() {
   const total = SPORTS_ATHLETES.length;
   const layout = sportsWaferLayout(total);
@@ -5516,18 +5564,7 @@ function renderSports() {
         </aside>
       </section>
 
-      <section class="panel">
-        <header class="panel-header">
-          <div>
-            <h3>美好片刻</h3>
-            <p>运动会当天的照片会陆续收录到这里</p>
-          </div>
-          <span class="badge yellow" id="sports-moments-state">待收录</span>
-        </header>
-        <div class="panel-body">
-          <div class="sports-moments-grid" id="sports-moments-grid">${renderSportsMomentSlots()}</div>
-        </div>
-      </section>
+      <section class="panel" id="sports-moments-panel">${renderSportsMomentsPanel()}</section>
     </div>
   `;
 }
@@ -5635,48 +5672,230 @@ function sizeSportsWafer() {
 }
 
 function loadSportsMoments() {
-  const grid = document.getElementById("sports-moments-grid");
-  if (!grid) return;
-
+  if (!document.getElementById("sports-moments-grid")) return;
+  loadSportsPhotos()
+    .catch(() => [])
+    .then(() => refreshSportsMoments());
   fetch(SPORTS_MEET.momentsManifest, { cache: "no-store" })
     .then((response) => (response.ok ? response.json() : null))
     .then((data) => {
-      const photos = data && Array.isArray(data.photos)
-        ? data.photos.filter((photo) => photo && photo.file)
-        : [];
-      if (!photos.length) return;
-      sportsUi.photos = photos;
-      const target = document.getElementById("sports-moments-grid");
-      if (!target) return;
-      target.innerHTML = photos
-        .map(
-          (photo, index) => `
-            <figure class="sports-moment">
-              <button class="sports-moment-thumb" type="button" data-action="sports-photo" data-index="${index}">
-                <img src="${escapeHTML(SPORTS_MEET.momentsDir + photo.file)}" alt="${escapeHTML(photo.title || "运动会照片")}" loading="lazy" />
-              </button>
-              <figcaption>
-                <strong>${escapeHTML(photo.title || "美好片刻")}</strong>
-                <small>${escapeHTML(photo.date || SPORTS_MEET.dateLabel)}</small>
-              </figcaption>
-            </figure>
-          `
-        )
-        .join("");
-      const state = document.getElementById("sports-moments-state");
-      if (state) {
-        state.textContent = `${photos.length} 张`;
-        state.className = "badge green";
-      }
+      sportsUi.photos = data && Array.isArray(data.photos) ? data.photos.filter((photo) => photo && photo.file) : [];
+      refreshSportsMoments();
     })
-    .catch(() => {
-      // 还没放照片或离线打开时，保留占位卡即可
+    .catch(() => {});
+}
+
+async function loadSportsPhotos() {
+  if (!hasSharedConfig()) return [];
+  const list = await mantleRequest(mantleListUrl());
+  const paths = (list?.entries || [])
+    .map((entry) => entry?.path)
+    .filter((path) => typeof path === "string" && path.indexOf(SPORTS_PHOTO_PATH) === 0)
+    .slice(0, 300);
+  const records = await mapLimit(paths, MANTLE_MAX_CONCURRENCY, (path) =>
+    mantleRequest(mantleEntryUrl(path)).catch(() => null)
+  );
+  const all = records.filter(
+    (record) => record && record.photo_id && (record.class_id || DEFAULT_CLASS_ID) === currentClassId()
+  );
+  all.sort((a, b) => parseDate(b.created_at) - parseDate(a.created_at));
+  sportsPhotos.approved = all.filter((record) => record.status === "approved" && record.data_url);
+  sportsPhotos.pending = all.filter((record) => record.status !== "approved" && record.status !== "rejected");
+  return all;
+}
+
+function sportsLoadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+    image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("这张图读不出来，请换一张 JPG 或 PNG。")); };
+    image.src = url;
+  });
+}
+
+function sportsReadDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("照片读取失败，请重试。"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function sportsCompressPhoto(file) {
+  if (!file || String(file.type || "").indexOf("image/") !== 0) {
+    throw new Error("请选择图片文件（JPG 或 PNG）。");
+  }
+  const source = await sportsLoadImage(file);
+  const srcWidth = source.naturalWidth || source.width;
+  const srcHeight = source.naturalHeight || source.height;
+  let smallest = null;
+  for (const edge of [1280, 1000, 800, 640, 480]) {
+    const ratio = Math.min(1, edge / Math.max(srcWidth, srcHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(srcWidth * ratio));
+    canvas.height = Math.max(1, Math.round(srcHeight * ratio));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(source, 0, 0, canvas.width, canvas.height);
+    for (const quality of [0.8, 0.68, 0.56, 0.46]) {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+      if (!blob) continue;
+      if (!smallest || blob.size < smallest.bytes) {
+        smallest = { blob, width: canvas.width, height: canvas.height, bytes: blob.size };
+      }
+      if (blob.size <= SPORTS_PHOTO_MAX_BYTES) {
+        return { dataUrl: await sportsReadDataUrl(blob), width: canvas.width, height: canvas.height, bytes: blob.size };
+      }
+    }
+  }
+  if (!smallest) throw new Error("照片压缩失败，请换一张再试。");
+  return {
+    dataUrl: await sportsReadDataUrl(smallest.blob),
+    width: smallest.width,
+    height: smallest.height,
+    bytes: smallest.bytes
+  };
+}
+
+function closeSportsDialog() {
+  const box = document.getElementById("sports-dialog");
+  if (box) box.remove();
+}
+
+function sportsDialogShell(title, body) {
+  closeSportsDialog();
+  const box = document.createElement("div");
+  box.className = "sports-dialog";
+  box.id = "sports-dialog";
+  box.setAttribute("role", "dialog");
+  box.innerHTML = `<div class="sports-dialog-card"><header class="sports-dialog-head"><h3>${escapeHTML(title)}</h3><button class="sports-dialog-close" type="button" data-action="sports-dialog-close" aria-label="关闭">${icon("x")}</button></header>${body}</div>`;
+  box.addEventListener("click", (event) => { if (event.target === box) closeSportsDialog(); });
+  document.body.appendChild(box);
+  refreshIcons(box);
+  return box;
+}
+
+function pickSportsPhoto() {
+  if (!authState.session) {
+    sportsUi.photoNotice = "请先登录再投稿。";
+    refreshSportsMoments();
+    return;
+  }
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.style.display = "none";
+  document.body.appendChild(input);
+  input.addEventListener("change", async () => {
+    const file = input.files && input.files[0];
+    input.remove();
+    if (!file) return;
+    sportsUi.photoNotice = "正在压缩…";
+    refreshSportsMoments();
+    try {
+      sportsUi.photoDraft = await sportsCompressPhoto(file);
+      sportsUi.photoNotice = "";
+      openSportsUploadDialog();
+    } catch (error) {
+      sportsUi.photoNotice = error?.message || "照片处理失败，请重试。";
+    }
+    refreshSportsMoments();
+  });
+  input.click();
+}
+
+function openSportsUploadDialog() {
+  const draft = sportsUi.photoDraft;
+  if (!draft) return;
+  sportsDialogShell(
+    "提交照片",
+    `<img class="sports-dialog-preview" src="${escapeHTML(draft.dataUrl)}" alt="待提交的照片" /><p class="sports-dialog-hint">已压到 ${Math.round(draft.bytes / 1024)} KB（${draft.width}×${draft.height}）。共享库一条只放 64 KB，原图不会上传。</p><label class="sports-dialog-field">照片说明<input type="text" id="sports-photo-title" maxlength="24" placeholder="例如：接力交棒瞬间" /></label><div class="sports-dialog-actions"><button class="secondary-button" type="button" data-action="sports-dialog-close">取消</button><button class="primary-button" type="button" data-action="sports-photo-submit">${icon("cloud-upload")} 提交投稿</button></div>`
+  );
+  document.getElementById("sports-photo-title")?.focus();
+}
+
+async function submitSportsPhoto() {
+  const draft = sportsUi.photoDraft;
+  if (!draft || !authState.session || sportsUi.photoBusy) return;
+  const record = {
+    photo_id: sportsPhotoId(),
+    class_id: currentClassId(),
+    title: (document.getElementById("sports-photo-title")?.value || "").trim().slice(0, 24),
+    data_url: draft.dataUrl,
+    width: draft.width,
+    height: draft.height,
+    bytes: draft.bytes,
+    uploader_id: authState.session.user?.id || "",
+    uploader_name: authState.session.username || "",
+    uploader_role: authState.session.role || "student",
+    status: "pending",
+    created_at: new Date().toISOString()
+  };
+  if (JSON.stringify(record).length > 65536) {
+    sportsUi.photoDraft = null;
+    sportsUi.photoNotice = "照片太大，请换一张更小的。";
+    closeSportsDialog();
+    refreshSportsMoments();
+    return;
+  }
+  sportsUi.photoBusy = true;
+  try {
+    await mantleRequest(mantleEntryUrl(SPORTS_PHOTO_PATH + encodeURIComponent(record.photo_id)), {
+      method: "POST",
+      body: JSON.stringify(record)
     });
+    sportsUi.photoDraft = null;
+    sportsUi.photoNotice = "已提交，等管理员或班委审核后就会出现。";
+    closeSportsDialog();
+    await loadSportsPhotos();
+  } catch (error) {
+    sportsUi.photoNotice = `提交失败：${error?.message || "请检查网络后重试。"}`;
+  }
+  sportsUi.photoBusy = false;
+  refreshSportsMoments();
+}
+
+function openSportsReviewDialog() {
+  if (!hasRolePermission(SPORTS_PHOTO_REVIEW_ROLES)) return;
+  const pending = sportsPhotos.pending;
+  const rows = pending.length
+    ? pending.map((record) => `<div class="sports-review-item"><img src="${escapeHTML(record.data_url)}" alt="待审核照片" loading="lazy" /><div class="sports-review-meta"><strong>${escapeHTML(record.title || "未命名照片")}</strong><small>${escapeHTML(record.uploader_name || "同学")} 投稿</small></div><div class="sports-review-actions"><button class="primary-button" type="button" data-action="sports-photo-approve" data-id="${escapeHTML(record.photo_id)}">通过</button><button class="danger-button" type="button" data-action="sports-photo-reject" data-id="${escapeHTML(record.photo_id)}">驳回</button></div></div>`).join("")
+    : `<p class="sports-dialog-hint">暂无待审核投稿。</p>`;
+  sportsDialogShell(`审核投稿（${pending.length}）`, `<div class="sports-review-list">${rows}</div>`);
+}
+
+async function reviewSportsPhoto(id, approve) {
+  if (!hasRolePermission(SPORTS_PHOTO_REVIEW_ROLES) || sportsUi.photoBusy) return;
+  sportsUi.photoBusy = true;
+  const url = mantleEntryUrl(SPORTS_PHOTO_PATH + encodeURIComponent(id));
+  try {
+    if (approve) {
+      const record = sportsPhotos.pending.find((item) => item.photo_id === id);
+      if (!record) throw new Error("这条投稿已不在待审核里。");
+      await mantleRequest(url, {
+        method: "POST",
+        body: JSON.stringify({ ...record, status: "approved", reviewed_by: authState.session?.username || "", reviewed_at: new Date().toISOString() })
+      });
+      sportsUi.photoNotice = "已通过 1 张投稿。";
+    } else {
+      await mantleRequest(url, { method: "DELETE" });
+      sportsUi.photoNotice = "已驳回 1 张投稿。";
+    }
+    await loadSportsPhotos();
+  } catch (error) {
+    sportsUi.photoNotice = `操作失败：${error?.message || "请检查网络后重试。"}`;
+  }
+  sportsUi.photoBusy = false;
+  refreshSportsMoments();
+  if (sportsPhotos.pending.length) openSportsReviewDialog();
+  else closeSportsDialog();
 }
 
 function openSportsPhoto(index) {
-  const photos = sportsUi.photos || [];
-  const photo = photos[Number(index)];
+  const photo = sportsMomentList()[Number(index)];
   if (!photo) return;
   closeSportsPhoto();
 
@@ -5688,7 +5907,7 @@ function openSportsPhoto(index) {
   box.innerHTML = `
     <button class="sports-lightbox-close" type="button" data-action="sports-close-photo" aria-label="关闭">${icon("x")}</button>
     <figure>
-      <img src="${escapeHTML(SPORTS_MEET.momentsDir + photo.file)}" alt="${escapeHTML(photo.title || "运动会照片")}" />
+      <img src="${escapeHTML(photo.src)}" alt="${escapeHTML(photo.title || "运动会照片")}" />
       <figcaption>${escapeHTML(photo.title || "美好片刻")}</figcaption>
     </figure>
   `;
@@ -5725,6 +5944,7 @@ function unmountSports() {
     sportsUi.timer = 0;
   }
   closeSportsPhoto();
+  closeSportsDialog();
 }
 
 function handleClick(event) {
@@ -5832,6 +6052,36 @@ function handleClick(event) {
 
   if (action === "sports-close-photo") {
     closeSportsPhoto();
+    return;
+  }
+
+  if (action === "sports-photo-upload") {
+    pickSportsPhoto();
+    return;
+  }
+
+  if (action === "sports-photo-submit") {
+    submitSportsPhoto();
+    return;
+  }
+
+  if (action === "sports-dialog-close") {
+    closeSportsDialog();
+    return;
+  }
+
+  if (action === "sports-photo-review") {
+    openSportsReviewDialog();
+    return;
+  }
+
+  if (action === "sports-photo-approve") {
+    reviewSportsPhoto(actionElement.dataset.id || "", true);
+    return;
+  }
+
+  if (action === "sports-photo-reject") {
+    reviewSportsPhoto(actionElement.dataset.id || "", false);
     return;
   }
 
