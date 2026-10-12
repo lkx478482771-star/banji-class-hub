@@ -5232,8 +5232,8 @@ async function downloadResource(id) {
    ========================================================================= */
 
 const SPORTS_MEET = {
-  meetTime: "2026-10-18T08:00:00+08:00",
-  dateLabel: "2026.10.18 · 安徽大学 龙河校区",
+  meetTime: "2026-10-17T08:00:00+08:00",
+  dateLabel: "2026.10.17 · 安徽大学 龙河校区",
   slogan: "集成电路，一路通电　·　四班四班，信号满格",
   supply: "集成电路 4 班 · 全体后援",
   status: "已通电 / READY",
@@ -5529,7 +5529,7 @@ function renderSports() {
           <article class="panel sports-wafer-card">
             <header class="panel-header">
               <div>
-                <h3>IC-4 WAFER · LOT 2026-10-18</h3>
+                <h3>IC-4 WAFER · LOT 2026-10-17</h3>
                 <p>点任意一颗芯片，看它的出战参数</p>
               </div>
               <span class="badge">${total} 颗在测</span>
