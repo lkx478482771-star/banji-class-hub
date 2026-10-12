@@ -33,6 +33,7 @@ const recentlyUploadedSharedKeys = new Set();
 
 const PAGE_INFO = {
   today: { title: "今日班级", eyebrow: "班级服务台" },
+  sports: { title: "IC-4 运动会", eyebrow: "一片晶圆，全员通电" },
   "mutual-aid": { title: "互助广场", eyebrow: "让问题更快被看见" },
   teams: { title: "任务搭子", eyebrow: "找同伴，也找行动力" },
   resources: { title: "资源共享", eyebrow: "让好资料在班级里流动" },
@@ -1312,6 +1313,7 @@ function render() {
 
   const renderers = {
     today: renderDashboard,
+    sports: renderSports,
     "mutual-aid": renderMutualAid,
     teams: renderTeams,
     resources: renderResources,
@@ -1329,6 +1331,11 @@ function render() {
   updateShell();
   renderNotificationPanel();
   refreshIcons(app);
+  if (ui.page === "sports") {
+    mountSports();
+  } else {
+    unmountSports();
+  }
   restoreFocusState(focusSnapshot);
 }
 
@@ -5191,6 +5198,507 @@ async function downloadResource(id) {
   showToast("开始下载", fileName);
 }
 
+/* =========================================================================
+   IC-4 运动会（班集站内栏目）
+   名单数据来源：运动会宣传/运动员名单.csv —— 当前是占位名单，上线前需替换
+   ========================================================================= */
+
+const SPORTS_MEET = {
+  meetTime: "2026-10-18T08:00:00+08:00",
+  dateLabel: "2026.10.18 · 安徽大学 龙河校区",
+  slogan: "集成电路，一路通电　·　四班四班，信号满格",
+  supply: "集成电路 4 班 · 全体后援",
+  status: "已通电 / READY",
+  momentsManifest: "assets/moments/manifest.json",
+  momentsDir: "assets/moments/"
+};
+
+/* ==== ATHLETES:BEGIN ==== 由「运动会宣传/tools/build_site.py」从 CSV 生成，手改会被覆盖 ==== */
+const SPORTS_ATHLETES = [
+  { name: "张明宇", event: "男子 100 米", pack: "预赛第 3 组 / 4 道", power: 5, cheer: "发令枪响，直接满频运行。" },
+  { name: "李思远", event: "男子 200 米", pack: "预赛第 2 组 / 6 道", power: 4, cheer: "弯道超频，直道收敛。" },
+  { name: "王雨桐", event: "女子 800 米", pack: "决赛", power: 4, cheer: "两圈不长，我们全程给你供电。" },
+  { name: "赵子豪", event: "4×100 米接力", pack: "第 4 棒", power: 5, cheer: "最后一棒，交给你的都是最优解。" },
+  { name: "陈嘉怡", event: "女子跳远", pack: "决赛", power: 3, cheer: "助跑起跳，落点写进纪录里。" },
+  { name: "刘浩宇", event: "男子 1500 米", pack: "决赛", power: 4, cheer: "心率拉满，终点见。" },
+  { name: "孙诗雨", event: "女子 400 米", pack: "预赛第 2 组", power: 4, cheer: "弯道不减速，直道不留情。" },
+  { name: "周奕辰", event: "铅球", pack: "决赛", power: 3, cheer: "这一掷，突破封装极限。" },
+  { name: "吴梦琪", event: "女子 100 米", pack: "预赛第 4 组 / 3 道", power: 4, cheer: "起跑即满速，冲线才断电。" },
+  { name: "郑一鸣", event: "男子跳高", pack: "决赛", power: 4, cheer: "每一次起跳，都是一次升压。" },
+  { name: "徐若涵", event: "女子 1500 米", pack: "决赛", power: 3, cheer: "慢一点没关系，别停就行。" },
+  { name: "马俊杰", event: "4×400 米接力", pack: "第 2 棒", power: 4, cheer: "交棒快过信号传输。" },
+  { name: "朱雅琳", event: "女子铅球", pack: "决赛", power: 3, cheer: "力量已经预加载完毕。" },
+  { name: "胡文博", event: "男子 400 米", pack: "预赛第 1 组", power: 4, cheer: "一圈而已，全功率输出。" },
+  { name: "林晓阳", event: "三级跳远", pack: "决赛", power: 3, cheer: "三步起飞，落点见真章。" },
+  { name: "高子墨", event: "男子 800 米", pack: "决赛", power: 4, cheer: "最后 100 米，交给后援团。" },
+  { name: "何欣怡", event: "女子跳高", pack: "决赛", power: 4, cheer: "横杆之上，还有余量。" },
+  { name: "郭泽宇", event: "男子实心球", pack: "决赛", power: 3, cheer: "一掷定音，全场静默。" },
+  { name: "罗佳宁", event: "女子 200 米", pack: "预赛第 3 组 / 5 道", power: 4, cheer: "零延迟启动，满带宽冲刺。" },
+  { name: "梁天成", event: "男子跳远", pack: "决赛", power: 4, cheer: "这一跳，写进班级纪录。" }
+];
+/* ==== ATHLETES:END ==== */
+
+const SPORTS_MOMENT_SLOTS = ["开幕式", "起跑", "冲线", "接力", "跳跃", "加油瞬间", "颁奖", "班级合影"];
+
+const sportsUi = {
+  selected: 0,
+  lit: false,
+  photos: null,
+  timer: 0,
+  lightbox: -1,
+  onResize: null
+};
+
+function sportsAthleteId(index) {
+  return "IC4-" + String(index + 1).padStart(3, "0");
+}
+
+function sportsPowerLevel(value) {
+  const level = Math.round(Number(value));
+  if (!Number.isFinite(level)) return 5;
+  return Math.max(1, Math.min(5, level));
+}
+
+// 在直径 1 的圆里铺一层六方网格（间距 = step），返回所有落在圆内的格子中心。
+function sportsWaferPoints(step) {
+  const radius = 0.5;
+  const points = [];
+  const rows = Math.max(1, Math.floor((2 * radius) / step));
+  const startY = -((rows - 1) * step) / 2;
+
+  for (let row = 0; row < rows; row += 1) {
+    const y = startY + row * step;
+    const half = Math.sqrt(Math.max(0, radius * radius - y * y));
+    const cols = Math.max(1, Math.floor((2 * half) / step) + 1);
+    const startX = -((cols - 1) * step) / 2;
+    for (let col = 0; col < cols; col += 1) {
+      const x = startX + col * step;
+      const distance = Math.hypot(x, y);
+      if (distance <= radius) points.push({ x, y, distance });
+    }
+  }
+
+  return points;
+}
+
+// 把全班排成一片晶圆：二分找出"刚好装得下 count 颗、且间距最大"的网格步长，
+// 间距越大芯片越大越好认；再把整团芯片居中、等比放大到填满晶圆。
+// 坐标归一化到直径 1 的圆里，最终由 CSS 用百分比定位，所以任何屏幕尺寸都自适应。
+function sportsWaferLayout(count) {
+  const total = Math.max(1, count);
+  const radius = 0.5;
+  let tooSmall = 0.005;
+  let tooBig = 1;
+
+  for (let i = 0; i < 48; i += 1) {
+    const mid = (tooSmall + tooBig) / 2;
+    if (sportsWaferPoints(mid).length >= total) tooSmall = mid;
+    else tooBig = mid;
+  }
+
+  const step = tooSmall;
+  const points = sportsWaferPoints(step);
+  points.sort((a, b) => a.distance - b.distance);
+  const picked = points.slice(0, total);
+  if (!picked.length) return { points: [], spacing: step };
+
+  let centerX = 0;
+  let centerY = 0;
+  picked.forEach((point) => {
+    centerX += point.x;
+    centerY += point.y;
+  });
+  centerX /= picked.length;
+  centerY /= picked.length;
+  picked.forEach((point) => {
+    point.x -= centerX;
+    point.y -= centerY;
+  });
+
+  const used = Math.max(
+    0.000001,
+    picked.reduce((max, point) => Math.max(max, Math.hypot(point.x, point.y)), 0)
+  );
+
+  // 先按"尽量铺满"放大，再反复收缩，直到最外那颗芯片的外沿也不越过圆边，
+  // 否则芯片会压出晶圆轮廓外面，看起来像贴纸没贴牢。
+  const maxDie = 0.3;
+  const inner = radius - 0.008;
+  let scale = Math.min((radius * 0.98) / used, 2.2);
+  for (let i = 0; i < 24; i += 1) {
+    const die = Math.min(step * scale * 0.82, maxDie);
+    const extent = used * scale + die / 2;
+    if (extent <= inner) break;
+    scale *= inner / extent;
+  }
+
+  picked.forEach((point) => {
+    point.x *= scale;
+    point.y *= scale;
+  });
+
+  return { points: picked, spacing: step * scale };
+}
+
+function renderSportsPanel(index) {
+  const total = SPORTS_ATHLETES.length;
+  if (!total) return `<div class="panel-body"><p>名单还没有数据。</p></div>`;
+  const current = ((index % total) + total) % total;
+  const athlete = SPORTS_ATHLETES[current];
+  const level = sportsPowerLevel(athlete.power);
+  const specs = [
+    ["EVENT", athlete.event],
+    ["PACKAGE", athlete.pack || "—"],
+    ["POWER RATING", "★".repeat(level) + "☆".repeat(5 - level)],
+    ["POWER SUPPLY", SPORTS_MEET.supply],
+    ["STATUS", sportsUi.lit ? SPORTS_MEET.status : "待机 / STANDBY"]
+  ];
+
+  return `
+    <header class="panel-header">
+      <div>
+        <h3>${sportsAthleteId(current)}</h3>
+        <p>DATASHEET / Rev.1.0</p>
+      </div>
+      <span class="badge ${sportsUi.lit ? "green" : "yellow"}">${sportsUi.lit ? "已通电" : "待机"}</span>
+    </header>
+    <div class="panel-body sports-datasheet">
+      <h4 class="sports-name">${escapeHTML(athlete.name)}</h4>
+      <p class="sports-event">${escapeHTML(athlete.event)}</p>
+      <dl class="sports-specs">
+        ${specs
+          .map(
+            (item) => `
+              <div class="sports-spec">
+                <dt>${escapeHTML(item[0])}</dt>
+                <dd>${escapeHTML(item[1])}</dd>
+              </div>
+            `
+          )
+          .join("")}
+      </dl>
+      <p class="sports-cheer">${escapeHTML(athlete.cheer || "信号满格，等你冲线。")}</p>
+    </div>
+  `;
+}
+
+function renderSportsRoster() {
+  return SPORTS_ATHLETES.map((athlete, index) => {
+    const active = index === sportsUi.selected;
+    return `
+      <button class="sports-roster-row${active ? " is-active" : ""}" type="button" data-action="sports-select" data-index="${index}">
+        <span class="sports-roster-no">${String(index + 1).padStart(3, "0")}</span>
+        <strong>${escapeHTML(athlete.name)}</strong>
+        <span class="sports-roster-event">${escapeHTML(athlete.event)}</span>
+        <span class="sports-roster-pack">${escapeHTML(athlete.pack || "")}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+function renderSportsMomentSlots() {
+  return SPORTS_MOMENT_SLOTS.map(
+    (label) => `
+      <figure class="sports-moment is-empty">
+        <div class="sports-moment-thumb">${icon("presentation")}</div>
+        <figcaption>
+          <strong>${escapeHTML(label)}</strong>
+          <small>待收录</small>
+        </figcaption>
+      </figure>
+    `
+  ).join("");
+}
+
+function renderSports() {
+  const total = SPORTS_ATHLETES.length;
+  const layout = sportsWaferLayout(total);
+  const sizePercent = Math.min(layout.spacing * 0.82 * 100, 30);
+  const dice = SPORTS_ATHLETES.map((athlete, index) => {
+    const point = layout.points[index];
+    if (!point) return "";
+    const length = athlete.name.length;
+    const ratio = length >= 4 ? 0.17 : length === 3 ? 0.215 : 0.255;
+    return `
+      <button
+        class="sports-die${index === sportsUi.selected ? " is-active" : ""}"
+        type="button"
+        data-action="sports-select"
+        data-index="${index}"
+        style="left: ${(50 + point.x * 100).toFixed(3)}%; top: ${(50 + point.y * 100).toFixed(3)}%; width: ${sizePercent.toFixed(3)}%; --die-ratio: ${ratio}"
+        aria-label="${escapeHTML(athlete.name)} ${escapeHTML(athlete.event)}"
+      >
+        <span class="sports-die-name">${escapeHTML(athlete.name)}</span>
+        <span class="sports-die-id">${sportsAthleteId(index)}</span>
+      </button>
+    `;
+  }).join("");
+
+  return `
+    <div class="page-stack">
+      <header class="page-intro">
+        <div>
+          <p class="eyebrow">安徽大学 · 集成电路学院</p>
+          <h2>IC-4 出战名单</h2>
+          <p>${escapeHTML(SPORTS_MEET.dateLabel)} · 全班 ${total} 位选手 · 一片晶圆，全员通电。</p>
+        </div>
+        <div class="page-actions">
+          <span class="badge green" id="sports-countdown">距开赛 --</span>
+          <span class="badge blue">${total} 位选手</span>
+        </div>
+      </header>
+
+      <section class="content-grid">
+        <div class="stack">
+          <article class="panel sports-wafer-card">
+            <header class="panel-header">
+              <div>
+                <h3>IC-4 WAFER · LOT 2026-10-18</h3>
+                <p>点任意一颗芯片，看它的出战参数</p>
+              </div>
+              <span class="badge">${total} 颗在测</span>
+            </header>
+            <div class="panel-body">
+              <div class="sports-wafer" id="sports-wafer">
+                <div class="sports-wafer-grid" aria-hidden="true"></div>
+                <div class="sports-wafer-notch" aria-hidden="true"></div>
+                ${dice}
+                <div class="sports-probe" aria-hidden="true"></div>
+              </div>
+              <div class="sports-wafer-actions">
+                <button class="primary-button" type="button" data-action="sports-power">${icon("gauge")} 一键通电</button>
+                <button class="secondary-button" type="button" data-action="sports-reset">复位</button>
+                <span class="sports-hint">${escapeHTML(SPORTS_MEET.slogan)}</span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <aside class="stack">
+          <section class="panel" id="sports-panel">${renderSportsPanel(sportsUi.selected)}</section>
+          <section class="panel">
+            <header class="panel-header">
+              <div>
+                <h3>出战名单</h3>
+                <p>共 ${total} 人，点一行看详情</p>
+              </div>
+            </header>
+            <div class="panel-body sports-roster">${renderSportsRoster()}</div>
+          </section>
+        </aside>
+      </section>
+
+      <section class="panel">
+        <header class="panel-header">
+          <div>
+            <h3>美好片刻</h3>
+            <p>运动会当天的照片会陆续收录到这里</p>
+          </div>
+          <span class="badge yellow" id="sports-moments-state">待收录</span>
+        </header>
+        <div class="panel-body">
+          <div class="sports-moments-grid" id="sports-moments-grid">${renderSportsMomentSlots()}</div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function selectSportsAthlete(index) {
+  const total = SPORTS_ATHLETES.length;
+  if (!total) return;
+  const next = ((Number(index) || 0) % total + total) % total;
+  sportsUi.selected = next;
+
+  document.querySelectorAll("#app .sports-die.is-active").forEach((node) => node.classList.remove("is-active"));
+  document.querySelectorAll("#app .sports-roster-row.is-active").forEach((node) => node.classList.remove("is-active"));
+
+  const die = document.querySelector(`#app .sports-die[data-index="${next}"]`);
+  if (die) die.classList.add("is-active");
+  const row = document.querySelector(`#app .sports-roster-row[data-index="${next}"]`);
+  if (row) row.classList.add("is-active");
+
+  const panel = document.getElementById("sports-panel");
+  if (panel) {
+    panel.innerHTML = renderSportsPanel(next);
+    refreshIcons(panel);
+  }
+}
+
+function powerOnSports() {
+  const wafer = document.getElementById("sports-wafer");
+  if (!wafer) return;
+  const waferRect = wafer.getBoundingClientRect();
+  const centerX = waferRect.width / 2;
+  const centerY = waferRect.height / 2;
+  const dice = Array.from(wafer.querySelectorAll(".sports-die")).map((node) => {
+    const rect = node.getBoundingClientRect();
+    const x = rect.left + rect.width / 2 - waferRect.left;
+    const y = rect.top + rect.height / 2 - waferRect.top;
+    return { node, distance: Math.hypot(x - centerX, y - centerY) };
+  });
+  if (!dice.length) return;
+  dice.sort((a, b) => a.distance - b.distance);
+
+  sportsUi.lit = true;
+  dice.forEach((item, order) => {
+    item.node.classList.remove("is-lit");
+    window.setTimeout(() => {
+      item.node.classList.add("is-lit");
+      if (order === dice.length - 1) {
+        sportsUi.lit = true;
+        const panel = document.getElementById("sports-panel");
+        if (panel) {
+          panel.innerHTML = renderSportsPanel(sportsUi.selected);
+          refreshIcons(panel);
+        }
+      }
+    }, 60 + order * 38);
+  });
+}
+
+function resetSportsPower() {
+  sportsUi.lit = false;
+  document.querySelectorAll("#app .sports-die.is-lit").forEach((node) => node.classList.remove("is-lit"));
+  const panel = document.getElementById("sports-panel");
+  if (panel) {
+    panel.innerHTML = renderSportsPanel(sportsUi.selected);
+    refreshIcons(panel);
+  }
+}
+
+function startSportsCountdown() {
+  if (sportsUi.timer) window.clearInterval(sportsUi.timer);
+  const target = new Date(SPORTS_MEET.meetTime).getTime();
+
+  const tick = () => {
+    const node = document.getElementById("sports-countdown");
+    if (!node) {
+      if (sportsUi.timer) window.clearInterval(sportsUi.timer);
+      sportsUi.timer = 0;
+      return;
+    }
+    const rest = target - Date.now();
+    if (!Number.isFinite(rest) || rest <= 0) {
+      node.textContent = "已开赛 · 全员通电";
+      return;
+    }
+    const days = Math.floor(rest / 86400000);
+    const hours = Math.floor((rest % 86400000) / 3600000);
+    const minutes = Math.floor((rest % 3600000) / 60000);
+    const seconds = Math.floor((rest % 60000) / 1000);
+    node.textContent = days > 0
+      ? `距开赛 ${days} 天 ${hours} 时 ${minutes} 分`
+      : `距开赛 ${hours} 时 ${minutes} 分 ${seconds} 秒`;
+  };
+
+  tick();
+  sportsUi.timer = window.setInterval(tick, 1000);
+}
+
+function sizeSportsWafer() {
+  const wafer = document.getElementById("sports-wafer");
+  if (!wafer) return;
+  const side = wafer.clientWidth;
+  if (!side) return;
+  const layout = sportsWaferLayout(SPORTS_ATHLETES.length);
+  const die = Math.max(30, Math.min(layout.spacing * side * 0.82, side * 0.3));
+  wafer.style.setProperty("--die-size", die.toFixed(2) + "px");
+}
+
+function loadSportsMoments() {
+  const grid = document.getElementById("sports-moments-grid");
+  if (!grid) return;
+
+  fetch(SPORTS_MEET.momentsManifest, { cache: "no-store" })
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data) => {
+      const photos = data && Array.isArray(data.photos)
+        ? data.photos.filter((photo) => photo && photo.file)
+        : [];
+      if (!photos.length) return;
+      sportsUi.photos = photos;
+      const target = document.getElementById("sports-moments-grid");
+      if (!target) return;
+      target.innerHTML = photos
+        .map(
+          (photo, index) => `
+            <figure class="sports-moment">
+              <button class="sports-moment-thumb" type="button" data-action="sports-photo" data-index="${index}">
+                <img src="${escapeHTML(SPORTS_MEET.momentsDir + photo.file)}" alt="${escapeHTML(photo.title || "运动会照片")}" loading="lazy" />
+              </button>
+              <figcaption>
+                <strong>${escapeHTML(photo.title || "美好片刻")}</strong>
+                <small>${escapeHTML(photo.date || SPORTS_MEET.dateLabel)}</small>
+              </figcaption>
+            </figure>
+          `
+        )
+        .join("");
+      const state = document.getElementById("sports-moments-state");
+      if (state) {
+        state.textContent = `${photos.length} 张`;
+        state.className = "badge green";
+      }
+    })
+    .catch(() => {
+      // 还没放照片或离线打开时，保留占位卡即可
+    });
+}
+
+function openSportsPhoto(index) {
+  const photos = sportsUi.photos || [];
+  const photo = photos[Number(index)];
+  if (!photo) return;
+  closeSportsPhoto();
+
+  const box = document.createElement("div");
+  box.className = "sports-lightbox";
+  box.id = "sports-lightbox";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  box.innerHTML = `
+    <button class="sports-lightbox-close" type="button" data-action="sports-close-photo" aria-label="关闭">${icon("x")}</button>
+    <figure>
+      <img src="${escapeHTML(SPORTS_MEET.momentsDir + photo.file)}" alt="${escapeHTML(photo.title || "运动会照片")}" />
+      <figcaption>${escapeHTML(photo.title || "美好片刻")}</figcaption>
+    </figure>
+  `;
+  box.addEventListener("click", (event) => {
+    if (event.target === box) closeSportsPhoto();
+  });
+  document.body.appendChild(box);
+  sportsUi.lightbox = Number(index);
+  refreshIcons(box);
+}
+
+function closeSportsPhoto() {
+  const box = document.getElementById("sports-lightbox");
+  if (box) box.remove();
+  sportsUi.lightbox = -1;
+}
+
+function mountSports() {
+  sizeSportsWafer();
+  if (sportsUi.onResize) window.removeEventListener("resize", sportsUi.onResize);
+  sportsUi.onResize = () => sizeSportsWafer();
+  window.addEventListener("resize", sportsUi.onResize);
+  startSportsCountdown();
+  loadSportsMoments();
+}
+
+function unmountSports() {
+  if (sportsUi.onResize) {
+    window.removeEventListener("resize", sportsUi.onResize);
+    sportsUi.onResize = null;
+  }
+  if (sportsUi.timer) {
+    window.clearInterval(sportsUi.timer);
+    sportsUi.timer = 0;
+  }
+  closeSportsPhoto();
+}
+
 function handleClick(event) {
   const actionElement = event.target.closest("[data-action]");
   if (!actionElement) return;
@@ -5254,6 +5762,31 @@ function handleClick(event) {
 
   if (action === "close-sidebar") {
     document.body.classList.remove("sidebar-open");
+    return;
+  }
+
+  if (action === "sports-select") {
+    selectSportsAthlete(Number(actionElement.dataset.index) || 0);
+    return;
+  }
+
+  if (action === "sports-power") {
+    powerOnSports();
+    return;
+  }
+
+  if (action === "sports-reset") {
+    resetSportsPower();
+    return;
+  }
+
+  if (action === "sports-photo") {
+    openSportsPhoto(Number(actionElement.dataset.index));
+    return;
+  }
+
+  if (action === "sports-close-photo") {
+    closeSportsPhoto();
     return;
   }
 
