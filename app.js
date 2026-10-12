@@ -20,6 +20,31 @@ const authState = {
   identityNote: "",
   classCode: DEFAULT_CLASS_CODE
 };
+// 登录/注册表单里用户已经敲进去的密码。提交、切换“登录/注册”、点“显示密码”都会整表重建
+// 登录界面，而密码框出于安全考虑不带 value 属性，重建后就会变空——用户会看到“密码突然全部
+// 消失”，接着被 required 卡住导致注册失败。这里在重建前把密码抓出来、渲染完填回去。
+const authPasswordDraft = { "auth-password": "", "auth-confirm": "" };
+
+function captureAuthDraft() {
+  Object.keys(authPasswordDraft).forEach((id) => {
+    const field = document.getElementById(id);
+    if (field) authPasswordDraft[id] = field.value;
+  });
+}
+
+function restoreAuthDraft() {
+  Object.keys(authPasswordDraft).forEach((id) => {
+    const field = document.getElementById(id);
+    if (field) field.value = authPasswordDraft[id];
+  });
+}
+
+function clearAuthDraft() {
+  Object.keys(authPasswordDraft).forEach((id) => {
+    authPasswordDraft[id] = "";
+  });
+}
+
 const syncState = {
   inFlight: false,
   retryTimer: null,
@@ -1291,11 +1316,14 @@ function applyIdentityTheme() {
 
 function render() {
   const authRoot = document.getElementById("auth-root");
+  if (authState.session) clearAuthDraft();
   if (!authState.ready || !authState.session) {
     document.body.classList.add("is-auth-required");
     document.getElementById("page-title").textContent = "登录班集";
     document.getElementById("page-eyebrow").textContent = "本机账号识别";
+    if (authState.ready) captureAuthDraft();
     authRoot.innerHTML = renderAuthScreen();
+    restoreAuthDraft();
     document.getElementById("notification-panel").hidden = true;
     refreshIcons(authRoot);
     return;
@@ -5728,8 +5756,25 @@ function handleClick(event) {
 
   if (action === "toggle-password") {
     authState.passwordVisible = !authState.passwordVisible;
-    render();
-    requestAnimationFrame(() => document.getElementById("auth-password")?.focus());
+    // 只切输入框类型和眼睛图标，不要整表重渲染——重渲染会把用户已经输入的密码清空。
+    const passwordField = document.getElementById("auth-password");
+    if (passwordField) {
+      passwordField.type = authState.passwordVisible ? "text" : "password";
+      const caret = passwordField.value.length;
+      passwordField.focus();
+      try {
+        passwordField.setSelectionRange(caret, caret);
+      } catch (error) {
+        // 个别浏览器不允许对 password 类型设置光标位置，忽略即可。
+      }
+    }
+    if (actionElement) {
+      const label = authState.passwordVisible ? "隐藏密码" : "显示密码";
+      actionElement.setAttribute("aria-label", label);
+      actionElement.setAttribute("title", label);
+      actionElement.innerHTML = icon(authState.passwordVisible ? "eye-off" : "eye");
+      refreshIcons(actionElement);
+    }
     return;
   }
 
