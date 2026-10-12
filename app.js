@@ -5277,8 +5277,17 @@ const sportsUi = {
   onResize: null,
   photoDraft: null,
   photoBusy: false,
-  photoNotice: ""
+  photoNotice: "",
+  filter: "all"
 };
+
+// 径赛 / 田赛分组：按项目名里的关键词判断，用来给名单做筛选。
+const SPORTS_FILTERS = [["all", "全部"], ["track", "径赛"], ["field", "田赛"]];
+const sportsTrackField = (event) => (/跳|铅球|实心球|标枪|铁饼/.test(event) ? "field" : "track");
+const sportsPickAthletes = () =>
+  SPORTS_ATHLETES.map((athlete, index) => ({ athlete, index })).filter(
+    (item) => sportsUi.filter === "all" || sportsTrackField(item.athlete.event) === sportsUi.filter
+  );
 
 const SPORTS_PHOTO_PATH = "photos/";
 const SPORTS_PHOTO_MAX_BYTES = 45000;
@@ -5359,7 +5368,7 @@ function sportsWaferLayout(count) {
   // 先按"尽量铺满"放大，再反复收缩，直到最外那颗芯片的外沿也不越过圆边，
   // 否则芯片会压出晶圆轮廓外面，看起来像贴纸没贴牢。
   const maxDie = 0.3;
-  const inner = radius - 0.008;
+  const inner = radius - 0.03;
   let scale = Math.min((radius * 0.98) / used, 2.2);
   for (let i = 0; i < 24; i += 1) {
     const die = Math.min(step * scale * 0.82, maxDie);
@@ -5418,8 +5427,15 @@ function renderSportsPanel(index) {
   `;
 }
 
+function renderSportsChips() {
+  return SPORTS_FILTERS.map(
+    ([key, label]) =>
+      `<button class="sports-chip${sportsUi.filter === key ? " is-active" : ""}" type="button" data-action="sports-filter" data-filter="${key}">${label}</button>`
+  ).join("");
+}
+
 function renderSportsRoster() {
-  return SPORTS_ATHLETES.map((athlete, index) => {
+  const rows = sportsPickAthletes().map(({ athlete, index }) => {
     const active = index === sportsUi.selected;
     return `
       <button class="sports-roster-row${active ? " is-active" : ""}" type="button" data-action="sports-select" data-index="${index}">
@@ -5429,7 +5445,8 @@ function renderSportsRoster() {
         <span class="sports-roster-pack">${escapeHTML(athlete.pack || "")}</span>
       </button>
     `;
-  }).join("");
+  });
+  return rows.join("") || `<p class="sports-roster-empty">这一类暂时没有人报名。</p>`;
 }
 
 function renderSportsMomentSlots() {
@@ -5509,37 +5526,66 @@ function renderSports() {
       </button>
     `;
   }).join("");
+  const trackCount = SPORTS_ATHLETES.filter((item) => sportsTrackField(item.event) === "track").length;
+  const eventCount = new Set(SPORTS_ATHLETES.map((item) => item.event.replace(/^(男子|女子)/, ""))).size;
 
   return `
     <div class="page-stack">
-      <header class="page-intro">
-        <div>
-          <p class="eyebrow">安徽大学 · 集成电路学院</p>
-          <h2>IC-4 出战名单</h2>
-          <p>${escapeHTML(SPORTS_MEET.dateLabel)} · 全班 ${total} 位选手 · 一片晶圆，全员通电。</p>
+      <section class="sports-hero">
+        <div class="sports-hero-main">
+          <p class="sports-hero-eyebrow">安徽大学 · 集成电路学院</p>
+          <h2>IC-4 <b>出战名单</b></h2>
+          <p class="sports-hero-sub">${escapeHTML(SPORTS_MEET.dateLabel)} · 一片晶圆，全员通电</p>
+          <p class="sports-hero-slogan">${escapeHTML(SPORTS_MEET.slogan)}</p>
         </div>
-        <div class="page-actions">
-          <span class="badge green" id="sports-countdown">距开赛 --</span>
-          <span class="badge blue">${total} 位选手</span>
+        <div class="sports-count">
+          <span class="sports-count-label">距开赛</span>
+          <div class="sports-count-nums" id="sports-countdown">--</div>
         </div>
-      </header>
+      </section>
+
+      <section class="metric-grid">
+        <article class="metric">
+          <span class="metric-icon green">${icon("users-round")}</span>
+          <div><strong class="metric-value">${total}</strong><span class="metric-label">参赛选手</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon blue">${icon("flag")}</span>
+          <div><strong class="metric-value">${eventCount}</strong><span class="metric-label">比赛项目</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon orange">${icon("gauge")}</span>
+          <div><strong class="metric-value">${trackCount}</strong><span class="metric-label">径赛人次</span></div>
+        </article>
+        <article class="metric">
+          <span class="metric-icon yellow">${icon("presentation")}</span>
+          <div><strong class="metric-value">${total - trackCount}</strong><span class="metric-label">田赛人次</span></div>
+        </article>
+      </section>
 
       <section class="content-grid">
         <div class="stack">
           <article class="panel sports-wafer-card">
             <header class="panel-header">
               <div>
-                <h3>IC-4 WAFER · LOT 2026-10-17</h3>
+                <h3>IC-4 WAFER · LOT ${SPORTS_MEET.meetTime.slice(0, 10)}</h3>
                 <p>点任意一颗芯片，看它的出战参数</p>
               </div>
-              <span class="badge">${total} 颗在测</span>
+              <span class="badge green">${total} 颗在测</span>
             </header>
             <div class="panel-body">
-              <div class="sports-wafer" id="sports-wafer">
-                <div class="sports-wafer-grid" aria-hidden="true"></div>
-                <div class="sports-wafer-notch" aria-hidden="true"></div>
-                ${dice}
-                <div class="sports-probe" aria-hidden="true"></div>
+              <div class="sports-wafer-wrap">
+                <div class="sports-wafer" id="sports-wafer">
+                  <div class="sports-wafer-grid" aria-hidden="true"></div>
+                  <div class="sports-wafer-ring" aria-hidden="true"></div>
+                  ${dice}
+                  <div class="sports-probe" aria-hidden="true"></div>
+                </div>
+              </div>
+              <div class="sports-legend">
+                <span class="sports-legend-item"><i></i>待机</span>
+                <span class="sports-legend-item is-lit"><i></i>已通电</span>
+                <span class="sports-legend-item is-active"><i></i>当前查看</span>
               </div>
               <div class="sports-wafer-actions">
                 <button class="primary-button" type="button" data-action="sports-power">${icon("gauge")} 一键通电</button>
@@ -5559,7 +5605,7 @@ function renderSports() {
                 <p>共 ${total} 人，点一行看详情</p>
               </div>
             </header>
-            <div class="panel-body sports-roster">${renderSportsRoster()}</div>
+            <div class="panel-body" id="sports-roster-wrap">${renderSportsChips()}<div class="sports-roster">${renderSportsRoster()}</div></div>
           </section>
         </aside>
       </section>
@@ -5635,6 +5681,7 @@ function resetSportsPower() {
 function startSportsCountdown() {
   if (sportsUi.timer) window.clearInterval(sportsUi.timer);
   const target = new Date(SPORTS_MEET.meetTime).getTime();
+  const cell = (value, unit) => `<b>${String(value).padStart(2, "0")}</b><i>${unit}</i>`;
 
   const tick = () => {
     const node = document.getElementById("sports-countdown");
@@ -5645,16 +5692,16 @@ function startSportsCountdown() {
     }
     const rest = target - Date.now();
     if (!Number.isFinite(rest) || rest <= 0) {
-      node.textContent = "已开赛 · 全员通电";
+      node.innerHTML = "<b>GO</b><i>全员通电</i>";
       return;
     }
     const days = Math.floor(rest / 86400000);
     const hours = Math.floor((rest % 86400000) / 3600000);
     const minutes = Math.floor((rest % 3600000) / 60000);
     const seconds = Math.floor((rest % 60000) / 1000);
-    node.textContent = days > 0
-      ? `距开赛 ${days} 天 ${hours} 时 ${minutes} 分`
-      : `距开赛 ${hours} 时 ${minutes} 分 ${seconds} 秒`;
+    node.innerHTML = days > 0
+      ? cell(days, "天") + cell(hours, "时") + cell(minutes, "分")
+      : cell(hours, "时") + cell(minutes, "分") + cell(seconds, "秒");
   };
 
   tick();
@@ -6032,6 +6079,16 @@ function handleClick(event) {
 
   if (action === "sports-select") {
     selectSportsAthlete(Number(actionElement.dataset.index) || 0);
+    return;
+  }
+
+  if (action === "sports-filter") {
+    sportsUi.filter = actionElement.dataset.filter || "all";
+    const wrap = document.getElementById("sports-roster-wrap");
+    if (wrap) {
+      wrap.innerHTML = renderSportsChips() + `<div class="sports-roster">${renderSportsRoster()}</div>`;
+      refreshIcons(wrap);
+    }
     return;
   }
 
