@@ -17,3 +17,9 @@ Thumbs.db
 # 本地预览临时文件（__poster_lab.html / __ui_preview.html 之类）
 __*.html
 __*.png
+__*.py
+__*.js
+__*.json
+
+# 无头浏览器（smoke-render.py 等探针）的临时 profile
+.edge-*/

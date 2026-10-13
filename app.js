@@ -1856,7 +1856,7 @@ function renderDeadlineItem(item) {
         >
           ${icon(item.done ? "rotate-ccw" : "check")}
         </button>
-        ${canManageItem(item) ? deleteRecordButton("deadline", item.id, 删除事项) : ""}
+        ${canManageItem(item) ? deleteRecordButton("deadline", item.id, "删除事项") : ""}
       </div>
     </div>
   `;
@@ -1981,7 +1981,7 @@ function renderPostCard(item) {
           </span>
         </div>
         <div class="row-actions">
-          ${canManageItem(item) ? deleteRecordButton("post", item.id, 删除信息) : ""}
+          ${canManageItem(item) ? deleteRecordButton("post", item.id, "删除信息") : ""}
           <button
             class="${resolved ? "secondary-button" : "primary-button"}"
             type="button"
@@ -2059,7 +2059,7 @@ function renderTeamCard(item) {
       <div class="team-footer">
         <span class="team-slots">${item.members}/${item.capacity} 人已加入</span>
         <div class="row-actions">
-          ${canManageItem(item) ? deleteRecordButton("team", item.id, 删除组队) : ""}
+          ${canManageItem(item) ? deleteRecordButton("team", item.id, "删除组队") : ""}
           <button
             class="${full ? "secondary-button" : "primary-button"}"
             type="button"
@@ -2768,7 +2768,7 @@ function renderPersonalCenter() {
                             <strong>${escapeHTML(record.title)}</strong>
                             <span>${escapeHTML(record.meta)}</span>
                           </div>
-${deleteRecordButton("${escapeHTML(record.recordType)}", record.id, 删除)}
+${deleteRecordButton("${escapeHTML(record.recordType)}", record.id, "删除")}
                         </div>
                       `
                     )
@@ -3897,7 +3897,7 @@ function renderSuggestionCard(item) {
       <p>${escapeHTML(item.text)}</p>
       <div class="suggestion-footer">
         <span>${escapeHTML(item.category)} · 匿名同学</span>
-        ${canManageItem(item) ? deleteRecordButton("suggestion", item.id, 删除意见) : ""}
+        ${canManageItem(item) ? deleteRecordButton("suggestion", item.id, "删除意见") : ""}
       </div>
       ${step.hint ? `<p class="suggestion-flow-hint">${escapeHTML(step.hint)}</p>` : ""}
       ${

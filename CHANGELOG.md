@@ -1,5 +1,32 @@
 # 变更记录
 
+## 2026-10-13 — 修复：多处按钮点了没反应（渲染期 ReferenceError）
+
+用户反馈「好多按钮按了都没有反应」。根因是上一轮瘦身引入的**静默故障**：
+
+- 抽 `deleteRecordButton(recordType, id, label)` 这个共用函数时，把原来的
+  `aria-label="删除事项" title="删除事项"` 换成了
+  `deleteRecordButton("deadline", item.id, 删除事项)`——**标签少了引号**。
+  `删除事项` 于是成了一个未定义的变量。这是**合法语法**，`node --check` 全绿，
+  但渲染到那一行就抛 `ReferenceError: 删除事项 is not defined`，
+  整个渲染函数中断，`#app` 停在上一屏或加载态。共 5 处：
+  事项（deadline）、信息（post）、组队（team）、个人中心动态（recordType）、意见（suggestion）。
+- **修复**：5 处标签补回引号。
+
+为什么没被早点发现，以及这次加的防线：
+
+- `scripts/check-cjk.cjs`（新增，已进 CI）：剥掉字符串 / 模板串 / 正则 / 注释后
+  再找中文字符——字符串里的中文是文案，字符串外面还冒出中文，几乎一定是漏了引号。
+  零依赖纯 Node，跑得比浏览器快得多。
+- `scripts/smoke-render.py`（新增，本地跑）：用无头 Edge 把 10 个页面逐个渲染、
+  40 多个按钮逐个点击，捕获所有 `ReferenceError` / 未处理 Promise / `console.error`。
+  带 `--broken` 自检模式：故意注入已知 bug，确认这道测试**真的能红**，
+  避免"测试永远绿"的假安全感。
+- CI 里补上了 `check-sync.cjs`（上一版新增的门禁当时忘了接进去）。
+
+教训：**语法检查通过 ≠ 代码能跑**。凡是"把 HTML 属性抽成 JS 参数"的自动重构，
+都必须配一个真的会渲染页面的测试。
+
 ## 2026-10-13 — 抗压加固：增量同步 + 自适应轮询 + 限流降级
 
 起因是一次容量体检：全班共用的共享库（MantleDB 免费档）**每 24 小时只有 10,000 次请求**，
