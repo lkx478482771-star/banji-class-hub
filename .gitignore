@@ -1,4 +1,5 @@
 # 数据备份文件（含同学真实信息与口令摘要）——绝不入库、绝不上线
+backups/
 mantle-backup*.json
 mantledb-backup*.json
 *-backup-*.json

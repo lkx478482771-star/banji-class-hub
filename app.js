@@ -672,6 +672,13 @@ function canEditSchedule() {
   return hasRolePermission(SCHEDULE_EDIT_ROLES);
 }
 
+// 导出备份里含同学们的信息与口令摘要，只放开给管理员和班委。
+const DATA_ADMIN_ROLES = SCHEDULE_EDIT_ROLES.concat(["publicity", "league_secretary"]);
+
+function canManageData() {
+  return hasRolePermission(DATA_ADMIN_ROLES);
+}
+
 function isRecordExpired(payload) {
   if (!payload?.expiresAt) return false;
   return parseDate(payload.expiresAt).getTime() <= Date.now();
@@ -2579,6 +2586,9 @@ function renderPersonalCenter() {
   if (!ui.dailyUsage) {
     window.setTimeout(() => void loadDailyUsage(), 0);
   }
+  if (!dataTool.loaded) {
+    window.setTimeout(() => void loadDataSafety(), 0);
+  }
 
   const userId = authState.session?.user.id;
   const username = authState.session?.username || state.candidate.name;
@@ -2765,6 +2775,8 @@ function renderPersonalCenter() {
               </p>
             </div>
           </article>
+
+          ${renderDataSafetyPanel()}
         </aside>
       </section>
     </div>
@@ -5226,6 +5238,187 @@ async function downloadResource(id) {
   showToast("开始下载", fileName);
 }
 
+/* 数据安全：导出备份 / 从备份恢复（MantleDB 不会自动备份，30 天不写入会被清空） */
+
+const DATA_ENTRY_LIMIT = 100;
+const dataTool = { paths: 0, loading: false, loaded: false };
+
+function dataStamp() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(
+    now.getHours()
+  )}${pad(now.getMinutes())}`;
+}
+
+function saveBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function listSharedPaths() {  const listing = await mantleRequest(mantleListUrl());
+  return (listing?.entries || [])
+    .map((entry) => (entry && typeof entry.path === "string" ? entry.path : null))
+    .filter(Boolean);
+}
+
+async function fetchAllRecords() {
+  const paths = await listSharedPaths();
+  const records = {};
+  const failed = [];
+  await mapLimit(paths, MANTLE_MAX_CONCURRENCY, async (path) => {
+    try {
+      records[path] = await mantleRequest(mantleEntryUrl(path));
+    } catch (error) {
+      failed.push(path);
+    }
+  });
+  return { records, failed };
+}
+
+async function loadDataSafety(force = false) {
+  if (!hasSharedConfig() || dataTool.loading) return;
+  if (dataTool.loaded && !force) return;
+  dataTool.loading = true;
+  try {
+    dataTool.paths = (await listSharedPaths()).length;
+  } catch (error) {
+    dataTool.paths = -1;
+  } finally {
+    dataTool.loading = false;
+    dataTool.loaded = true;
+    if (ui.page === "profile") render();
+  }
+}
+
+async function exportAllData() {
+  if (!canManageData()) {
+    showToast("没有导出权限", "仅管理员和班委可用。");
+    return;
+  }
+  if (!hasSharedConfig()) {
+    showToast("没有开启共享库", "数据只存在这台电脑里。");
+    return;
+  }
+  showToast("正在导出", "正在读取共享库记录，请稍等…");
+  // 备份要当下的值，先清 5 秒短时缓存。
+  mantleCacheEpoch += 1;
+  mantleValueCache.clear();
+  try {
+    const { records, failed } = await fetchAllRecords();
+    const keys = Object.keys(records);
+    const payload = {
+      app: "banji-class-hub",
+      namespace: sharedConfig.mantleNamespace,
+      exportedAt: new Date().toISOString(),
+      recordCount: keys.length,
+      failed,
+      records
+    };
+    const fileName = `banji-backup-${dataStamp()}.json`;
+    saveBlob(
+      new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),
+      fileName
+    );
+    showToast(
+      "备份已下载",
+      `${keys.length} 条记录已存成 ${fileName}，请放到网盘。`
+    );
+  } catch (error) {
+    showToast("导出失败", "共享服务暂时不可用。");
+  }
+}
+
+async function restoreFromBackup() {
+  if (!canManageData()) {
+    showToast("没有恢复权限", "仅管理员和班委可用。");
+    return;
+  }
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json,.json";
+  input.addEventListener("change", async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    let payload = null;
+    try {
+      payload = JSON.parse(await file.text());
+    } catch (error) {
+      payload = null;
+    }
+    const records = payload && payload.records;
+    const paths = records && typeof records === "object" ? Object.keys(records) : [];
+    if (!paths.length) {
+      showToast("这个文件用不了", "请选择「导出全部数据」下载的 JSON 备份。");
+      return;
+    }
+    const when = payload.exportedAt
+      ? String(payload.exportedAt).slice(0, 16).replace("T", " ")
+      : "未知时间";
+    const ok = window.confirm(
+      `确定要用这份备份写回去吗？\n\n备份时间：${when}\n记录条数：${paths.length}\n\n` +
+        "同名记录会被覆盖，备份里没有的记录不会被删除。"
+    );
+    if (!ok) return;
+    showToast("正在恢复", `正在写回 ${paths.length} 条记录，请勿关闭…`);
+    let done = 0;
+    const failed = [];
+    await mapLimit(paths, 3, async (path) => {
+      try {
+        await mantleRequest(mantleEntryUrl(path), {
+          method: "POST",
+          body: JSON.stringify(records[path])
+        });
+        done += 1;
+      } catch (error) {
+        failed.push(path);
+      }
+    });
+    showToast(
+      failed.length ? "部分恢复完成" : "恢复完成",
+      failed.length
+        ? `成功 ${done} 条，失败 ${failed.length} 条，可重试。`
+        : `已写回 ${done} 条，刷新页面即可见。`
+    );
+    loadDataSafety(true);
+  });
+  input.click();
+}
+
+function renderDataSafetyPanel() {
+  if (!canManageData() || !hasSharedConfig()) return "";
+  const count = dataTool.paths;
+  const used = Math.max(0, count);
+  const percent = Math.min(100, Math.round((used / DATA_ENTRY_LIMIT) * 100));
+  const tone = used >= 80 ? "red" : used >= 60 ? "orange" : "green";
+  const badge = !dataTool.loaded
+    ? `<span class="badge blue">统计中</span>`
+    : count < 0
+      ? `<span class="badge red">读取失败</span>`
+      : `<span class="badge ${tone}">${used} / ${DATA_ENTRY_LIMIT} 条</span>`;
+  return `<article class="panel">
+  <header class="panel-header">
+    <div><h3>数据安全</h3><p>共享库不会自动备份，建议每周导出</p></div>
+    ${badge}
+  </header>
+  <div class="panel-body">
+    <div class="progress-track"><span style="width: ${percent}%"></span></div>
+    <p class="eyebrow" style="margin: 10px 0 14px">上限 ${DATA_ENTRY_LIMIT} 条、单条 64 KB，30 天不写入会被清空。</p>
+    <div class="stack">
+      <button class="primary-button full-width" type="button" data-action="data-export">${icon("cloud-upload")} 导出全部数据</button>
+      <button class="secondary-button full-width" type="button" data-action="data-restore">${icon("history")} 从备份恢复</button>
+    </div>
+    <p class="eyebrow" style="margin: 12px 0 0">备份含同学信息和口令摘要，只放自己的网盘。</p>
+  </div>
+</article>`;
+}
+
 /* =========================================================================
    IC-4 运动会（班集站内栏目）
    名单数据来源：运动会宣传/运动员名单.csv —— 当前是占位名单，上线前需替换
@@ -6139,6 +6332,16 @@ function handleClick(event) {
 
   if (action === "sports-photo-reject") {
     reviewSportsPhoto(actionElement.dataset.id || "", false);
+    return;
+  }
+
+  if (action === "data-export") {
+    void exportAllData();
+    return;
+  }
+
+  if (action === "data-restore") {
+    void restoreFromBackup();
     return;
   }
 
