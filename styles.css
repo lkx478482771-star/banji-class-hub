@@ -322,6 +322,29 @@ svg {
   font-size: 11px;
 }
 
+/* 状态文字占满剩余宽度，手动刷新按钮始终贴在右边。 */
+#sync-status {
+  flex: 1;
+  min-width: 0;
+}
+
+.sync-refresh {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sync-refresh[hidden] {
+  display: none;
+}
+
 .status-dot {
   width: 7px;
   height: 7px;

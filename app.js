@@ -55,8 +55,17 @@ const syncState = {
   available: null,
   accountChecked: false,
   localImported: false,
-  usageFailed: false
+  usageFailed: false,
+  // 主动同步改成自适应节奏：一直有人操作就勤快一点，长时间没人看就退到 5 分钟一轮。
+  tickTimer: null,
+  lastActiveAt: Date.now(),
+  // 命中 429 后暂停自动同步到这个时刻。免费档一天只有 10,000 次请求，越刷只会越限流。
+  rateLimitedUntil: 0
 };
+const SYNC_ACTIVE_MS = 60_000;
+const SYNC_IDLE_MS = 300_000;
+const SYNC_IDLE_AFTER_MS = 180_000;
+const RATE_LIMIT_PAUSE_MS = 600_000;
 // 本轮刚刚上传成功的记录：即使列表接口暂时还没返回它们，也不能被对账误删。
 const recentlyUploadedSharedKeys = new Set();
 
@@ -3153,15 +3162,9 @@ async function loadClassDirectory(force = false) {
   ui.classesLoading = true;
   if (ui.page === "classes" && !ui.classesLoaded) render();
   try {
-    const list = await mantleRequest(mantleListUrl());
-    const accountPaths = (list?.entries || [])
-      .map((entry) => entry?.path)
-      .filter((path) => typeof path === "string" && path.startsWith("accounts/"));
     const [classes, accounts] = await Promise.all([
       listRemoteClasses(),
-      mapLimit(accountPaths, MANTLE_MAX_CONCURRENCY, (path) =>
-        mantleRequest(mantleEntryUrl(path))
-      )
+      readIncrementalEntries("accounts/")
     ]);
     ui.classes = classes;
     ui.classAccounts = accounts.filter((account) => account?.username);
@@ -3374,13 +3377,7 @@ async function loadMemberDirectory(force = false) {
 
   try {
     if (hasSharedConfig()) {
-      const list = await mantleRequest(mantleListUrl());
-      const accountPaths = (list?.entries || [])
-        .map((entry) => entry?.path)
-        .filter((path) => typeof path === "string" && path.startsWith("accounts/"));
-      const remoteAccounts = await mapLimit(accountPaths, MANTLE_MAX_CONCURRENCY, (path) =>
-        mantleRequest(mantleEntryUrl(path))
-      );
+      const remoteAccounts = await readIncrementalEntries("accounts/");
       ui.members = remoteAccounts
         .filter(
           (account) =>
@@ -5095,6 +5092,9 @@ async function mantleRequest(url, options = {}) {
     // 写入成功后立刻让短时缓存失效，避免随后读到旧列表。
     mantleCacheEpoch += 1;
     mantleValueCache.clear();
+    // 写完之后的列表 updated_at 一定会变，但这一轮未必已经拿到新列表；
+    // 直接整体清空增量缓存，保证紧接着的那次读取一定是最新版本。
+    mantleEntryCache.clear();
     return result;
   }
   const key = String(url);
@@ -5160,13 +5160,7 @@ async function writeRemoteClass(classInfo) {
 
 async function listRemoteClasses() {
   if (!hasSharedConfig()) return [];
-  const list = await mantleRequest(mantleListUrl());
-  const classPaths = (list?.entries || [])
-    .map((entry) => entry?.path)
-    .filter((path) => typeof path === "string" && path.startsWith("classes/"));
-  const classes = await mapLimit(classPaths, MANTLE_MAX_CONCURRENCY, (path) =>
-    mantleRequest(mantleEntryUrl(path))
-  );
+  const classes = await readIncrementalEntries("classes/");
   return classes.filter((item) => item?.id && item?.code);
 }
 
@@ -5390,9 +5384,17 @@ function setSyncStatus(status, detail = "") {
     offline: "共享服务较慢 · 内容已保存在本机",
     unavailable: "共享服务未配置",
     local: "本地模式 · 数据保存在当前设备",
-    error: "共享服务暂不可用 · 稍后自动重试"
+    error: "共享服务暂不可用 · 稍后自动重试",
+    ratelimited: "已达上限 · 暂停自动刷新"
   };
   label.textContent = messages[status] || messages.offline;
+  label.title =
+    status === "ratelimited"
+      ? "班级共享库的请求额度已用完（免费档 10,000 次 / 24 小时），已自动暂停刷新，避免越刷越受限。"
+      : "";
+  // 被限流时给一个手动出口：点一下就能立刻重试，不必等冷却结束。
+  const refresh = document.getElementById("sync-refresh");
+  if (refresh) refresh.hidden = status !== "ratelimited";
 }
 
 // 共享记录的接收姿势只有两种，抽出来省掉逐类型复制的分支：
@@ -5605,37 +5607,66 @@ function applySharedRecords(records, reconcile = false) {
   return changed;
 }
 
+// 增量同步：列表接口的每条 entry 都带 updated_at，版本没变就直接复用上一轮的响应体，
+// 不再逐条重新 GET。轮询成本从 1+N 降到 1（只有真正变过的条目才会发请求）。
+// 缓存挂在模块作用域、跨轮询复用；任何写操作都会整体清空它。
+const mantleEntryCache = new Map();
+
+// 服务器上已经没有的路径要从缓存里摘掉，否则缓存只涨不落。
+function pruneMantleEntryCache(prefix, allPaths) {
+  const alive = new Set(allPaths);
+  for (const path of [...mantleEntryCache.keys()]) {
+    if (path.startsWith(prefix) && !alive.has(path)) mantleEntryCache.delete(path);
+  }
+}
+
+async function readIncrementalEntries(prefix, limit = 500, tolerant = false) {
+  const list = await mantleRequest(mantleListUrl());
+  const allPaths = [];
+  const scoped = [];
+  for (const entry of list?.entries || []) {
+    const path = entry?.path;
+    if (typeof path !== "string" || !path.startsWith(prefix)) continue;
+    allPaths.push(path);
+    if (allPaths.length <= limit) scoped.push({ path, stamp: Number(entry.updated_at) || 0 });
+  }
+  pruneMantleEntryCache(prefix, allPaths);
+  const stale = scoped.filter((item) => mantleEntryCache.get(item.path)?.stamp !== item.stamp);
+  const fetched = await mapLimit(stale, MANTLE_MAX_CONCURRENCY, (item) => {
+    const request = mantleRequest(mantleEntryUrl(item.path));
+    return tolerant ? request.catch(() => null) : request;
+  });
+  stale.forEach((item, index) => {
+    const value = fetched[index];
+    // 没拿到内容（404 或容错吞掉的失败）不写缓存，下一轮还会再试。
+    if (value === null || value === undefined) {
+      mantleEntryCache.delete(item.path);
+      return;
+    }
+    mantleEntryCache.set(item.path, { stamp: item.stamp, value });
+  });
+  const values = scoped.map((item) => mantleEntryCache.get(item.path)?.value ?? null);
+  // 条目数超过 limit 时这份列表并不完整，调用方不能据此删除本地缓存。
+  values.complete = allPaths.length <= limit;
+  return values;
+}
+
 async function readSharedRecords() {
   if (!hasSharedConfig()) return [];
-  const list = await mantleRequest(mantleListUrl());
-  const allPaths = (list?.entries || [])
-    .map((entry) => entry?.path)
-    .filter((path) => typeof path === "string" && path.startsWith("records/"));
-  const recordPaths = allPaths.slice(0, 500);
-  const records = await mapLimit(recordPaths, MANTLE_MAX_CONCURRENCY, (path) =>
-    mantleRequest(mantleEntryUrl(path))
-  );
+  const records = await readIncrementalEntries("records/");
   const visible = records.filter(
     (record) =>
       record?.record_key &&
       record?.payload &&
       (record.class_id || DEFAULT_CLASS_ID) === currentClassId()
   );
-  // 超过 500 条时这份列表并不完整，不能据此删除本地缓存。
-  visible.complete = allPaths.length <= 500;
+  visible.complete = records.complete;
   return visible;
 }
 
 async function readSharedHistory() {
   if (!hasSharedConfig()) return [];
-  const list = await mantleRequest(mantleListUrl());
-  const historyPaths = (list?.entries || [])
-    .map((entry) => entry?.path)
-    .filter((path) => typeof path === "string" && path.startsWith("history/"))
-    .slice(0, 500);
-  const records = await mapLimit(historyPaths, MANTLE_MAX_CONCURRENCY, (path) =>
-    mantleRequest(mantleEntryUrl(path))
-  );
+  const records = await readIncrementalEntries("history/");
   return records.filter(
     (record) =>
       record?.record_key &&
@@ -5800,12 +5831,48 @@ async function flushPendingSharedRecords() {
   return uploaded;
 }
 
+function isRateLimited() {
+  return Date.now() < syncState.rateLimitedUntil;
+}
+
+// 撞上 429 就老实歇 10 分钟：继续硬刷只会一直 429，还会把别的请求一起拖下水。
+function noteRateLimit() {
+  if (syncState.retryTimer) window.clearTimeout(syncState.retryTimer);
+  syncState.retryTimer = null;
+  syncState.rateLimitedUntil = Date.now() + RATE_LIMIT_PAUSE_MS;
+  setSyncStatus("ratelimited");
+}
+
 function scheduleSharedSync(delay = 12_000) {
-  if (syncState.retryTimer) return;
+  if (syncState.retryTimer || isRateLimited()) return;
   syncState.retryTimer = window.setTimeout(() => {
     syncState.retryTimer = null;
     void syncSharedRecords();
   }, delay);
+}
+
+// 活跃时每 60 秒刷一次；连续 3 分钟没人操作就退到 5 分钟一次。
+function scheduleSyncTick() {
+  if (syncState.tickTimer) window.clearTimeout(syncState.tickTimer);
+  const idle = Date.now() - syncState.lastActiveAt > SYNC_IDLE_AFTER_MS;
+  syncState.tickTimer = window.setTimeout(runSyncTick, idle ? SYNC_IDLE_MS : SYNC_ACTIVE_MS);
+}
+
+function runSyncTick() {
+  syncState.tickTimer = null;
+  if (authState.session && document.visibilityState === "visible" && !isRateLimited()) {
+    void syncSharedRecords();
+    if (ui.page === "members") {
+      void loadMemberDirectory(true);
+    }
+    if (ui.page === "history") {
+      void loadHistory(true);
+    }
+    if (ui.page === "classes") {
+      void loadClassDirectory(true);
+    }
+  }
+  scheduleSyncTick();
 }
 
 async function ensureCurrentAccountShared() {
@@ -5969,7 +6036,9 @@ async function syncSharedRecords() {
       setSyncStatus("online", `班级共享已同步 · ${records.length} 条`);
     }
   } catch (error) {
-    if (error.status === 404) {
+    if (error.status === 429) {
+      noteRateLimit();
+    } else if (error.status === 404) {
       syncState.available = false;
       setSyncStatus("unavailable");
     } else {
@@ -8242,14 +8311,7 @@ function loadSportsMoments() {
 
 async function loadSportsPhotos() {
   if (!hasSharedConfig()) return [];
-  const list = await mantleRequest(mantleListUrl());
-  const paths = (list?.entries || [])
-    .map((entry) => entry?.path)
-    .filter((path) => typeof path === "string" && path.indexOf(SPORTS_PHOTO_PATH) === 0)
-    .slice(0, 300);
-  const records = await mapLimit(paths, MANTLE_MAX_CONCURRENCY, (path) =>
-    mantleRequest(mantleEntryUrl(path)).catch(() => null)
-  );
+  const records = await readIncrementalEntries(SPORTS_PHOTO_PATH, 300, true);
   const all = records.filter(
     (record) => record && record.photo_id && (record.class_id || DEFAULT_CLASS_ID) === currentClassId()
   );
@@ -8567,6 +8629,14 @@ function handleClick(event) {
     document
       .getElementById(actionElement.dataset.target)
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+
+  if (action === "refresh-shared") {
+    // 手动刷新：跳过冷却直接再试一次。
+    syncState.rateLimitedUntil = 0;
+    setSyncStatus("syncing");
+    void syncSharedRecords();
     return;
   }
 
@@ -9385,23 +9455,23 @@ function initialize() {
   });
   window.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && authState.session) {
-      void syncSharedRecords();
+      syncState.lastActiveAt = Date.now();
+      scheduleSyncTick();
+      if (!isRateLimited()) void syncSharedRecords();
     }
   });
-  window.setInterval(() => {
-    if (authState.session && document.visibilityState === "visible") {
-      void syncSharedRecords();
-      if (ui.page === "members") {
-        void loadMemberDirectory(true);
-      }
-      if (ui.page === "history") {
-        void loadHistory(true);
-      }
-      if (ui.page === "classes") {
-        void loadClassDirectory(true);
-      }
-    }
-  }, 15_000);
+  // 有动作才算「活跃」。挂着不看的页面本来就不需要那么勤地刷，
+  // 而免费档一天只有 10,000 次请求，全班共用。
+  ["pointerdown", "keydown", "touchstart"].forEach((type) => {
+    window.addEventListener(
+      type,
+      () => {
+        syncState.lastActiveAt = Date.now();
+      },
+      { passive: true }
+    );
+  });
+  scheduleSyncTick();
 
   render();
   registerServiceWorker();

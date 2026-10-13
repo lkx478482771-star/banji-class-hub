@@ -20,7 +20,7 @@
     <meta name="apple-mobile-web-app-title" content="班集" />
     <meta name="application-name" content="班集" />
 
-    <link rel="stylesheet" href="styles.css?v=20261013g" />
+    <link rel="stylesheet" href="styles.css?v=20261013h" />
   </head>
   <body>
     <div class="app-shell">
@@ -101,6 +101,15 @@
         <footer class="sidebar-footer">
           <span class="status-dot is-syncing" id="sync-dot" aria-hidden="true"></span>
           <span id="sync-status">正在连接班级云...</span>
+          <button
+            class="sync-refresh"
+            id="sync-refresh"
+            type="button"
+            data-action="refresh-shared"
+            hidden
+          >
+            手动刷新
+          </button>
         </footer>
       </aside>
 
@@ -207,8 +216,8 @@
     <div class="modal-root" id="modal-root"></div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-    <script src="config.js?v=20261013g" defer></script>
-    <script src="assets/icons.js?v=20261013g" defer></script>
-    <script src="app.js?v=20261013g" defer></script>
+    <script src="config.js?v=20261013h" defer></script>
+    <script src="assets/icons.js?v=20261013h" defer></script>
+    <script src="app.js?v=20261013h" defer></script>
   </body>
 </html>
