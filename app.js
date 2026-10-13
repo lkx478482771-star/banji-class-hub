@@ -5584,6 +5584,8 @@ const sportsUi = {
 
 // 径赛 / 田赛分组：按项目名里的关键词判断，用来给名单做筛选。
 const SPORTS_FILTERS = [["all", "全部"], ["track", "径赛"], ["field", "田赛"]];
+// 芯片顶上那道颜色：径赛青、田赛橙、两项都上的紫，一眼能看出谁跑谁投。
+const SPORTS_KIND_COLORS = { track: "#38bdf8", field: "#fb923c", both: "#a78bfa" };
 const sportsTrackField = (event) => (/跳|铅球|实心球|标枪|铁饼/.test(event) ? "field" : "track");
 const sportsEventText = (athlete) => athlete.events.join(" / ");
 const sportsRosterText = (athlete) =>
@@ -5723,8 +5725,300 @@ function renderSportsPanel(index) {
           .join("")}
       </dl>
       <p class="sports-cheer">${escapeHTML(athlete.cheer || "信号满格，等你冲线。")}</p>
+      <div class="sports-poster-row">
+        <button class="primary-button full-width" type="button" data-action="sports-poster" data-index="${current}">${icon("download")} 生成专属海报</button>
+        <p class="sports-hint">一键出图，存到手机直接发群里。</p>
+      </div>
     </div>
   `;
+}
+
+/* ==== 选手海报：用 canvas 现画一张竖版图，存下来就能直接发群里 ==== */
+const SPORTS_POSTER_W = 1080;
+const SPORTS_POSTER_H = 1620;
+const SPORTS_POSTER_INK = "#eaf3ff";
+const SPORTS_POSTER_SOFT = "#9db6d4";
+const SPORTS_POSTER_MINT = "#3ddcb4";
+const SPORTS_POSTER_GOLD = "#f2b84b";
+const SPORTS_POSTER_LINE = "rgba(150, 205, 245, 0.3)";
+
+const posterFont = (size, weight) =>
+  `${weight || 700} ${size}px "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", system-ui, sans-serif`;
+
+function posterRoundRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
+function posterDash(ctx, x1, y1, x2, y2) {
+  ctx.save();
+  ctx.setLineDash([12, 12]);
+  ctx.strokeStyle = SPORTS_POSTER_LINE;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// 中文按字断行就够了，不用去猜西文的词边界。
+function posterWrap(ctx, text, maxWidth, size, weight) {
+  ctx.font = posterFont(size, weight);
+  const lines = [];
+  let line = "";
+  String(text)
+    .split("")
+    .forEach((char) => {
+      const next = line + char;
+      if (line && ctx.measureText(next).width > maxWidth) {
+        lines.push(line);
+        line = char;
+      } else {
+        line = next;
+      }
+    });
+  if (line) lines.push(line);
+  return lines;
+}
+
+function posterKindText(kind) {
+  if (kind === "field") return "田赛";
+  if (kind === "both") return "径赛 · 田赛";
+  return "径赛";
+}
+
+function drawSportsPoster(index) {
+  const athlete = SPORTS_ATHLETES[index];
+  if (!athlete) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = SPORTS_POSTER_W;
+  canvas.height = SPORTS_POSTER_H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  const W = SPORTS_POSTER_W;
+  const H = SPORTS_POSTER_H;
+  const pad = 84;
+  const id = sportsAthleteId(index);
+
+  const bg = ctx.createLinearGradient(0, 0, W * 0.5, H);
+  bg.addColorStop(0, "#1b2c4a");
+  bg.addColorStop(0.52, "#0c1626");
+  bg.addColorStop(1, "#060a13");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = "rgba(140, 190, 240, 0.07)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= W; x += 54) {
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= H; y += 54) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(W, y + 0.5);
+    ctx.stroke();
+  }
+
+  // 右上角那圈同心圆 = 晶圆
+  ctx.save();
+  ctx.strokeStyle = "rgba(93, 224, 190, 0.22)";
+  ctx.lineWidth = 2;
+  for (let r = 70; r <= 420; r += 66) {
+    ctx.beginPath();
+    ctx.arc(W - 30, 60, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const glow = ctx.createRadialGradient(W / 2, H + 60, 30, W / 2, H + 60, 640);
+  glow.addColorStop(0, "rgba(61, 220, 180, 0.4)");
+  glow.addColorStop(1, "rgba(61, 220, 180, 0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, H - 700, W, 700);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = SPORTS_POSTER_SOFT;
+  ctx.font = posterFont(34, 600);
+  ctx.fillText("安徽大学 · 集成电路学院", pad, 152);
+  ctx.fillStyle = SPORTS_POSTER_MINT;
+  ctx.font = posterFont(30, 700);
+  ctx.fillText("IC-4 运动会 · 出战名单", pad, 202);
+
+  const cardX = pad;
+  const cardY = 282;
+  const cardW = W - pad * 2;
+  const cardH = 1080;
+  posterRoundRect(ctx, cardX, cardY, cardW, cardH, 40);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(150, 205, 245, 0.32)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.save();
+  posterRoundRect(ctx, cardX, cardY, cardW, cardH, 40);
+  ctx.clip();
+  const bar = ctx.createLinearGradient(cardX, 0, cardX + cardW, 0);
+  bar.addColorStop(0, SPORTS_POSTER_MINT);
+  bar.addColorStop(0.55, "#38bdf8");
+  bar.addColorStop(1, SPORTS_POSTER_GOLD);
+  ctx.fillStyle = bar;
+  ctx.fillRect(cardX, cardY, cardW, 8);
+  ctx.restore();
+
+  ctx.font = posterFont(38, 700);
+  const idWidth = ctx.measureText(id).width + 60;
+  posterRoundRect(ctx, cardX + cardW - 48 - idWidth, cardY + 54, idWidth, 68, 34);
+  ctx.fillStyle = "rgba(242, 184, 75, 0.16)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(242, 184, 75, 0.75)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = SPORTS_POSTER_GOLD;
+  ctx.textAlign = "center";
+  ctx.fillText(id, cardX + cardW - 48 - idWidth / 2, cardY + 100);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = SPORTS_POSTER_SOFT;
+  ctx.font = posterFont(30, 600);
+  ctx.fillText("DATASHEET / Rev.1.0", cardX + 48, cardY + 100);
+
+  // 名字太长就自动收字号，保证不越框
+  let nameSize = 136;
+  ctx.font = posterFont(nameSize, 800);
+  while (nameSize > 76 && ctx.measureText(athlete.name).width > cardW - 96) {
+    nameSize -= 6;
+    ctx.font = posterFont(nameSize, 800);
+  }
+  ctx.fillStyle = SPORTS_POSTER_INK;
+  ctx.fillText(athlete.name, cardX + 48, cardY + 300);
+
+  ctx.fillStyle = SPORTS_POSTER_MINT;
+  ctx.fillRect(cardX + 48, cardY + 338, 132, 8);
+
+  ctx.fillStyle = SPORTS_POSTER_SOFT;
+  ctx.font = posterFont(34, 600);
+  ctx.fillText(
+    `${athlete.group} · ${posterKindText(athlete.kind)} · ${athlete.events.length} 项`,
+    cardX + 48,
+    cardY + 406
+  );
+
+  posterDash(ctx, cardX + 48, cardY + 452, cardX + cardW - 48, cardY + 452);
+
+  ctx.fillStyle = SPORTS_POSTER_SOFT;
+  ctx.font = posterFont(26, 700);
+  ctx.fillText("EVENT / 参赛项目", cardX + 48, cardY + 508);
+
+  ctx.font = posterFont(32, 600);
+  const chipRight = cardX + cardW - 48;
+  let chipX = cardX + 48;
+  let chipY = cardY + 574;
+  athlete.events.forEach((event) => {
+    const width = ctx.measureText(event).width + 52;
+    if (chipX + width > chipRight) {
+      chipX = cardX + 48;
+      chipY += 78;
+    }
+    posterRoundRect(ctx, chipX, chipY - 46, width, 66, 33);
+    ctx.fillStyle = "rgba(93, 224, 190, 0.14)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(93, 224, 190, 0.6)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = SPORTS_POSTER_INK;
+    ctx.fillText(event, chipX + 26, chipY);
+    chipX += width + 16;
+  });
+
+  const cheerY = cardY + 700;
+  const cheerLines = posterWrap(ctx, athlete.cheer || "信号满格，等你冲线。", cardW - 160, 36, 600);
+  const cheerH = 56 + cheerLines.length * 54;
+  posterRoundRect(ctx, cardX + 48, cheerY, cardW - 96, cheerH, 30);
+  ctx.fillStyle = "rgba(61, 220, 180, 0.12)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(61, 220, 180, 0.4)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = "#c6f7e8";
+  ctx.font = posterFont(36, 600);
+  cheerLines.forEach((text, i) => {
+    ctx.fillText(text, cardX + 80, cheerY + 74 + i * 54);
+  });
+
+  const specs = [
+    ["GROUP", athlete.group],
+    ["POWER SUPPLY", SPORTS_MEET.supply],
+    ["LOT", SPORTS_MEET.meetTime.slice(0, 10)],
+    ["STATUS", "已通电 / READY"]
+  ];
+  const specTop = cheerY + cheerH + 62;
+  specs.forEach((pair, i) => {
+    const y = specTop + i * 62;
+    ctx.font = posterFont(26, 700);
+    ctx.fillStyle = SPORTS_POSTER_SOFT;
+    ctx.textAlign = "left";
+    ctx.fillText(pair[0], cardX + 48, y);
+    ctx.font = posterFont(30, 600);
+    ctx.fillStyle = SPORTS_POSTER_INK;
+    ctx.textAlign = "right";
+    ctx.fillText(pair[1], cardX + cardW - 48, y);
+    if (i < specs.length - 1) posterDash(ctx, cardX + 48, y + 24, cardX + cardW - 48, y + 24);
+  });
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = SPORTS_POSTER_INK;
+  ctx.font = posterFont(34, 700);
+  ctx.fillText(SPORTS_MEET.dateLabel, pad, 1478);
+  ctx.fillStyle = SPORTS_POSTER_MINT;
+  ctx.font = posterFont(30, 600);
+  ctx.fillText(SPORTS_MEET.slogan, pad, 1532);
+  ctx.fillStyle = "rgba(157, 182, 212, 0.75)";
+  ctx.font = posterFont(26, 600);
+  ctx.fillText(
+    `集成电路 4 班 · 班级共建站　|　${id} · ${SPORTS_ATHLETES.length} 颗芯片之一`,
+    pad,
+    1582
+  );
+
+  return canvas;
+}
+
+function downloadSportsPoster(index) {
+  const asked = Number(index);
+  const at = Number.isInteger(asked) && SPORTS_ATHLETES[asked] ? asked : sportsUi.selected;
+  const athlete = SPORTS_ATHLETES[at];
+  if (!athlete) return;
+  const canvas = drawSportsPoster(at);
+  if (!canvas || !canvas.toBlob) {
+    showToast("海报没生成出来", "换 Chrome 或 Edge 再试一次。");
+    return;
+  }
+  const fileName = `${sportsAthleteId(at)}-${athlete.name}-运动会海报.jpg`;
+  // 竖版大图用 JPEG 更划算：PNG 要 1.7 MB，JPEG 0.95 只要几百 KB，发群里更快。
+  canvas.toBlob(
+    (blob) => {
+      if (!blob) {
+        showToast("海报没生成出来", "换 Chrome 或 Edge 再试一次。");
+        return;
+      }
+      saveBlob(blob, fileName);
+      showToast("海报已下载", `${athlete.name} 的海报存成了 ${fileName}，直接发群里就行。`);
+    },
+    "image/jpeg",
+    0.95
+  );
 }
 
 function renderSportsChips() {
@@ -5818,7 +6112,7 @@ function renderSports() {
         type="button"
         data-action="sports-select"
         data-index="${index}"
-        style="left: ${(50 + point.x * 100).toFixed(3)}%; top: ${(50 + point.y * 100).toFixed(3)}%; width: ${sizePercent.toFixed(3)}%; --die-ratio: ${ratio}"
+        style="left: ${(50 + point.x * 100).toFixed(3)}%; top: ${(50 + point.y * 100).toFixed(3)}%; width: ${sizePercent.toFixed(3)}%; --die-ratio: ${ratio}; --i: ${index}; --kind: ${SPORTS_KIND_COLORS[athlete.kind] || SPORTS_KIND_COLORS.track}"
         aria-label="${escapeHTML(athlete.name)} ${escapeHTML(sportsEventText(athlete))}"
       >
         <span class="sports-die-name">${escapeHTML(athlete.name)}</span>
@@ -5877,6 +6171,8 @@ function renderSports() {
               <div class="sports-wafer-wrap">
                 <div class="sports-wafer" id="sports-wafer">
                   <div class="sports-wafer-grid" aria-hidden="true"></div>
+                  <div class="sports-wafer-traces" aria-hidden="true"></div>
+                  <div class="sports-wafer-sweep" aria-hidden="true"></div>
                   <div class="sports-wafer-ring" aria-hidden="true"></div>
                   ${dice}
                   <div class="sports-probe" aria-hidden="true"></div>
@@ -5886,6 +6182,8 @@ function renderSports() {
                 <span class="sports-legend-item"><i></i>待机</span>
                 <span class="sports-legend-item is-lit"><i></i>已通电</span>
                 <span class="sports-legend-item is-active"><i></i>当前查看</span>
+                <span class="sports-legend-item is-track"><i></i>径赛</span>
+                <span class="sports-legend-item is-field"><i></i>田赛</span>
               </div>
               <div class="sports-wafer-actions">
                 <button class="primary-button" type="button" data-action="sports-power">${icon("gauge")} 一键通电</button>
@@ -6379,6 +6677,11 @@ function handleClick(event) {
 
   if (action === "sports-select") {
     selectSportsAthlete(Number(actionElement.dataset.index) || 0);
+    return;
+  }
+
+  if (action === "sports-poster") {
+    downloadSportsPoster(Number(actionElement.dataset.index) || 0);
     return;
   }
 
