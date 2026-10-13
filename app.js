@@ -449,7 +449,9 @@ function createSeedState() {
       responses: 31
     },
     // 每位选手一条「加油线程」，全班对他的加油都攒在这一条共享记录里。
-    cheers: []
+    cheers: [],
+    // 整个班一条「现场战报 · 奖牌榜」记录。
+    results: []
   };
 }
 
@@ -884,6 +886,7 @@ function activateClassState() {
     state.deadlines = [];
     state.resources = [];
     state.cheers = [];
+    state.results = [];
   }
   applySharedRecords(getCachedSharedRecords());
   state.candidate.name = authState.session?.username || state.candidate.name;
@@ -4305,6 +4308,53 @@ function openModal(kind, options = {}) {
       subtitle: "谁收到的加油最多，一眼就能看到",
       wide: true,
       body: cheerWallBody()
+    },
+    result: {
+      title: "录入比赛成绩",
+      subtitle: "比赛当天随手记一条，全班立刻就能看到",
+      wide: false,
+      body: `
+        <form id="result-form">
+          <div class="modal-body">
+            <div class="modal-field">
+              <label for="result-athlete">选手</label>
+              <select id="result-athlete" name="athleteId" required>
+                ${SPORTS_ATHLETES.map(
+                  (athlete, index) =>
+                    `<option value="${sportsAthleteId(index)}">${escapeHTML(athlete.name)} · ${escapeHTML(
+                      athlete.group
+                    )}</option>`
+                ).join("")}
+              </select>
+            </div>
+            <div class="modal-field">
+              <label for="result-event">项目</label>
+              <input id="result-event" name="event" list="result-event-list" maxlength="30" placeholder="例如：男子 100 米" required />
+              <datalist id="result-event-list">
+                ${Array.from(new Set(sportsAllEvents))
+                  .map((event) => `<option value="${escapeHTML(event)}"></option>`)
+                  .join("")}
+              </datalist>
+            </div>
+            <div class="form-grid">
+              <div class="modal-field">
+                <label for="result-place">名次</label>
+                <select id="result-place" name="place">
+                  ${RESULT_PLACES.map((item) => `<option value="${item.value}">${escapeHTML(item.label)}</option>`).join("")}
+                </select>
+              </div>
+              <div class="modal-field">
+                <label for="result-note">一句话战报（可选）</label>
+                <input id="result-note" name="note" maxlength="40" placeholder="例如：决赛最后 20 米反超" />
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            <button class="primary-button" type="submit">${icon("megaphone")} 发布战报</button>
+          </div>
+        </form>
+      `
     }
   };
 
@@ -5033,12 +5083,50 @@ function applySharedRecords(records, reconcile = false) {
         }
       }
     }
+
+    // 战报按「选手 + 项目」取最新：谁录的更新就用谁的，后到的覆盖先到的。
+    if (record.record_type === "result") {
+      const incomingItems = normalizeResultItems(payload?.items);
+      const existing = state.results.find((item) => item.id === id);
+      if (!existing) {
+        state.results.push({
+          id: String(id),
+          updatedAt: payload?.updatedAt || new Date().toISOString(),
+          expiresAt: payload?.expiresAt || resultsExpiry(),
+          items: incomingItems,
+          shared: true,
+          recordKey: record.record_key || "",
+          authorId: record.author_id || ""
+        });
+        changed = true;
+      } else {
+        const merged = mergeResultItems(existing.items, incomingItems);
+        const unchanged =
+          merged.length === existing.items.length &&
+          merged.every(
+            (item, index) =>
+              item.key === existing.items[index]?.key && item.at === existing.items[index]?.at
+          );
+        if (!unchanged) {
+          existing.items = merged;
+          existing.updatedAt = payload?.updatedAt || existing.updatedAt;
+          existing.expiresAt = payload?.expiresAt || existing.expiresAt;
+          existing.shared = true;
+          existing.recordKey = record.record_key || existing.recordKey;
+          changed = true;
+          queueSharedRecord("result", existing, { skipQuota: true, defer: true });
+        } else if (record.record_key && existing.recordKey !== record.record_key) {
+          existing.recordKey = record.record_key;
+          changed = true;
+        }
+      }
+    }
   }
 
   // 只在远端成功返回时做对账：本地已经缓存的共享记录若在远端消失，就一并移除。
   if (reconcile) {
     const pendingKeys = new Set(getPendingSharedRecords().map((item) => item.record_key));
-    for (const collectionName of ["posts", "teams", "suggestions", "deadlines", "cheers"]) {
+    for (const collectionName of ["posts", "teams", "suggestions", "deadlines", "cheers", "results"]) {
       const collection = state[collectionName];
       const kept = collection.filter((item) => {
         if (!item?.shared || !item.recordKey) return true;
@@ -5126,7 +5214,7 @@ async function archiveAndDeleteExpiredRecord(record) {
 
 function purgeExpiredLocalRecords() {
   let changed = false;
-  const collections = ["posts", "teams", "suggestions", "deadlines", "cheers"];
+  const collections = ["posts", "teams", "suggestions", "deadlines", "cheers", "results"];
   for (const collectionName of collections) {
     const before = state[collectionName].length;
     state[collectionName] = state[collectionName].filter(
@@ -5343,7 +5431,8 @@ function importLocalRecordsToShared() {
     ["team", state.teams],
     ["suggestion", state.suggestions],
     ["deadline", state.deadlines],
-    ["cheer", state.cheers]
+    ["cheer", state.cheers],
+    ["result", state.results]
   ];
 
   for (const [recordType, records] of collections) {
@@ -6626,6 +6715,210 @@ function cheerWallBody() {
   `;
 }
 
+/* ==== 现场战报 · 奖牌榜 ==== */
+// 整个班只占一条共享记录（record_key = result:meet）：比赛当天大家各录各的，
+// 同一个「选手 + 项目」只保留最新的一条，不会出现两条互相矛盾的记录。
+const RESULTS_ID = "meet";
+const RESULTS_MAX_ITEMS = 200;
+
+const RESULT_PLACES = [
+  { value: "1", label: "第 1 名", medal: "gold" },
+  { value: "2", label: "第 2 名", medal: "silver" },
+  { value: "3", label: "第 3 名", medal: "bronze" },
+  { value: "4", label: "第 4 名" },
+  { value: "5", label: "第 5 名" },
+  { value: "6", label: "第 6 名" },
+  { value: "7", label: "第 7 名" },
+  { value: "8", label: "第 8 名" },
+  { value: "dnf", label: "未完赛 / 弃权" }
+];
+
+function resultPlaceMeta(place) {
+  const key = String(place || "");
+  return RESULT_PLACES.find((item) => item.value === key) || { value: key, label: key || "参赛" };
+}
+
+// 战报比加油留得久：运动会结束后 30 天才自动清理。
+function resultsExpiry() {
+  const meet = Date.parse(SPORTS_MEET.meetTime);
+  const base = Number.isFinite(meet) ? meet : Date.now();
+  return new Date(base + 30 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function resultItemKey(athleteId, event) {
+  return `${athleteId}|${event}`;
+}
+
+function normalizeResultItems(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((item) => item && item.athleteId && item.event)
+    .map((item) => ({
+      key: String(item.key || resultItemKey(item.athleteId, item.event)),
+      athleteId: String(item.athleteId),
+      athleteName: String(item.athleteName || cheerTargetName(item.athleteId)).slice(0, 12),
+      event: String(item.event).slice(0, 30),
+      place: String(item.place || ""),
+      note: String(item.note || "").slice(0, 40),
+      at: item.at || new Date().toISOString(),
+      by: String(item.by || ""),
+      byName: String(item.byName || "").slice(0, 12)
+    }));
+}
+
+// 同一个「选手 + 项目」按时间取最新：后录的覆盖先录的。
+function mergeResultItems(current, incoming) {
+  const merged = normalizeResultItems(current);
+  normalizeResultItems(incoming).forEach((entry) => {
+    const at = merged.findIndex((item) => item.key === entry.key);
+    if (at < 0) merged.push(entry);
+    else if (Date.parse(entry.at) >= Date.parse(merged[at].at)) merged[at] = entry;
+  });
+  return merged
+    .sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0))
+    .slice(0, RESULTS_MAX_ITEMS);
+}
+
+function resultsThread(create = false) {
+  let thread = state.results.find((item) => item.id === RESULTS_ID);
+  if (!thread && create) {
+    thread = {
+      id: RESULTS_ID,
+      updatedAt: new Date().toISOString(),
+      expiresAt: resultsExpiry(),
+      items: [],
+      shared: false,
+      recordKey: ""
+    };
+    state.results.push(thread);
+  }
+  return thread;
+}
+
+function resultItems() {
+  return resultsThread()?.items || [];
+}
+
+function submitResult(athleteId, event, place, note) {
+  if (!authState.session) {
+    showToast("先登录", "登录之后才能录入成绩。");
+    return false;
+  }
+  const cleanEvent = String(event || "").trim().slice(0, 30);
+  if (!athleteId || !cleanEvent) {
+    showToast("还差信息", "先选选手，再写上项目。");
+    return false;
+  }
+  const thread = resultsThread(true);
+  const at = new Date().toISOString();
+  const entry = {
+    key: resultItemKey(athleteId, cleanEvent),
+    athleteId,
+    athleteName: cheerTargetName(athleteId),
+    event: cleanEvent,
+    place: String(place || ""),
+    note: String(note || "").trim().slice(0, 40),
+    at,
+    by: authState.session.user.id,
+    byName: authState.session.username || "同学"
+  };
+  const index = thread.items.findIndex((item) => item.key === entry.key);
+  if (index >= 0) thread.items[index] = entry;
+  else thread.items.push(entry);
+  thread.items = mergeResultItems(thread.items, []);
+  thread.updatedAt = at;
+  thread.expiresAt = resultsExpiry();
+  thread.shared = true;
+  saveState();
+  // 和加油一样：录战报是轻量的正向动作，不吃每天的发布额度。
+  queueSharedRecord("result", thread, { skipQuota: true });
+  return true;
+}
+
+function deleteResult(key) {
+  if (!canManageData()) {
+    showToast("没有权限", "只有管理员和班委能删除成绩。");
+    return;
+  }
+  const thread = resultsThread();
+  if (!thread) return;
+  const before = thread.items.length;
+  thread.items = thread.items.filter((item) => item.key !== key);
+  if (thread.items.length === before) return;
+  thread.updatedAt = new Date().toISOString();
+  thread.shared = true;
+  saveState();
+  queueSharedRecord("result", thread, { skipQuota: true });
+  render();
+}
+
+function formatResultTime(at) {
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(
+    date.getMinutes()
+  ).padStart(2, "0")}`;
+}
+
+function renderResultsPanel() {
+  const items = resultItems();
+  const medal = { "1": 0, "2": 0, "3": 0 };
+  items.forEach((item) => {
+    if (medal[item.place] !== undefined) medal[item.place] += 1;
+  });
+  const canDelete = canManageData();
+  return `
+    <header class="panel-header">
+      <div>
+        <h3>现场战报 · 奖牌榜</h3>
+        <p>比赛当天随手录一条，全班立刻看到</p>
+      </div>
+      <div class="panel-actions">
+        <button class="primary-button" type="button" data-action="open-modal" data-modal="result">${icon("megaphone")} 录入成绩</button>
+      </div>
+    </header>
+    <div class="panel-body">
+      <div class="result-medals">
+        <div class="result-medal is-gold"><strong>${medal["1"]}</strong><em>金牌</em></div>
+        <div class="result-medal is-silver"><strong>${medal["2"]}</strong><em>银牌</em></div>
+        <div class="result-medal is-bronze"><strong>${medal["3"]}</strong><em>铜牌</em></div>
+        <div class="result-medal"><strong>${items.length}</strong><em>已录成绩</em></div>
+      </div>
+      ${
+        items.length
+          ? `<ul class="result-feed">${items
+              .slice(0, 12)
+              .map((item) => {
+                const meta = resultPlaceMeta(item.place);
+                return `
+                  <li class="result-feed-item">
+                    <span class="result-place${meta.medal ? ` is-${meta.medal}` : ""}">${escapeHTML(
+                      meta.value === "dnf" ? "—" : meta.value || "·"
+                    )}</span>
+                    <div class="result-feed-copy">
+                      <strong>${escapeHTML(item.athleteName)}<i>${escapeHTML(item.event)}</i></strong>
+                      <p>
+                        ${escapeHTML(meta.label)}${item.note ? ` · ${escapeHTML(item.note)}` : ""}
+                        <em>${escapeHTML(item.byName || "同学")} · ${escapeHTML(formatResultTime(item.at))}</em>
+                      </p>
+                    </div>
+                    ${
+                      canDelete
+                        ? `<button class="icon-button compact" type="button" data-action="delete-result" data-result-key="${escapeHTML(
+                            item.key
+                          )}" aria-label="删除这条战报" title="删除">${icon("trash-2")}</button>`
+                        : ""
+                    }
+                  </li>
+                `;
+              })
+              .join("")}</ul>`
+          : `<p class="cheer-empty">比赛还没开始。第一个成绩录进来，这里就会亮起来。</p>`
+      }
+    </div>
+  `;
+}
+
 function renderSportsPanel(index) {
   const total = SPORTS_ATHLETES.length;
   if (!total) return `<div class="panel-body"><p>名单还没有数据。</p></div>`;
@@ -7351,6 +7644,8 @@ function renderSports() {
         </aside>
       </section>
 
+      <section class="panel" id="sports-results-panel">${renderResultsPanel()}</section>
+
       <section class="panel" id="sports-moments-panel">${renderSportsMomentsPanel()}</section>
     </div>
   `;
@@ -7825,6 +8120,11 @@ function handleClick(event) {
 
   if (action === "sports-poster") {
     downloadSportsPoster(Number(actionElement.dataset.index) || 0);
+    return;
+  }
+
+  if (action === "delete-result") {
+    deleteResult(actionElement.dataset.resultKey || "");
     return;
   }
 
@@ -8402,6 +8702,16 @@ async function handleSubmit(event) {
       render();
     } catch (error) {
       showToast("创建失败", error.message || "班级未能创建。");
+    }
+    return;
+  }
+
+  if (form.id === "result-form") {
+    event.preventDefault();
+    const data = new FormData(form);
+    if (submitResult(data.get("athleteId"), data.get("event"), data.get("place"), data.get("note"))) {
+      closeModal();
+      showToast("战报已发布", "奖牌榜和现场战报都更新了。");
     }
     return;
   }

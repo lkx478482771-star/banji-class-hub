@@ -15,7 +15,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BUDGETS = [
   { file: "index.html", max: 14_000 },
   { file: "styles.css", max: 100_000 },
-  { file: "app.js", max: 320_000 },
+  { file: "app.js", max: 340_000 },
   { file: "config.js", max: 2_000 },
   { file: "ahu-import.js", max: 12_000 },
   { file: "assets/icons.js", max: 50_000 },
@@ -43,7 +43,10 @@ const FIRST_PAINT_FILES = [
 // app.js 加 .ics 导出、搜索扩充成员与选手、Service Worker 注册（调到 310 KB），首屏上限同步到 520 KB。
 // 2026-10-13 深夜做第三档「让班级真的用起来」：运动会加油墙（app.js 的 cheer 线程 + styles.css 的
 // .cheer-* 样式，约 +4 KB），app.js 调到 320 KB、styles.css 调到 100 KB、首屏上限调到 545 KB。
-const FIRST_PAINT_MAX = 545_000;
+// 紧接着做「现场战报 · 奖牌榜」（result 线程 + .result-* 样式，约 +5 KB），app.js 调到 340 KB、
+// 首屏上限调到 570 KB，把第三档剩下的「班级大事记」「匿名意见闭环」的余量一起留出来。
+// ⚠️ 到 340 KB 就不再往上加了：第三档收尾后要么真正瘦身（拆模块 / 懒加载），要么把大块迁出首屏。
+const FIRST_PAINT_MAX = 570_000;
 
 /** assets/ 下任何单个文件都不该超过这个大小（除非在 BUDGETS 里单独放宽）。 */
 const ASSET_HARD_MAX = 250_000;
