@@ -13,3 +13,7 @@ node_modules/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 本地预览临时文件（__poster_lab.html / __ui_preview.html 之类）
+__*.html
+__*.png
