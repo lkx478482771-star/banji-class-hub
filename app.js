@@ -650,7 +650,13 @@ function classIdFromCode(value) {
 }
 
 function currentClassId() {
-  return authState.session?.classId || DEFAULT_CLASS_ID;
+  const classId = authState.session?.classId;
+  // 空字符串代表「已经退出班级」，不能悄悄回落到默认班级。
+  return typeof classId === "string" ? classId : DEFAULT_CLASS_ID;
+}
+
+function hasJoinedClass() {
+  return Boolean(currentClassId());
 }
 
 function canManageClasses() {
@@ -658,6 +664,29 @@ function canManageClasses() {
     isCurrentAdmin() ||
     ["head_teacher", "counselor", "teacher"].includes(authState.session?.role)
   );
+}
+
+// 谁能审核「加入 / 退出班级」申请：管理员、辅导员、班主任，以及班长、副班长、团支书。
+const CLASS_REVIEW_ROLES = [
+  "counselor",
+  "head_teacher",
+  "monitor",
+  "vice_monitor",
+  "league_secretary"
+];
+
+function canReviewClassRequest() {
+  return isCurrentAdmin() || CLASS_REVIEW_ROLES.includes(authState.session?.role);
+}
+
+// 待审核的班级申请挂在会话上；没有就是 null。
+function pendingClassRequest() {
+  const request = authState.session?.classRequest;
+  return request && typeof request === "object" ? request : null;
+}
+
+function normalizeClassRequest(request) {
+  return request && typeof request === "object" ? request : null;
 }
 
 function hasRolePermission(roles) {
@@ -805,9 +834,15 @@ function createLocalSession(account) {
     pendingRole: account.pendingRole ? normalizeRole(account.pendingRole) : "",
     identityNote: String(account.identityNote || ""),
     identityStatus: account.identityStatus || "student",
-    classId: account.classId || DEFAULT_CLASS_ID,
-    classCode: account.classCode || DEFAULT_CLASS_CODE,
-    className: account.className || "安徽大学集成电路专业班级",
+    // "" 表示已经退出班级；只有 undefined 才是没有这个字段的老账号。
+    classId: typeof account.classId === "string" ? account.classId : DEFAULT_CLASS_ID,
+    classCode:
+      typeof account.classCode === "string" ? account.classCode : DEFAULT_CLASS_CODE,
+    className:
+      typeof account.className === "string"
+        ? account.className
+        : "安徽大学集成电路专业班级",
+    classRequest: normalizeClassRequest(account.classRequest),
     local: true,
     offline: false
   };
@@ -822,7 +857,8 @@ function saveAuthSession(session) {
 }
 
 function stateStorageKey(userId, classId = DEFAULT_CLASS_ID) {
-  return `${STORAGE_KEY}:${userId}:${classId || DEFAULT_CLASS_ID}`;
+  const scope = classId === "" ? "no-class" : classId || DEFAULT_CLASS_ID;
+  return `${STORAGE_KEY}:${userId}:${scope}`;
 }
 
 function activateClassState() {
@@ -1339,6 +1375,23 @@ function render() {
   document.body.classList.remove("is-auth-required");
   authRoot.innerHTML = "";
   applyIdentityTheme();
+
+  // 退出班级通过后账号就不属于任何班级了：只显示一个引导页，
+  // 免得他在「今日班级」里看到别的班的内容。
+  if (!hasJoinedClass()) {
+    document.getElementById("page-title").textContent = "加入班级";
+    document.getElementById("page-eyebrow").textContent = "还没有加入任何班级";
+    document.getElementById("notification-panel").hidden = true;
+    document.querySelectorAll(".nav-item").forEach((button) => {
+      button.classList.remove("is-active");
+    });
+    const emptyApp = document.getElementById("app");
+    emptyApp.innerHTML = renderNoClassScreen();
+    updateShell();
+    refreshIcons(emptyApp);
+    return;
+  }
+
   const info = PAGE_INFO[ui.page] || PAGE_INFO.today;
   document.getElementById("page-title").textContent = info.title;
   document.getElementById("page-eyebrow").textContent = info.eyebrow;
@@ -2776,6 +2829,8 @@ function renderPersonalCenter() {
             </div>
           </article>
 
+          ${renderClassMembershipPanel()}
+
           ${renderDataSafetyPanel()}
         </aside>
       </section>
@@ -3105,7 +3160,8 @@ function publicMemberFromAccount(account) {
     pendingRole: account?.pendingRole ? normalizeRole(account.pendingRole) : "",
     identityNote: String(account?.identityNote || "").trim(),
     createdAt: account?.createdAt || "",
-    identityStatus: account?.identityStatus || "student"
+    identityStatus: account?.identityStatus || "student",
+    classRequest: normalizeClassRequest(account?.classRequest)
   };
 }
 
@@ -3173,6 +3229,8 @@ function renderMembers() {
           </button>
         </div>
       </header>
+
+      ${renderClassRequestQueue()}
 
       <section class="metric-grid">
         <article class="metric">
@@ -3310,6 +3368,21 @@ function renderMemberCards() {
                   >
                     ${icon("x")}
                     驳回
+                  </button>
+                `
+                : ""
+            }
+            ${
+              isCurrentAdmin() && !isCurrent
+                ? `
+                  <button
+                    class="ghost-button danger-ghost"
+                    type="button"
+                    data-action="delete-user"
+                    data-username-key="${escapeHTML(member.usernameKey)}"
+                  >
+                    ${icon("trash-2")}
+                    删除账号
                   </button>
                 `
                 : ""
@@ -3691,7 +3764,7 @@ function renderNotificationPanel() {
   refreshIcons(panel);
 }
 
-function openModal(kind) {
+function openModal(kind, options = {}) {
   const modalRoot = document.getElementById("modal-root");
   const templates = {
     deadline: {
@@ -4150,6 +4223,50 @@ function openModal(kind) {
         </form>
       `
     },
+    "class-request": {
+      title: options.requestType === "leave" ? "申请退出班级" : "申请加入 / 更换班级",
+      subtitle: "提交后要等辅导员、班委或管理员审核通过才会生效",
+      wide: false,
+      body: `
+        <form id="class-request-form">
+          <input type="hidden" name="requestType" value="${
+            options.requestType === "leave" ? "leave" : "join"
+          }" />
+          <div class="modal-body">
+            ${
+              options.requestType === "leave"
+                ? `
+                  <div class="class-request-card">
+                    <strong>当前班级：${escapeHTML(authState.session?.className || "未命名班级")}</strong>
+                    <p class="eyebrow" style="margin: 6px 0 0">退出后会回到「加入班级」引导页，你以前发的内容仍然留在班级里。</p>
+                  </div>
+                `
+                : `
+                  <div class="modal-field">
+                    <label for="class-request-code">目标班级编码</label>
+                    <input
+                      id="class-request-code"
+                      name="classCode"
+                      maxlength="40"
+                      placeholder="例如 AHU-IC-2026"
+                      required
+                    />
+                    <span class="eyebrow">班级编码找管理员要，大小写和空格都不影响。</span>
+                  </div>
+                `
+            }
+            <div class="modal-field">
+              <label for="class-request-reason">说明（可选，最多 60 字）</label>
+              <input id="class-request-reason" name="reason" maxlength="60" placeholder="例如：我转到 5 班了" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            <button class="primary-button" type="submit">${icon("send")} 提交申请</button>
+          </div>
+        </form>
+      `
+    },
     search: {
       title: "搜索班级内容",
       subtitle: "聚合互助、组队、资料、截止事项与匿名意见",
@@ -4443,6 +4560,13 @@ async function writeRemoteAccount(account) {
   await mantleRequest(mantleEntryUrl(`accounts/${encodeURIComponent(account.usernameKey)}`), {
     method: "POST",
     body: JSON.stringify(account)
+  });
+}
+
+async function deleteRemoteAccount(usernameKey) {
+  if (!hasSharedConfig()) return;
+  await mantleRequest(mantleEntryUrl(`accounts/${encodeURIComponent(usernameKey)}`), {
+    method: "DELETE"
   });
 }
 
@@ -5487,6 +5611,374 @@ async function restoreFromBackup() {
     await writeBackRecords(records, `确定用这份备份（${when}）写回去吗？`);
   });
   input.click();
+}
+
+// ---------- 加入 / 更换 / 退出班级（都要审核） ----------
+
+function classRequestKindLabel(request) {
+  return request?.type === "leave" ? "退出班级" : "加入班级";
+}
+
+function classRequestTargetText(request) {
+  if (!request) return "";
+  if (request.type === "leave") {
+    return `退出「${request.fromClassName || "当前班级"}」`;
+  }
+  const code = request.targetClassCode ? `（${request.targetClassCode}）` : "";
+  return `加入「${request.targetClassName || ""}」${code}`;
+}
+
+function applyAccountToLocal(account) {
+  const accounts = getLocalAccounts();
+  const index = accounts.findIndex((item) => item.usernameKey === account.usernameKey);
+  if (index >= 0) accounts[index] = account;
+  else accounts.push(account);
+  saveLocalAccounts(accounts);
+}
+
+function applyClassToSession(account) {
+  const session = authState.session;
+  if (!session) return;
+  session.classId = typeof account.classId === "string" ? account.classId : DEFAULT_CLASS_ID;
+  session.classCode =
+    typeof account.classCode === "string" ? account.classCode : DEFAULT_CLASS_CODE;
+  session.className = typeof account.className === "string" ? account.className : "";
+  session.classRequest = normalizeClassRequest(account.classRequest);
+  saveAuthSession(session);
+}
+
+async function submitClassRequest(type, { code = "", reason = "" } = {}) {
+  if (!authState.session) throw new Error("请先登录。");
+  if (!hasSharedConfig()) throw new Error("当前是离线模式，提交不了班级申请。");
+  if (pendingClassRequest()) {
+    throw new Error("你已经有一条待审核的申请，先等结果或者撤回它。");
+  }
+  const usernameKey = localUsernameKey(authState.session.username);
+  const account = await readRemoteAccount(usernameKey);
+  if (!account) throw new Error("没有读到你的账号记录，请重新登录再试。");
+
+  const request = {
+    type: type === "leave" ? "leave" : "join",
+    reason: String(reason || "").trim().slice(0, 60),
+    requestedAt: new Date().toISOString(),
+    requestedBy: authState.session.user.id
+  };
+
+  if (request.type === "leave") {
+    if (!account.classId) throw new Error("你还没有加入班级，不需要退出。");
+    request.fromClassId = account.classId;
+    request.fromClassCode = account.classCode || "";
+    request.fromClassName = account.className || "";
+  } else {
+    const normalizedCode = normalizeClassCode(code);
+    if (!normalizedCode) throw new Error("请输入目标班级的编码。");
+    const classInfo = await readRemoteClassByCode(normalizedCode);
+    if (!classInfo || !classInfo.id) {
+      throw new Error("这个班级编码不存在，请找管理员确认后再试。");
+    }
+    if (classInfo.id === (account.classId || "")) {
+      throw new Error("你已经在这个班级里了。");
+    }
+    request.targetClassId = classInfo.id;
+    request.targetClassCode = classInfo.code || normalizedCode;
+    request.targetClassName = classInfo.name || classInfo.id;
+  }
+
+  account.classRequest = request;
+  account.updatedAt = request.requestedAt;
+  await writeRemoteAccount(account);
+  applyAccountToLocal(account);
+  authState.session.classRequest = request;
+  saveAuthSession(authState.session);
+  syncState.accountChecked = false;
+  ui.membersLoaded = false;
+  render();
+  showToast(
+    request.type === "leave" ? "退出申请已提交" : "加入申请已提交",
+    "需要辅导员、班委或管理员审核，通过后才会生效。"
+  );
+}
+
+async function cancelClassRequest() {
+  if (!authState.session) return;
+  const usernameKey = localUsernameKey(authState.session.username);
+  const account = await readRemoteAccount(usernameKey);
+  if (!account || !account.classRequest) {
+    authState.session.classRequest = null;
+    saveAuthSession(authState.session);
+    ui.membersLoaded = false;
+    render();
+    showToast("申请已经不在了", "审核人可能已经处理过，页面已刷新。");
+    return;
+  }
+  account.classRequest = null;
+  account.updatedAt = new Date().toISOString();
+  await writeRemoteAccount(account);
+  applyAccountToLocal(account);
+  authState.session.classRequest = null;
+  saveAuthSession(authState.session);
+  ui.membersLoaded = false;
+  render();
+  showToast("申请已撤回", "你可以重新提交一条新的申请。");
+}
+
+async function reviewClassRequest(usernameKey, approved) {
+  if (!canReviewClassRequest()) {
+    showToast("没有审核权限", "只有管理员、辅导员或班委可以审核班级申请。");
+    return;
+  }
+  const account = await readRemoteAccount(usernameKey);
+  if (!account) throw new Error("没有找到这个账号。");
+  const request = normalizeClassRequest(account.classRequest);
+  if (!request) {
+    ui.membersLoaded = false;
+    await loadMemberDirectory(true);
+    render();
+    showToast("没有待审核申请", "这条申请可能已经被处理了。");
+    return;
+  }
+
+  const at = new Date().toISOString();
+  if (approved) {
+    const history = Array.isArray(account.classHistory)
+      ? account.classHistory.slice(-19)
+      : [];
+    history.push({
+      type: request.type === "leave" ? "leave" : "join",
+      fromClassId: account.classId || "",
+      fromClassName: account.className || "",
+      at,
+      by: authState.session.user.id
+    });
+    if (request.type === "leave") {
+      // 退出后 classId 为空串，全站会切到「加入班级」引导页。
+      account.classId = "";
+      account.classCode = "";
+      account.className = "";
+    } else {
+      account.classId = request.targetClassId || "";
+      account.classCode = request.targetClassCode || "";
+      account.className = request.targetClassName || "";
+    }
+    account.classHistory = history;
+    account.classApprovedAt = at;
+    account.classApprovedBy = authState.session.user.id;
+  } else {
+    account.classRejectedAt = at;
+    account.classRejectedBy = authState.session.user.id;
+  }
+  account.classRequest = null;
+  account.updatedAt = at;
+  await writeRemoteAccount(account);
+  applyAccountToLocal(account);
+
+  if (authState.session.username === account.username) {
+    applyClassToSession(account);
+    syncState.accountChecked = false;
+    if (!authState.session.classId) ui.page = "today";
+    activateClassState();
+  }
+  ui.membersLoaded = false;
+  await loadMemberDirectory(true);
+  render();
+  showToast(
+    approved ? "班级申请已通过" : "班级申请已驳回",
+    `${account.username} · ${approved ? classRequestTargetText(request) : "维持原班级"}`
+  );
+}
+
+async function deleteUserByAdmin(member) {
+  if (!isCurrentAdmin()) {
+    showToast("没有删除权限", "只有管理员可以删除账号。");
+    return;
+  }
+  if (!member?.usernameKey) return;
+  if (member.id && member.id === authState.session?.user.id) {
+    showToast("不能删除自己", "换另一位管理员来操作会更安全。");
+    return;
+  }
+  const remote = await readRemoteAccount(member.usernameKey).catch(() => null);
+  if (!remote) {
+    ui.membersLoaded = false;
+    await loadMemberDirectory(true);
+    render();
+    showToast("账号不存在", "可能已经被删掉了。");
+    return;
+  }
+  const role = resolveAccountRole(remote);
+  const ok = window.confirm(
+    `确定要删除账号「${remote.username}」吗？\n\n` +
+      `身份：${getRoleMeta(role).label}\n` +
+      "删除后他不能再用这个账号登录。\n" +
+      "他之前发的互助、组队、资料会留在班级里，需要再单独清理。\n\n" +
+      (role === "admin" ? "⚠️ 这是一位管理员，删掉后可能没人能审核了。\n\n" : "") +
+      "删除不可撤销。"
+  );
+  if (!ok) return;
+  await deleteRemoteAccount(member.usernameKey);
+  saveLocalAccounts(
+    getLocalAccounts().filter((item) => item.usernameKey !== member.usernameKey)
+  );
+  ui.membersLoaded = false;
+  await loadMemberDirectory(true);
+  render();
+  showToast("账号已删除", `${remote.username} 已经不能登录了。`);
+}
+
+function renderNoClassScreen() {
+  const request = pendingClassRequest();
+  return `
+    <div class="page-stack">
+      <section class="no-class-hero">
+        <span class="metric-icon green">${icon("school")}</span>
+        <h2>你还没有加入班级</h2>
+        <p>加入班级后，才能看到班级的互助广场、任务搭子、成员身份和截止提醒。</p>
+        ${
+          request
+            ? `
+              <div class="class-request-card">
+                <strong>${classRequestKindLabel(request)}申请已提交</strong>
+                <p class="eyebrow" style="margin: 6px 0 0">${escapeHTML(
+                  classRequestTargetText(request)
+                )} · ${formatRelativeTime(request.requestedAt)}</p>
+                <p class="eyebrow" style="margin: 6px 0 0">等辅导员或管理员审核通过就会自动生效。</p>
+              </div>
+              <button class="secondary-button" type="button" data-action="cancel-class-request">
+                ${icon("x")} 撤回这条申请
+              </button>
+            `
+            : `
+              <button class="primary-button" type="button" data-action="open-modal" data-modal="class-request" data-request-type="join">
+                ${icon("user-round-plus")} 申请加入班级
+              </button>
+            `
+        }
+      </section>
+    </div>
+  `;
+}
+
+function renderClassMembershipPanel() {
+  if (!authState.session) return "";
+  const request = pendingClassRequest();
+  const joined = hasJoinedClass();
+  return `
+    <article class="panel">
+      <header class="panel-header">
+        <div>
+          <h3>我的班级</h3>
+          <p>加入、更换或退出都要审核</p>
+        </div>
+        <span class="badge ${request ? "yellow" : joined ? "green" : "orange"}">
+          ${icon(request ? "clock-3" : joined ? "school" : "user-round-plus")}
+          ${request ? "审核中" : joined ? "已加入" : "未加入"}
+        </span>
+      </header>
+      <div class="panel-body">
+        ${
+          request
+            ? `
+              <div class="class-request-card">
+                <strong>${classRequestKindLabel(request)}申请审核中</strong>
+                <p class="eyebrow" style="margin: 6px 0 0">${escapeHTML(
+                  classRequestTargetText(request)
+                )} · ${formatRelativeTime(request.requestedAt)}</p>
+                ${
+                  request.reason
+                    ? `<p class="eyebrow" style="margin: 6px 0 0">理由：${escapeHTML(
+                        request.reason
+                      )}</p>`
+                    : ""
+                }
+              </div>
+              <button class="secondary-button full-width" type="button" data-action="cancel-class-request">
+                ${icon("x")} 撤回这条申请
+              </button>
+            `
+            : `
+              <div class="class-membership-summary">
+                <span class="metric-icon green">${icon("school")}</span>
+                <div>
+                  <strong>${escapeHTML(authState.session.className || "还没有班级")}</strong>
+                  <p class="eyebrow" style="margin: 4px 0 0">${
+                    joined
+                      ? `班级编码 ${escapeHTML(authState.session.classCode || "")}`
+                      : "加入后才能使用班级功能"
+                  }</p>
+                </div>
+              </div>
+              <div class="stack">
+                <button class="primary-button full-width" type="button" data-action="open-modal" data-modal="class-request" data-request-type="join">
+                  ${icon(joined ? "building-2" : "user-round-plus")} ${joined ? "更换班级" : "加入班级"}
+                </button>
+                ${
+                  joined
+                    ? `
+                      <button class="secondary-button full-width" type="button" data-action="open-modal" data-modal="class-request" data-request-type="leave">
+                        ${icon("log-out")} 申请退出班级
+                      </button>
+                    `
+                    : ""
+                }
+              </div>
+            `
+        }
+      </div>
+    </article>
+  `;
+}
+
+function renderClassRequestQueue() {
+  if (!canReviewClassRequest()) return "";
+  const pending = ui.members.filter((member) => member.classRequest);
+  if (!pending.length) return "";
+  return `
+    <section class="panel class-review-panel">
+      <header class="panel-header">
+        <div>
+          <h3>班级变更申请</h3>
+          <p>加入、更换或退出班级都要你确认</p>
+        </div>
+        <span class="badge yellow">${icon("clock-3")} ${pending.length} 条待审核</span>
+      </header>
+      <div class="panel-body">
+        ${pending
+          .map(
+            (member) => `
+              <div class="class-review-row">
+                <div class="class-review-copy">
+                  <div class="member-name-row">
+                    <strong>${escapeHTML(member.username)}</strong>
+                    <span class="badge blue">${icon("school")} ${escapeHTML(
+                      classRequestKindLabel(member.classRequest)
+                    )}</span>
+                  </div>
+                  <p class="eyebrow" style="margin: 6px 0 0">${escapeHTML(
+                    classRequestTargetText(member.classRequest)
+                  )} · ${formatRelativeTime(member.classRequest.requestedAt)}</p>
+                  ${
+                    member.classRequest.reason
+                      ? `<p class="eyebrow" style="margin: 4px 0 0">理由：${escapeHTML(
+                          member.classRequest.reason
+                        )}</p>`
+                      : ""
+                  }
+                </div>
+                <div class="row-actions">
+                  <button class="primary-button" type="button" data-action="approve-class-request" data-username-key="${escapeHTML(member.usernameKey)}">
+                    ${icon("check")} 通过
+                  </button>
+                  <button class="secondary-button" type="button" data-action="reject-class-request" data-username-key="${escapeHTML(member.usernameKey)}">
+                    ${icon("x")} 驳回
+                  </button>
+                </div>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
 }
 
 function renderDataSafetyPanel() {
@@ -6970,7 +7462,9 @@ function handleClick(event) {
   }
 
   if (action === "open-modal") {
-    openModal(actionElement.dataset.modal);
+    openModal(actionElement.dataset.modal, {
+      requestType: actionElement.dataset.requestType
+    });
     return;
   }
 
@@ -7049,6 +7543,33 @@ function handleClick(event) {
       action === "approve-identity"
     ).catch(() => {
       showToast("审核失败", "共享服务暂时不可用，请稍后重试。");
+    });
+    return;
+  }
+
+  if (action === "cancel-class-request") {
+    void cancelClassRequest().catch(() => {
+      showToast("撤回失败", "共享服务暂时不可用，请稍后重试。");
+    });
+    return;
+  }
+
+  if (action === "approve-class-request" || action === "reject-class-request") {
+    void reviewClassRequest(
+      actionElement.dataset.usernameKey,
+      action === "approve-class-request"
+    ).catch(() => {
+      showToast("审核失败", "共享服务暂时不可用，请稍后重试。");
+    });
+    return;
+  }
+
+  if (action === "delete-user") {
+    const target = ui.members.find(
+      (member) => member.usernameKey === actionElement.dataset.usernameKey
+    );
+    void deleteUserByAdmin(target).catch(() => {
+      showToast("删除失败", "共享服务暂时不可用，请稍后重试。");
     });
     return;
   }
@@ -7429,6 +7950,21 @@ async function handleSubmit(event) {
       render();
     } catch (error) {
       showToast("创建失败", error.message || "班级未能创建。");
+    }
+    return;
+  }
+
+  if (form.id === "class-request-form") {
+    event.preventDefault();
+    const data = new FormData(form);
+    try {
+      await submitClassRequest(data.get("requestType") === "leave" ? "leave" : "join", {
+        code: data.get("classCode"),
+        reason: data.get("reason")
+      });
+      closeModal();
+    } catch (error) {
+      showToast("申请没提交成功", error.message || "请稍后重试。");
     }
     return;
   }
