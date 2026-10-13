@@ -4435,3 +4435,250 @@ body.is-admin {
   background: #ff8a3d;
   box-shadow: inset 0 0 0 1px #ff8a3d;
 }
+
+/* ============================================================
+   「即将截止」头部：导出日历 + 添加事项并排，窄屏自动换行
+   ============================================================ */
+.panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ============================================================
+   深色模式（跟随系统设置，不需要开关）
+   浅色是默认；这里只做两件事：
+     ① 覆盖设计令牌 —— 大部分界面会自动跟着变
+     ② 补掉少数写死了白底 / 深字的组件（含运动会那套亮色主题）
+   想整体去掉深色模式：删掉这一段即可，浅色完全不受影响。
+   ============================================================ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0f1720;
+    --surface: #17212e;
+    --surface-soft: #1b2534;
+    --surface-strong: #24313f;
+    --ink: #e9eff8;
+    --ink-soft: #a9b8ca;
+    --ink-faint: #8698ac;
+    --line: #27323f;
+    --line-strong: #3a4a5e;
+    --primary: #22c79a;
+    --primary-strong: #4fdcb2;
+    --primary-soft: rgba(34, 199, 154, 0.16);
+    --orange: #f5a05a;
+    --orange-soft: rgba(240, 147, 43, 0.16);
+    --blue: #76aaff;
+    --blue-soft: rgba(118, 170, 255, 0.16);
+    --yellow: #f2b94a;
+    --yellow-soft: rgba(242, 185, 74, 0.16);
+    --red: #ff7261;
+    --red-soft: rgba(255, 114, 97, 0.16);
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 18px 44px rgba(0, 0, 0, 0.55);
+    --shadow-lift: 0 18px 34px rgba(0, 0, 0, 0.5);
+  }
+
+  body {
+    background:
+      radial-gradient(1200px 560px at 92% -18%, rgba(22, 203, 147, 0.14), transparent 62%),
+      radial-gradient(920px 480px at 2% 2%, rgba(59, 130, 246, 0.12), transparent 60%),
+      radial-gradient(circle, rgba(120, 160, 220, 0.06) 1px, transparent 1.5px) 0 0 / 24px 24px,
+      var(--page);
+  }
+
+  body.is-admin {
+    --identity-accent: #ff9152;
+    --identity-soft: rgba(242, 96, 31, 0.18);
+  }
+
+  /* ---------- 写死了白底的组件 ---------- */
+  .sidebar {
+    background: linear-gradient(180deg, #18222f, #131b26);
+    box-shadow:
+      1px 0 0 var(--line),
+      18px 0 44px rgba(0, 0, 0, 0.4);
+  }
+
+  .nav-item:hover {
+    background: rgba(118, 170, 255, 0.14);
+  }
+
+  .nav-item.is-active {
+    color: var(--primary-strong);
+    background: linear-gradient(100deg, rgba(22, 199, 154, 0.22), rgba(118, 170, 255, 0.16));
+    box-shadow: inset 3px 0 0 #22c79a;
+  }
+
+  .nav-count,
+  .radar-item:hover {
+    background: var(--surface-strong);
+  }
+
+  .sidebar-progress {
+    border-color: var(--line);
+    background: linear-gradient(150deg, #1b2735, #16202c);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  .topbar {
+    background: rgba(19, 27, 38, 0.86);
+  }
+
+  .modal-header,
+  .modal-footer {
+    background: rgba(23, 33, 46, 0.96);
+  }
+
+  .metric:nth-child(4n + 1) {
+    background: linear-gradient(150deg, #17212e 40%, rgba(22, 199, 154, 0.2));
+  }
+
+  .metric:nth-child(4n + 2) {
+    background: linear-gradient(150deg, #17212e 40%, rgba(118, 170, 255, 0.2));
+  }
+
+  .metric:nth-child(4n + 3) {
+    background: linear-gradient(150deg, #17212e 40%, rgba(240, 147, 43, 0.2));
+  }
+
+  .metric:nth-child(4n) {
+    background: linear-gradient(150deg, #17212e 40%, rgba(167, 139, 250, 0.2));
+  }
+
+  .auth-brand .brand-mark {
+    background: rgba(255, 255, 255, 0.1);
+    color: #6ee7bd;
+  }
+
+  .class-request-card {
+    border-color: rgba(242, 185, 74, 0.32);
+    background: linear-gradient(135deg, rgba(242, 185, 74, 0.14), rgba(23, 33, 46, 0.94));
+  }
+
+  .no-class-hero {
+    border-color: var(--line);
+    background: linear-gradient(160deg, #17212e, #131c27);
+  }
+
+  /* 首页大图上的主按钮：浅色主题里是白底配深字，深色下必须把字钉住，
+     否则字跟着 --ink 变亮，就成了白底白字。 */
+  .hero-actions .primary-button {
+    color: #0f1720;
+  }
+
+  .day-cell.is-today {
+    background: linear-gradient(160deg, rgba(22, 199, 154, 0.24), rgba(118, 170, 255, 0.18));
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  }
+
+  /* ---------- 运动会：亮色主题在深色下的对应值 ---------- */
+  .sports-hero {
+    background:
+      radial-gradient(520px 320px at 88% 10%, rgba(255, 206, 92, 0.2), transparent 68%),
+      radial-gradient(440px 300px at 4% 104%, rgba(126, 206, 255, 0.18), transparent 70%),
+      linear-gradient(140deg, #16232f, #152b28 52%, #22252c);
+    box-shadow: 0 20px 44px rgba(0, 0, 0, 0.5);
+    color: #dcecff;
+  }
+
+  .sports-hero-eyebrow {
+    color: #5fe0b6;
+  }
+
+  .sports-hero h2 {
+    color: #eaf4ff;
+  }
+
+  .sports-hero h2 b {
+    color: #34d9ab;
+  }
+
+  .sports-hero-sub,
+  .sports-count-label,
+  .sports-count-nums i {
+    color: rgba(220, 236, 255, 0.66);
+  }
+
+  .sports-hero-slogan {
+    border-color: rgba(52, 217, 171, 0.4);
+    background: rgba(52, 217, 171, 0.14);
+    color: #6ee7bd;
+  }
+
+  .sports-count-nums b {
+    border-color: rgba(52, 217, 171, 0.32);
+    background: linear-gradient(160deg, rgba(36, 49, 63, 0.96), rgba(22, 35, 47, 0.9));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    color: #5fe0b6;
+  }
+
+  .sports-wafer {
+    border-color: rgba(52, 217, 171, 0.22);
+    background:
+      radial-gradient(circle at 36% 26%, rgba(126, 206, 255, 0.24), transparent 58%),
+      radial-gradient(circle at 74% 80%, rgba(18, 185, 129, 0.2), transparent 52%),
+      radial-gradient(circle at 50% 38%, #1a2836, #16242f 62%, #121d27);
+    box-shadow:
+      0 0 0 14px rgba(255, 255, 255, 0.05),
+      0 24px 56px rgba(0, 0, 0, 0.5),
+      inset 0 0 60px rgba(18, 185, 129, 0.12);
+  }
+
+  .sports-wafer-grid {
+    background-image:
+      linear-gradient(rgba(120, 220, 190, 0.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120, 220, 190, 0.12) 1px, transparent 1px);
+  }
+
+  .sports-wafer-traces {
+    background: repeating-conic-gradient(
+      from 0deg,
+      rgba(120, 220, 190, 0.14) 0deg 1.4deg,
+      transparent 1.4deg 7deg
+    );
+  }
+
+  .sports-wafer-ring {
+    border-color: rgba(120, 220, 190, 0.24);
+  }
+
+  .sports-die {
+    border-color: var(--die-edge, #2f4a56);
+    background: #1c2a38;
+    color: #dbe9f6;
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45);
+  }
+
+  .sports-die::after {
+    background: repeating-linear-gradient(90deg, rgba(120, 220, 190, 0.26) 0 2px, transparent 2px 5px);
+  }
+
+  .sports-die-id {
+    color: #7fa6b8;
+  }
+
+  .sports-die.is-active {
+    background: rgba(240, 147, 43, 0.18);
+  }
+
+  .sports-die.is-lit {
+    background: rgba(18, 185, 129, 0.2);
+  }
+
+  .sports-die.is-active.is-lit {
+    background: rgba(240, 179, 37, 0.2);
+  }
+
+  .sports-avatar {
+    background: rgba(18, 185, 129, 0.14);
+  }
+
+  .sports-legend-item i {
+    background: #1c2a38;
+    box-shadow: inset 0 0 0 1px rgba(120, 220, 190, 0.32);
+  }
+}
+

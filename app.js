@@ -1725,18 +1725,24 @@ function renderDashboard() {
                 <h3>即将截止</h3>
                 <p>课程、材料、考试和活动统一提醒</p>
               </div>
-              ${
-                canEditSchedule()
-                  ? `
-                    <button class="secondary-button" type="button" data-action="open-modal" data-modal="deadline">
-                      ${icon("calendar-plus")}
-                      添加事项
-                    </button>
-                  `
-                  : `
-                    <span class="badge yellow">${icon("lock-keyhole")} 班长、副班长、辅导员或教师可编辑</span>
-                  `
-              }
+              <div class="panel-actions">
+                <button class="secondary-button" type="button" data-action="export-ics">
+                  ${icon("download")}
+                  导出日历
+                </button>
+                ${
+                  canEditSchedule()
+                    ? `
+                      <button class="secondary-button" type="button" data-action="open-modal" data-modal="deadline">
+                        ${icon("calendar-plus")}
+                        添加事项
+                      </button>
+                    `
+                    : `
+                      <span class="badge yellow">${icon("lock-keyhole")} 班长、副班长、辅导员或教师可编辑</span>
+                    `
+                }
+              </div>
             </header>
             <div class="panel-body deadline-list">
               ${
@@ -4269,7 +4275,7 @@ function openModal(kind, options = {}) {
     },
     search: {
       title: "搜索班级内容",
-      subtitle: "聚合互助、组队、资料、截止事项与匿名意见",
+      subtitle: "互助、组队、资料、截止事项、匿名意见、同学和参赛选手都能搜",
       wide: true,
       body: `
         <div class="modal-body">
@@ -4325,6 +4331,133 @@ function closeModal() {
   document.getElementById("modal-root").innerHTML = "";
 }
 
+/* ===== 截止事项导出成手机日历（.ics） =====
+ * 站内提醒只在打开网站时才看得到；导出成 .ics 之后，
+ * 手机自带日历会在到点前提醒，比「记得打开班集」靠谱得多。
+ * 用通用的 UTC 时间戳（带 Z），不依赖 VTIMEZONE，各家日历都认。
+ */
+
+function icsEscape(text) {
+  return String(text == null ? "" : text)
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+
+// iCalendar 规定单行不超过 75 个八位组，超出要折行、续行以空格开头。
+// 中文一个字 3 字节，按字符数折会在长标题上超限，所以这里按字节数算。
+function icsFold(line) {
+  const encoder = new TextEncoder();
+  const rows = [];
+  let buffer = "";
+  let bytes = 0;
+  for (const char of line) {
+    const size = encoder.encode(char).length;
+    if (bytes + size > 72 && buffer) {
+      rows.push(buffer);
+      buffer = char;
+      bytes = size;
+    } else {
+      buffer += char;
+      bytes += size;
+    }
+  }
+  rows.push(buffer);
+  return rows.join("\r\n ");
+}
+
+function icsStamp(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+function icsDay(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function buildCalendarICS() {
+  const now = icsStamp(new Date());
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//banji-class-hub//banji//CN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "X-WR-CALNAME:班集 · 班级截止提醒",
+    "X-WR-TIMEZONE:Asia/Shanghai",
+    "X-WR-CALDESC:从班集导出的截止事项，导入后手机会自己提醒。"
+  ];
+
+  const pending = state.deadlines.filter((item) => !item.done);
+  const exported = [];
+  pending.forEach((item, index) => {
+    const start = new Date(item.due);
+    if (Number.isNaN(start.getTime())) return;
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    exported.push(item);
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:banji-deadline-${item.id || index}@banji-class-hub`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${icsStamp(start)}`,
+      `DTEND:${icsStamp(end)}`,
+      `SUMMARY:${icsEscape(`【班集】${item.title}`)}`,
+      `DESCRIPTION:${icsEscape(
+        `分类：${item.category || "其他"}｜优先级：${item.priority || "中"}` +
+          `${item.note ? `\n备注：${item.note}` : ""}`
+      )}`,
+      "TRANSP:OPAQUE",
+      "BEGIN:VALARM",
+      "TRIGGER:-PT12H",
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${icsEscape(item.title)}`,
+      "END:VALARM",
+      "END:VEVENT"
+    );
+  });
+
+  // 运动会单独作为一件全天事项，提醒这一天整体留出来。
+  if (SPORTS_MEET.meetTime) {
+    lines.push(
+      "BEGIN:VEVENT",
+      "UID:banji-sports-meet@banji-class-hub",
+      `DTSTAMP:${now}`,
+      `DTSTART;VALUE=DATE:${icsDay(SPORTS_MEET.meetTime)}`,
+      `SUMMARY:${icsEscape("IC-4 运动会 · 集成电路 4 班")}`,
+      `DESCRIPTION:${icsEscape(`${SPORTS_MEET.dateLabel}\n${SPORTS_MEET.slogan}`)}`,
+      "TRANSP:TRANSPARENT",
+      "END:VEVENT"
+    );
+  }
+
+  lines.push("END:VCALENDAR");
+  return {
+    text: `${lines.map(icsFold).join("\r\n")}\r\n`,
+    count: exported.length + 1
+  };
+}
+
+function exportDeadlinesICS() {
+  const pending = state.deadlines.filter((item) => !item.done);
+  if (!pending.length) {
+    showToast("没有可导出的截止事项", "先在「即将截止」里添加事项，再导出到手机日历。");
+    return;
+  }
+  const calendar = buildCalendarICS();
+  saveBlob(
+    new Blob([calendar.text], { type: "text/calendar;charset=utf-8" }),
+    `班集-班级日历-${dataStamp()}.ics`
+  );
+  showToast(
+    "日历文件已下载",
+    `${pending.length} 项截止提醒 + 运动会已打包，用手机打开这个 .ics 就能导入。`
+  );
+}
+
 function renderGlobalSearchResults(query) {
   const term = query.trim().toLowerCase();
   const records = [
@@ -4357,11 +4490,32 @@ function renderGlobalSearchResults(query) {
       text: `匿名意见 · ${item.category} · ${item.status}`,
       page: "feedback",
       icon: "message-square-lock"
+    })),
+    ...ui.members.map((item) => ({
+      title: item.username,
+      text: `成员身份 · ${item.roleLabel || "同学"}${
+        item.identityNote ? ` · ${item.identityNote}` : ""
+      }`,
+      page: "members",
+      icon: "contact-round"
+    })),
+    ...SPORTS_ATHLETES.map((item) => ({
+      title: item.name,
+      text: `运动会选手 · ${item.group} · ${item.events.join("、")}`,
+      page: "sports",
+      icon: "dumbbell"
     }))
   ];
 
+  // 标题命中的排在前面：搜「李明哲」时人名比正文里提一句的内容更该先看到。
   const filtered = term
-    ? records.filter((item) => `${item.title} ${item.text}`.toLowerCase().includes(term))
+    ? records
+        .filter((item) => `${item.title} ${item.text}`.toLowerCase().includes(term))
+        .sort(
+          (a, b) =>
+            Number(!a.title.toLowerCase().includes(term)) -
+            Number(!b.title.toLowerCase().includes(term))
+        )
     : records.slice(0, 6);
 
   if (!filtered.length) {
@@ -7489,6 +7643,11 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "export-ics") {
+    exportDeadlinesICS();
+    return;
+  }
+
   if (action === "filter-aid") {
     ui.aidFilter = actionElement.dataset.filter;
     render();
@@ -8090,7 +8249,30 @@ function handleKeydown(event) {
     ui.notificationsOpen = false;
     renderNotificationPanel();
     document.body.classList.remove("sidebar-open");
+    return;
   }
+
+  if (!authState.session) return;
+
+  // Ctrl/⌘ + K 是通用习惯；单独按 / 也能开，但在输入框里打字时不算。
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "");
+  const comboKey = (event.key === "k" || event.key === "K") && (event.ctrlKey || event.metaKey);
+  const slashKey = event.key === "/" && !typing && !event.ctrlKey && !event.metaKey;
+  if (comboKey || slashKey) {
+    event.preventDefault();
+    ui.globalQuery = "";
+    openModal("search");
+  }
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (location.protocol !== "https:" && location.hostname !== "localhost") return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {
+      // 注册失败（隐私模式、策略限制等）只是没有离线外壳，不影响正常使用。
+    });
+  });
 }
 
 function initialize() {
@@ -8131,6 +8313,7 @@ function initialize() {
   }, 15_000);
 
   render();
+  registerServiceWorker();
   restoreAuthSession()
     .then((session) => {
       if (session) {

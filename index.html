@@ -7,9 +7,20 @@
       name="description"
       content="班集是一个面向大学生的班级共建工具，聚合互助、组队、资源共享、截止提醒与匿名意见。"
     />
-    <meta name="theme-color" content="#f2f5fb" />
+    <meta name="theme-color" content="#f2f5fb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1720" media="(prefers-color-scheme: dark)" />
     <title>班集 · 班级共建站</title>
-    <link rel="stylesheet" href="styles.css?v=20261023" />
+
+    <!-- 添加到主屏幕：manifest + 图标 -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="班集" />
+    <meta name="application-name" content="班集" />
+
+    <link rel="stylesheet" href="styles.css?v=20261013b" />
   </head>
   <body>
     <div class="app-shell">
@@ -196,8 +207,8 @@
     <div class="modal-root" id="modal-root"></div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-    <script src="config.js?v=20261023" defer></script>
-    <script src="assets/icons.js?v=20261023" defer></script>
-    <script src="app.js?v=20261023" defer></script>
+    <script src="config.js?v=20261013b" defer></script>
+    <script src="assets/icons.js?v=20261013b" defer></script>
+    <script src="app.js?v=20261013b" defer></script>
   </body>
 </html>
