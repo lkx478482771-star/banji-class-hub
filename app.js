@@ -5241,7 +5241,44 @@ async function downloadResource(id) {
 /* 数据安全：导出备份 / 从备份恢复（MantleDB 不会自动备份，30 天不写入会被清空） */
 
 const DATA_ENTRY_LIMIT = 100;
-const dataTool = { paths: 0, loading: false, loaded: false };
+const DATA_SNAPSHOT_MAX_BYTES = 2 * 1024 * 1024;
+const DATA_SNAPSHOT_STALE_MS = 20 * 60 * 60 * 1000;
+const DATA_EXPORT_REMIND_MS = 7 * 24 * 60 * 60 * 1000;
+const dataTool = {
+  paths: 0,
+  loading: false,
+  loaded: false,
+  snapshotAt: 0,
+  snapshotCount: 0,
+  snapshotNote: "",
+  exportAt: 0
+};
+
+function dataStoreKey(kind) {
+  return `banji-data-${kind}-v1:${currentClassId()}`;
+}
+
+function readDataMarks() {
+  try {
+    dataTool.exportAt = Number(localStorage.getItem(dataStoreKey("export"))) || 0;
+    const meta = JSON.parse(localStorage.getItem(dataStoreKey("snapshot-meta")) || "null");
+    if (meta && typeof meta === "object") {
+      dataTool.snapshotAt = Number(meta.at) || 0;
+      dataTool.snapshotCount = Number(meta.count) || 0;
+      dataTool.snapshotNote = String(meta.note || "");
+    }
+  } catch (error) {
+    // 隐私模式下 localStorage 可能不可用，忽略即可。
+  }
+}
+
+function dataAgo(at) {
+  if (!at) return "从未";
+  const hours = Math.floor((Date.now() - at) / 3600000);
+  if (hours < 1) return "刚刚";
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
+}
 
 function dataStamp() {
   const now = new Date();
@@ -5262,7 +5299,8 @@ function saveBlob(blob, fileName) {
   URL.revokeObjectURL(url);
 }
 
-async function listSharedPaths() {  const listing = await mantleRequest(mantleListUrl());
+async function listSharedPaths() {
+  const listing = await mantleRequest(mantleListUrl());
   return (listing?.entries || [])
     .map((entry) => (entry && typeof entry.path === "string" ? entry.path : null))
     .filter(Boolean);
@@ -5282,12 +5320,62 @@ async function fetchAllRecords() {
   return { records, failed };
 }
 
+// 自动快照存在这台电脑的浏览器里，防的是「共享库被谁清空 / 30 天没人写被清掉」。
+async function refreshSnapshot() {
+  let note = "";
+  try {
+    const { records } = await fetchAllRecords();
+    let payload = records;
+    if (JSON.stringify(records).length > DATA_SNAPSHOT_MAX_BYTES) {
+      payload = {};
+      Object.keys(records).forEach((key) => {
+        if (key.indexOf(SPORTS_PHOTO_PATH) !== 0) payload[key] = records[key];
+      });
+      note = "照片太多，快照里没放照片";
+    }
+    localStorage.setItem(dataStoreKey("snapshot"), JSON.stringify(payload));
+    localStorage.setItem(
+      dataStoreKey("snapshot-meta"),
+      JSON.stringify({ at: Date.now(), count: Object.keys(payload).length, note })
+    );
+  } catch (error) {
+    note = "本机存储空间不足，这次快照没存下";
+    try {
+      localStorage.setItem(
+        dataStoreKey("snapshot-meta"),
+        JSON.stringify({ at: Date.now(), count: 0, note })
+      );
+    } catch (ignored) {
+      // 存不下就存不下，别让面板崩掉。
+    }
+  }
+  readDataMarks();
+}
+
+function restoreSnapshot() {
+  let records = null;
+  try {
+    records = JSON.parse(localStorage.getItem(dataStoreKey("snapshot")) || "null");
+  } catch (error) {
+    records = null;
+  }
+  if (!records || typeof records !== "object" || !Object.keys(records).length) {
+    showToast("没有本机快照", "请先用「导出全部数据」下载一份备份。");
+    return;
+  }
+  void writeBackRecords(records, `确定用本机快照（${dataAgo(dataTool.snapshotAt)}）写回去吗？`);
+}
+
 async function loadDataSafety(force = false) {
   if (!hasSharedConfig() || dataTool.loading) return;
   if (dataTool.loaded && !force) return;
   dataTool.loading = true;
+  readDataMarks();
   try {
     dataTool.paths = (await listSharedPaths()).length;
+    if (canManageData() && Date.now() - dataTool.snapshotAt > DATA_SNAPSHOT_STALE_MS) {
+      await refreshSnapshot();
+    }
   } catch (error) {
     dataTool.paths = -1;
   } finally {
@@ -5330,9 +5418,45 @@ async function exportAllData() {
       "备份已下载",
       `${keys.length} 条记录已存成 ${fileName}，请放到网盘。`
     );
+    try {
+      localStorage.setItem(dataStoreKey("export"), String(Date.now()));
+    } catch (error) {
+      // 记不住就算了，不影响这次备份。
+    }
+    dataTool.exportAt = Date.now();
   } catch (error) {
     showToast("导出失败", "共享服务暂时不可用。");
   }
+}
+
+async function writeBackRecords(records, confirmText) {
+  const paths = Object.keys(records);
+  const count = paths.length;
+  const ok = window.confirm(
+    `${confirmText}\n\n记录条数：${count}\n\n同名的记录会被覆盖，这里没有的记录不会被删除。`
+  );
+  if (!ok) return;
+  showToast("正在恢复", `正在写回 ${count} 条记录，请勿关闭…`);
+  let done = 0;
+  const failed = [];
+  await mapLimit(paths, 3, async (path) => {
+    try {
+      await mantleRequest(mantleEntryUrl(path), {
+        method: "POST",
+        body: JSON.stringify(records[path])
+      });
+      done += 1;
+    } catch (error) {
+      failed.push(path);
+    }
+  });
+  showToast(
+    failed.length ? "部分恢复完成" : "恢复完成",
+    failed.length
+      ? `成功 ${done} 条，失败 ${failed.length} 条，可重试。`
+      : `已写回 ${done} 条，刷新页面即可见。`
+  );
+  loadDataSafety(true);
 }
 
 async function restoreFromBackup() {
@@ -5353,40 +5477,14 @@ async function restoreFromBackup() {
       payload = null;
     }
     const records = payload && payload.records;
-    const paths = records && typeof records === "object" ? Object.keys(records) : [];
-    if (!paths.length) {
+    if (!records || typeof records !== "object" || !Object.keys(records).length) {
       showToast("这个文件用不了", "请选择「导出全部数据」下载的 JSON 备份。");
       return;
     }
     const when = payload.exportedAt
       ? String(payload.exportedAt).slice(0, 16).replace("T", " ")
       : "未知时间";
-    const ok = window.confirm(
-      `确定要用这份备份写回去吗？\n\n备份时间：${when}\n记录条数：${paths.length}\n\n` +
-        "同名记录会被覆盖，备份里没有的记录不会被删除。"
-    );
-    if (!ok) return;
-    showToast("正在恢复", `正在写回 ${paths.length} 条记录，请勿关闭…`);
-    let done = 0;
-    const failed = [];
-    await mapLimit(paths, 3, async (path) => {
-      try {
-        await mantleRequest(mantleEntryUrl(path), {
-          method: "POST",
-          body: JSON.stringify(records[path])
-        });
-        done += 1;
-      } catch (error) {
-        failed.push(path);
-      }
-    });
-    showToast(
-      failed.length ? "部分恢复完成" : "恢复完成",
-      failed.length
-        ? `成功 ${done} 条，失败 ${failed.length} 条，可重试。`
-        : `已写回 ${done} 条，刷新页面即可见。`
-    );
-    loadDataSafety(true);
+    await writeBackRecords(records, `确定用这份备份（${when}）写回去吗？`);
   });
   input.click();
 }
@@ -5397,6 +5495,7 @@ function renderDataSafetyPanel() {
   const used = Math.max(0, count);
   const percent = Math.min(100, Math.round((used / DATA_ENTRY_LIMIT) * 100));
   const tone = used >= 80 ? "red" : used >= 60 ? "orange" : "green";
+  const staleExport = !dataTool.exportAt || Date.now() - dataTool.exportAt > DATA_EXPORT_REMIND_MS;
   const badge = !dataTool.loaded
     ? `<span class="badge blue">统计中</span>`
     : count < 0
@@ -5409,12 +5508,14 @@ function renderDataSafetyPanel() {
   </header>
   <div class="panel-body">
     <div class="progress-track"><span style="width: ${percent}%"></span></div>
-    <p class="eyebrow" style="margin: 10px 0 14px">上限 ${DATA_ENTRY_LIMIT} 条、单条 64 KB，30 天不写入会被清空。</p>
+    <p class="eyebrow" style="margin: 10px 0 10px">上限 ${DATA_ENTRY_LIMIT} 条、单条 64 KB，30 天不写入会被清空。</p>
+    <p class="eyebrow" style="margin: 0 0 12px">本机快照：${dataAgo(dataTool.snapshotAt)} · ${dataTool.snapshotCount} 条　导出备份：${dataAgo(dataTool.exportAt)}${staleExport ? "（建议现在导出）" : ""}</p>
     <div class="stack">
       <button class="primary-button full-width" type="button" data-action="data-export">${icon("cloud-upload")} 导出全部数据</button>
       <button class="secondary-button full-width" type="button" data-action="data-restore">${icon("history")} 从备份恢复</button>
+      <button class="ghost-button full-width" type="button" data-action="data-snapshot">${icon("history")} 从本机快照恢复</button>
     </div>
-    <p class="eyebrow" style="margin: 12px 0 0">备份含同学信息和口令摘要，只放自己的网盘。</p>
+    <p class="eyebrow" style="margin: 12px 0 0">${dataTool.snapshotNote || "备份含同学信息和口令摘要，只放自己的网盘。"}</p>
   </div>
 </article>`;
 }
@@ -5434,28 +5535,35 @@ const SPORTS_MEET = {
   momentsDir: "assets/moments/"
 };
 
-/* ==== ATHLETES:BEGIN ==== 由「运动会宣传/tools/build_site.py」从 CSV 生成，手改会被覆盖 ==== */
+/* ==== ATHLETES:BEGIN ==== 由「运动会宣传/tools/import_roster.py」从报名表生成，手改会被覆盖 ==== */
 const SPORTS_ATHLETES = [
-  { name: "张明宇", event: "男子 100 米", pack: "预赛第 3 组 / 4 道", power: 5, cheer: "发令枪响，直接满频运行。" },
-  { name: "李思远", event: "男子 200 米", pack: "预赛第 2 组 / 6 道", power: 4, cheer: "弯道超频，直道收敛。" },
-  { name: "王雨桐", event: "女子 800 米", pack: "决赛", power: 4, cheer: "两圈不长，我们全程给你供电。" },
-  { name: "赵子豪", event: "4×100 米接力", pack: "第 4 棒", power: 5, cheer: "最后一棒，交给你的都是最优解。" },
-  { name: "陈嘉怡", event: "女子跳远", pack: "决赛", power: 3, cheer: "助跑起跳，落点写进纪录里。" },
-  { name: "刘浩宇", event: "男子 1500 米", pack: "决赛", power: 4, cheer: "心率拉满，终点见。" },
-  { name: "孙诗雨", event: "女子 400 米", pack: "预赛第 2 组", power: 4, cheer: "弯道不减速，直道不留情。" },
-  { name: "周奕辰", event: "铅球", pack: "决赛", power: 3, cheer: "这一掷，突破封装极限。" },
-  { name: "吴梦琪", event: "女子 100 米", pack: "预赛第 4 组 / 3 道", power: 4, cheer: "起跑即满速，冲线才断电。" },
-  { name: "郑一鸣", event: "男子跳高", pack: "决赛", power: 4, cheer: "每一次起跳，都是一次升压。" },
-  { name: "徐若涵", event: "女子 1500 米", pack: "决赛", power: 3, cheer: "慢一点没关系，别停就行。" },
-  { name: "马俊杰", event: "4×400 米接力", pack: "第 2 棒", power: 4, cheer: "交棒快过信号传输。" },
-  { name: "朱雅琳", event: "女子铅球", pack: "决赛", power: 3, cheer: "力量已经预加载完毕。" },
-  { name: "胡文博", event: "男子 400 米", pack: "预赛第 1 组", power: 4, cheer: "一圈而已，全功率输出。" },
-  { name: "林晓阳", event: "三级跳远", pack: "决赛", power: 3, cheer: "三步起飞，落点见真章。" },
-  { name: "高子墨", event: "男子 800 米", pack: "决赛", power: 4, cheer: "最后 100 米，交给后援团。" },
-  { name: "何欣怡", event: "女子跳高", pack: "决赛", power: 4, cheer: "横杆之上，还有余量。" },
-  { name: "郭泽宇", event: "男子实心球", pack: "决赛", power: 3, cheer: "一掷定音，全场静默。" },
-  { name: "罗佳宁", event: "女子 200 米", pack: "预赛第 3 组 / 5 道", power: 4, cheer: "零延迟启动，满带宽冲刺。" },
-  { name: "梁天成", event: "男子跳远", pack: "决赛", power: 4, cheer: "这一跳，写进班级纪录。" }
+  { name: "李明哲", group: "男子组", kind: "track", events: ["男子 100 米", "男子 200 米", "男子 4×100 米接力"], cheer: "发令枪响，直接满频运行。" },
+  { name: "郑子涵", group: "男子组", kind: "both", events: ["男子 200 米", "男子跳远", "男子 400 米"], cheer: "弯道超频，直道收敛。" },
+  { name: "胡梦宇", group: "男子组", kind: "track", events: ["男子 100 米"], cheer: "起跑即满速，冲线才断电。" },
+  { name: "邹梓博", group: "男子组", kind: "track", events: ["男子 200 米", "男子 4×100 米接力", "男子 1500 米"], cheer: "两个弯道，一路满速。" },
+  { name: "梅利", group: "女子组", kind: "track", events: ["女子 800 米"], cheer: "两圈不长，我们全程给你供电。" },
+  { name: "计楚韵", group: "女子组", kind: "both", events: ["女子 800 米", "女子铅球"], cheer: "最后 100 米，交给后援团。" },
+  { name: "覃奥粤", group: "女子组", kind: "field", events: ["女子跳远"], cheer: "助跑起跳，落点写进纪录里。" },
+  { name: "方奥林", group: "男子组", kind: "field", events: ["男子跳远"], cheer: "三步起飞，落点见真章。" },
+  { name: "聂连灿", group: "男子组", kind: "both", events: ["男子铅球", "男子 1500 米"], cheer: "这一掷，突破封装极限。" },
+  { name: "陆家辰", group: "男子组", kind: "track", events: ["男子 200 米"], cheer: "起跑就位，等你超频。" },
+  { name: "孟永奇", group: "男子组", kind: "both", events: ["男子 800 米", "男子 1500 米", "男子跳高"], cheer: "配速稳住，终点见。" },
+  { name: "李创华", group: "男子组", kind: "track", events: ["男子 4×100 米接力"], cheer: "交棒快过信号传输。" },
+  { name: "戴东升", group: "男子组", kind: "track", events: ["男子 4×100 米接力"], cheer: "四棒接力，一根线也不能断。" },
+  { name: "胡瀚波", group: "男子组", kind: "field", events: ["男子跳远"], cheer: "沙坑那边，等你签名。" },
+  { name: "胡林鑫", group: "男子组", kind: "field", events: ["男子铅球"], cheer: "力量已经预加载完毕。" },
+  { name: "沙嘉豪", group: "男子组", kind: "field", events: ["男子跳远"], cheer: "助跑起跳，落点写进纪录里。" },
+  { name: "张子瑞", group: "男子组", kind: "field", events: ["男子铅球"], cheer: "一掷定音，全场静默。" },
+  { name: "吕道韫", group: "男子组", kind: "field", events: ["男子铅球"], cheer: "这一掷，突破封装极限。" },
+  { name: "彭斐博", group: "男子组", kind: "field", events: ["男子铅球"], cheer: "力量已经预加载完毕。" },
+  { name: "甄明宇", group: "男子组", kind: "field", events: ["男子铅球"], cheer: "一掷定音，全场静默。" },
+  { name: "刘松岩", group: "女子组", kind: "field", events: ["女子铅球"], cheer: "这一掷，突破封装极限。" },
+  { name: "刘春妍", group: "女子组", kind: "field", events: ["女子跳远"], cheer: "三步起飞，落点见真章。" },
+  { name: "陈殿露", group: "女子组", kind: "track", events: ["女子 100 米"], cheer: "零延迟启动，满带宽冲刺。" },
+  { name: "崔姝斐", group: "女子组", kind: "field", events: ["女子跳远"], cheer: "沙坑那边，等你签名。" },
+  { name: "倪欣悦", group: "女子组", kind: "field", events: ["女子跳远"], cheer: "助跑起跳，落点写进纪录里。" },
+  { name: "杨娜", group: "女子组", kind: "field", events: ["女子铅球"], cheer: "力量已经预加载完毕。" },
+  { name: "黄林锴", group: "女子组", kind: "field", events: ["女子跳高"], cheer: "横杆之上，还有余量。" }
 ];
 /* ==== ATHLETES:END ==== */
 
@@ -5477,9 +5585,15 @@ const sportsUi = {
 // 径赛 / 田赛分组：按项目名里的关键词判断，用来给名单做筛选。
 const SPORTS_FILTERS = [["all", "全部"], ["track", "径赛"], ["field", "田赛"]];
 const sportsTrackField = (event) => (/跳|铅球|实心球|标枪|铁饼/.test(event) ? "field" : "track");
+const sportsEventText = (athlete) => athlete.events.join(" / ");
+const sportsRosterText = (athlete) =>
+  athlete.events.length > 1 ? athlete.events[0] + " 等 " + athlete.events.length + " 项" : athlete.events[0];
+const sportsAllEvents = SPORTS_ATHLETES.flatMap((athlete) => athlete.events);
 const sportsPickAthletes = () =>
   SPORTS_ATHLETES.map((athlete, index) => ({ athlete, index })).filter(
-    (item) => sportsUi.filter === "all" || sportsTrackField(item.athlete.event) === sportsUi.filter
+    (item) =>
+      sportsUi.filter === "all" ||
+      item.athlete.events.some((event) => sportsTrackField(event) === sportsUi.filter)
   );
 
 const SPORTS_PHOTO_PATH = "photos/";
@@ -5489,12 +5603,6 @@ const sportsPhotos = { approved: [], pending: [] };
 
 function sportsAthleteId(index) {
   return "IC4-" + String(index + 1).padStart(3, "0");
-}
-
-function sportsPowerLevel(value) {
-  const level = Math.round(Number(value));
-  if (!Number.isFinite(level)) return 5;
-  return Math.max(1, Math.min(5, level));
 }
 
 // 在直径 1 的圆里铺一层六方网格（间距 = step），返回所有落在圆内的格子中心。
@@ -5583,11 +5691,10 @@ function renderSportsPanel(index) {
   if (!total) return `<div class="panel-body"><p>名单还没有数据。</p></div>`;
   const current = ((index % total) + total) % total;
   const athlete = SPORTS_ATHLETES[current];
-  const level = sportsPowerLevel(athlete.power);
   const specs = [
-    ["EVENT", athlete.event],
-    ["PACKAGE", athlete.pack || "—"],
-    ["POWER RATING", "★".repeat(level) + "☆".repeat(5 - level)],
+    ["EVENT", sportsEventText(athlete)],
+    ["GROUP", athlete.group],
+    ["ENTRIES", athlete.events.length + " 项"],
     ["POWER SUPPLY", SPORTS_MEET.supply],
     ["STATUS", sportsUi.lit ? SPORTS_MEET.status : "待机 / STANDBY"]
   ];
@@ -5602,7 +5709,7 @@ function renderSportsPanel(index) {
     </header>
     <div class="panel-body sports-datasheet">
       <h4 class="sports-name">${escapeHTML(athlete.name)}</h4>
-      <p class="sports-event">${escapeHTML(athlete.event)}</p>
+      <p class="sports-event">${escapeHTML(sportsEventText(athlete))}</p>
       <dl class="sports-specs">
         ${specs
           .map(
@@ -5634,8 +5741,8 @@ function renderSportsRoster() {
       <button class="sports-roster-row${active ? " is-active" : ""}" type="button" data-action="sports-select" data-index="${index}">
         <span class="sports-roster-no">${String(index + 1).padStart(3, "0")}</span>
         <strong>${escapeHTML(athlete.name)}</strong>
-        <span class="sports-roster-event">${escapeHTML(athlete.event)}</span>
-        <span class="sports-roster-pack">${escapeHTML(athlete.pack || "")}</span>
+        <span class="sports-roster-event">${escapeHTML(sportsRosterText(athlete))}</span>
+        <span class="sports-roster-pack">${escapeHTML(athlete.group || "")}</span>
       </button>
     `;
   });
@@ -5712,15 +5819,15 @@ function renderSports() {
         data-action="sports-select"
         data-index="${index}"
         style="left: ${(50 + point.x * 100).toFixed(3)}%; top: ${(50 + point.y * 100).toFixed(3)}%; width: ${sizePercent.toFixed(3)}%; --die-ratio: ${ratio}"
-        aria-label="${escapeHTML(athlete.name)} ${escapeHTML(athlete.event)}"
+        aria-label="${escapeHTML(athlete.name)} ${escapeHTML(sportsEventText(athlete))}"
       >
         <span class="sports-die-name">${escapeHTML(athlete.name)}</span>
         <span class="sports-die-id">${sportsAthleteId(index)}</span>
       </button>
     `;
   }).join("");
-  const trackCount = SPORTS_ATHLETES.filter((item) => sportsTrackField(item.event) === "track").length;
-  const eventCount = new Set(SPORTS_ATHLETES.map((item) => item.event.replace(/^(男子|女子)/, ""))).size;
+  const trackCount = sportsAllEvents.filter((event) => sportsTrackField(event) === "track").length;
+  const eventCount = new Set(sportsAllEvents.map((event) => event.replace(/^(男子|女子)\s?/, ""))).size;
 
   return `
     <div class="page-stack">
@@ -5752,7 +5859,7 @@ function renderSports() {
         </article>
         <article class="metric">
           <span class="metric-icon yellow">${icon("presentation")}</span>
-          <div><strong class="metric-value">${total - trackCount}</strong><span class="metric-label">田赛人次</span></div>
+          <div><strong class="metric-value">${sportsAllEvents.length - trackCount}</strong><span class="metric-label">田赛人次</span></div>
         </article>
       </section>
 
@@ -6342,6 +6449,10 @@ function handleClick(event) {
 
   if (action === "data-restore") {
     void restoreFromBackup();
+  }
+
+  if (action === "data-snapshot") {
+    restoreSnapshot();
     return;
   }
 

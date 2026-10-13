@@ -15,7 +15,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BUDGETS = [
   { file: "index.html", max: 14_000 },
   { file: "styles.css", max: 70_000 },
-  { file: "app.js", max: 250_000 },
+  { file: "app.js", max: 265_000 },
   { file: "config.js", max: 2_000 },
   { file: "ahu-import.js", max: 12_000 },
   { file: "assets/icons.js", max: 50_000 },
@@ -33,7 +33,8 @@ const FIRST_PAINT_FILES = [
 ];
 // 当前实测约 415 KB（首图从 JPEG 换成 WebP 后省下约 50 KB），原始版本约 876 KB。
 // 这个上限留了足够日常改动的余量，但把"整包图标库（+327 KB）""没压缩的大图（+200 KB）"这类回归直接挡在门外。
-// 单文件上限是软性维护线，真正的红线是首屏合计：2026-10-13 因运动会栏目扩容把 app.js 调到 250 KB。
+// 单文件上限是软性维护线，真正的红线是首屏合计：2026-10-13 先因运动会栏目扩容到 250 KB，
+// 当天又把 20 条示例名单换成全院报名表里的 27 条真实名单（每人多项），再调到 265 KB。
 const FIRST_PAINT_MAX = 470_000;
 
 /** assets/ 下任何单个文件都不该超过这个大小（除非在 BUDGETS 里单独放宽）。 */

@@ -3088,7 +3088,7 @@ body.is-auth-required .app-shell {
 
 .sports-roster-row {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: 38px auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
@@ -3097,6 +3097,10 @@ body.is-auth-required .app-shell {
   background: var(--surface-soft);
   text-align: left;
   cursor: pointer;
+}
+
+.sports-roster-row strong {
+  white-space: nowrap;
 }
 
 .sports-roster-row.is-active {
@@ -3111,8 +3115,12 @@ body.is-auth-required .app-shell {
 }
 
 .sports-roster-event {
+  min-width: 0;
+  overflow: hidden;
   color: var(--ink-soft);
   font-size: 12px;
+  text-align: right;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
