@@ -154,3 +154,25 @@
   （昵称子系统、一人多班成员制、国庆微站）尚未移植。
 - `LICENSE` 与版本 tag 未定，`assets/icons.js` 里的 93 个图标中包含若干字面量误报，
   可后续用更精确的扫描收紧。
+
+### 2026-10-13 深夜：修掉「删掉的内容重新登录后又冒出来」
+
+- **现象**：管理员删掉一条内容，第二次登录它又出现，怎么删都删不干净。
+- **根因**：`deleteSharedRecord()` 只删了「服务器那条 + 本机列表那条」，本机还留着两份旧副本——
+  云缓存 `banji-shared-cache-v1:<班级>`（每次登录 `applySharedRecords(getCachedSharedRecords())`
+  会把它贴回列表）和待发队列 `banji-shared-pending-v1`（下次同步会把它重新上传）。
+  两份旧副本只要还剩一份，删掉的内容就会自己长回来。
+- **修法**：新增删除墓碑（`DELETED_SHARED_KEY` / `DELETED_ITEMS_KEY`，保留 120 天）。
+  ① `deleteSharedRecord()` 先立墓碑，再清掉云缓存与待发队列里的同名副本；服务器删除失败不再
+  抛出异常，改为排进下次同步重试；② `applySharedRecords()` 跳过墓碑上的记录，云缓存或服务器
+  旧副本送来也不接收；③ `syncSharedRecords()` 每次同步对墓碑上残留的服务器副本补删一次；
+  ④ `importLocalRecordsToShared()` 不再导入墓碑上的内容；⑤ 大事记（chronicle）是「一条记录里
+  装着多条」，额外按条目立墓碑，`deleteMilestone()` 与 `mergeChronicleItems()` 配合，
+  删掉的条目不会被并集合并回来。
+- **验证**：写了定向回归页（拦掉真服务器，种入「列表 + 云缓存 + 待发队列」三份旧副本）对比修复前后：
+  修复前删除后 `cache=1 pending=1`、重放旧副本后 `state=1`（FAIL）；修复后 `cache=0 pending=0
+  墓碑=true`、重放后 `state=0`（PASS）。临时文件已清理。
+- **已知局限**：墓碑存在本机。换设备或换浏览器登录时，那台设备上的旧副本仍可能把它传回来。
+  彻底根治要在服务器侧记墓碑（或先 claim 命名空间，用服务端权限兜底）。
+- **体积**：app.js 从 348 KB 放宽到 356 KB（这次是修 bug，不是加功能）；`check-size.mjs` 里那条
+  「下一轮动手前先做 `applySharedRecords` 去重瘦身」的硬任务依然欠着。
