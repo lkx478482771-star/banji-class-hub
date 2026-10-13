@@ -4733,6 +4733,160 @@ body.is-admin {
      ② 补掉少数写死了白底 / 深字的组件（含运动会那套亮色主题）
    想整体去掉深色模式：删掉这一段即可，浅色完全不受影响。
    ============================================================ */
+/* 匿名意见闭环：状态推进提示 + 公开回应 + 班委操作条 */
+.suggestion-flow-hint {
+  margin: 8px 0 0;
+  color: var(--ink-faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.suggestion-reply {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+  border-left: 3px solid var(--primary);
+}
+
+.suggestion-reply-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.suggestion-reply p {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+
+.mini-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+.mini-button:hover {
+  border-color: var(--primary);
+  color: var(--primary-strong);
+  background: var(--primary-soft);
+}
+
+.mini-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 班级大事记：一条纵向时间线 */
+.chronicle-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.chronicle-item {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+}
+
+.chronicle-item + .chronicle-item {
+  border-top: 1px dashed var(--line);
+}
+
+.chronicle-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+}
+
+.chronicle-dot svg {
+  width: 15px;
+  height: 15px;
+}
+
+.chronicle-dot.is-milestone,
+.chronicle-dot.is-suggestion {
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+
+.chronicle-dot.is-meet {
+  background: var(--orange-soft);
+  color: var(--orange);
+}
+
+.chronicle-dot.is-post {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.chronicle-dot.is-team {
+  background: var(--yellow-soft);
+  color: var(--yellow);
+}
+
+.chronicle-body {
+  min-width: 0;
+}
+
+.chronicle-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chronicle-time {
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.chronicle-body strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.chronicle-body p {
+  margin: 3px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --page: #0f1720;

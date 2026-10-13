@@ -3,6 +3,10 @@ const FILE_DB_NAME = "banji-shared-files";
 const FILE_STORE_NAME = "files";
 const SHARED_CACHE_KEY = "banji-shared-cache-v1";
 const PENDING_SHARED_KEY = "banji-shared-pending-v1";
+const DELETED_SHARED_KEY = "banji-shared-deleted-v1";
+const DELETED_ITEMS_KEY = "banji-shared-deleted-items-v1";
+// 删除墓碑保留 120 天：撑过「离线设备在保留期内又把旧副本传回来」的窗口。
+const DELETED_KEEP_MS = 120 * 24 * 60 * 60 * 1000;
 const VISITOR_KEY = "banji-visitor-v1";
 const AUTH_SESSION_KEY = "banji-auth-session-v1";
 const LOCAL_ACCOUNTS_KEY = "banji-local-accounts-v1";
@@ -451,7 +455,9 @@ function createSeedState() {
     // 每位选手一条「加油线程」，全班对他的加油都攒在这一条共享记录里。
     cheers: [],
     // 整个班一条「现场战报 · 奖牌榜」记录。
-    results: []
+    results: [],
+    // 整个班一条「班级大事记」记录（班委手动记的里程碑；自动条目是推导出来的，不占共享库）。
+    chronicle: []
   };
 }
 
@@ -887,6 +893,7 @@ function activateClassState() {
     state.resources = [];
     state.cheers = [];
     state.results = [];
+    state.chronicle = [];
   }
   applySharedRecords(getCachedSharedRecords());
   state.candidate.name = authState.session?.username || state.candidate.name;
@@ -2256,12 +2263,27 @@ async function deleteSharedRecord(recordType, id) {
     return;
   }
 
+  const recordKey = item.recordKey || `${recordType}:${id}`;
+  const canonicalKey = `${recordType}:${id}`;
+  // 先立墓碑 + 清掉本机的两份旧副本。
+  // 否则「删掉 → 重新登录 → 云缓存贴回来 / 待发队列重新上传」会把它变回原样。
+  markSharedDeleted(recordKey, canonicalKey);
+  savePendingSharedRecords(
+    getPendingSharedRecords().filter((entry) => entry.record_key !== canonicalKey)
+  );
+  cacheSharedRecords(
+    getCachedSharedRecords().filter((entry) => entry.record_key !== recordKey)
+  );
   if (item.shared && hasSharedConfig()) {
-    const recordKey = item.recordKey || `${recordType}:${id}`;
-    await mantleRequest(
-      mantleEntryUrl(`records/${encodeURIComponent(recordKey)}`),
-      { method: "DELETE" }
-    );
+    try {
+      await mantleRequest(
+        mantleEntryUrl(`records/${encodeURIComponent(recordKey)}`),
+        { method: "DELETE" }
+      );
+    } catch (error) {
+      // 服务器没删掉也不要紧：墓碑已立，本机不会再显示它，下一次同步会自动补删。
+      scheduleSharedSync();
+    }
   }
   if (collection) {
     collection.splice(collection.indexOf(item), 1);
@@ -2887,6 +2909,230 @@ function historyRecordTitle(record) {
   return "班级记录";
 }
 
+// ===== 班级大事记 =====
+// 自动部分：互助被解决、意见被改进、比赛成绩、组队，都是现成的数据推导出来的，不占共享库。
+// 手动部分：班委自己记的里程碑，整个班共用一条共享记录 `chronicle:class`。
+const CHRONICLE_ID = "class";
+const CHRONICLE_MAX_ITEMS = 120;
+const CHRONICLE_KINDS = {
+  milestone: { label: "班级里程碑", tone: "green", icon: "flag" },
+  meet: { label: "运动会", tone: "orange", icon: "dumbbell" },
+  suggestion: { label: "意见落地", tone: "green", icon: "megaphone" },
+  post: { label: "互助解决", tone: "blue", icon: "circle-check" },
+  team: { label: "组队成功", tone: "yellow", icon: "users-round" }
+};
+
+function chronicleExpiry() {
+  const base = Date.parse(SPORTS_MEET.meetTime) || Date.now();
+  return new Date(base + 400 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function normalizeChronicleItems(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((item) => item && item.title)
+    .map((item) => ({
+      key: String(item.key || `m|${item.at || ""}|${item.title}`),
+      at: item.at || new Date().toISOString(),
+      title: String(item.title).slice(0, 40),
+      note: String(item.note || "").slice(0, 80),
+      by: String(item.by || ""),
+      byName: String(item.byName || "").slice(0, 12)
+    }));
+}
+
+function mergeChronicleItems(current, incoming) {
+  const merged = normalizeChronicleItems(current).filter(
+    (item) => !isItemDeleted("chronicle", item.key)
+  );
+  normalizeChronicleItems(incoming)
+    .filter((entry) => !isItemDeleted("chronicle", entry.key))
+    .forEach((entry) => {
+      const at = merged.findIndex((item) => item.key === entry.key);
+      if (at < 0) merged.push(entry);
+      else if (Date.parse(entry.at) >= Date.parse(merged[at].at)) merged[at] = entry;
+    });
+  return merged
+    .sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0))
+    .slice(0, CHRONICLE_MAX_ITEMS);
+}
+
+function chronicleThread(create) {
+  let thread = state.chronicle.find((item) => item.id === CHRONICLE_ID);
+  if (!thread && create) {
+    thread = {
+      id: CHRONICLE_ID,
+      items: [],
+      updatedAt: new Date().toISOString(),
+      expiresAt: chronicleExpiry(),
+      shared: false,
+      recordKey: ""
+    };
+    state.chronicle.push(thread);
+  }
+  return thread || null;
+}
+
+function chronicleMilestones() {
+  const thread = chronicleThread(false);
+  return thread ? normalizeChronicleItems(thread.items) : [];
+}
+
+function submitMilestone(title, note, at) {
+  if (!canManageData()) {
+    showToast("没有权限", "只有管理员和班委能往大事记里记东西。");
+    return false;
+  }
+  const text = String(title || "").trim().slice(0, 40);
+  if (!text) {
+    showToast("标题不能空着", "写一句这件事是什么。");
+    return false;
+  }
+  const thread = chronicleThread(true);
+  const stamp = at || new Date().toISOString();
+  thread.items = mergeChronicleItems(thread.items, [
+    {
+      // 同一天 + 同一标题算同一条，避免手滑重复提交塞满时间线。
+      key: `m|${String(stamp).slice(0, 10)}|${text}`,
+      at: stamp,
+      title: text,
+      note: String(note || "").trim().slice(0, 80),
+      by: authState.session?.user.id || "",
+      byName: authState.session?.username || ""
+    }
+  ]);
+  thread.updatedAt = new Date().toISOString();
+  thread.shared = true;
+  saveState();
+  queueSharedRecord("chronicle", thread, { skipQuota: true });
+  return true;
+}
+
+function deleteMilestone(key) {
+  if (!canManageData()) return;
+  const thread = chronicleThread(false);
+  if (!thread) return;
+  const before = thread.items.length;
+  thread.items = normalizeChronicleItems(thread.items).filter((item) => item.key !== key);
+  if (thread.items.length === before) return;
+  // 立条目墓碑：远端旧副本里还留着这条，不加墓碑会被并集合并回来。
+  markItemDeleted("chronicle", key);
+  thread.updatedAt = new Date().toISOString();
+  saveState();
+  queueSharedRecord("chronicle", thread, { skipQuota: true });
+  render();
+}
+
+function autoChronicleItems() {
+  const list = [];
+  resultItems().forEach((item) => {
+    const meta = resultPlaceMeta(item.place);
+    list.push({
+      key: `auto|meet|${item.key}`,
+      kind: "meet",
+      at: item.at,
+      title: `${item.athleteName} ${item.event}`,
+      note: [meta.label, item.note].filter(Boolean).join(" · ")
+    });
+  });
+  state.suggestions
+    .filter((item) => suggestionStatus(item) === "已改进")
+    .forEach((item) => {
+      list.push({
+        key: `auto|suggestion|${item.id}`,
+        kind: "suggestion",
+        at: item.repliedAt || item.updatedAt || item.createdAt,
+        title: "匿名意见落地",
+        note: item.reply || item.text
+      });
+    });
+  state.posts
+    .filter((item) => item.status === "resolved")
+    .forEach((item) => {
+      list.push({
+        key: `auto|post|${item.id}`,
+        kind: "post",
+        at: item.createdAt,
+        title: `互助解决：${item.title}`,
+        note: item.description
+      });
+    });
+  state.teams.forEach((item) => {
+    list.push({
+      key: `auto|team|${item.id}`,
+      kind: "team",
+      at: item.date || item.createdAt,
+      title: `组队：${item.title}`,
+      note: item.description
+    });
+  });
+  return list;
+}
+
+function formatChronicleTime(at) {
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
+}
+
+function renderChronicleItem(item) {
+  const kind = CHRONICLE_KINDS[item.kind] || CHRONICLE_KINDS.milestone;
+  return `
+    <li class="chronicle-item">
+      <span class="chronicle-dot is-${escapeHTML(item.kind || "milestone")}">${icon(kind.icon)}</span>
+      <div class="chronicle-body">
+        <span class="chronicle-meta">
+          <span class="badge ${kind.tone}">${escapeHTML(kind.label)}</span>
+          <span class="chronicle-time">${escapeHTML(formatChronicleTime(item.at))}</span>
+        </span>
+        <strong>${escapeHTML(item.title)}</strong>
+        ${item.note ? `<p>${escapeHTML(item.note)}</p>` : ""}
+      </div>
+      ${
+        item.kind === "milestone" && canManageData()
+          ? `
+            <button class="small-icon-button" type="button" data-action="delete-milestone" data-key="${escapeHTML(
+              item.key
+            )}" aria-label="删除这条大事记" title="删除这条大事记">${icon("trash-2")}</button>
+          `
+          : ""
+      }
+    </li>
+  `;
+}
+
+function renderChronicle() {
+  const milestones = chronicleMilestones().map((item) => ({ ...item, kind: "milestone" }));
+  const items = [...autoChronicleItems(), ...milestones]
+    .sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0))
+    .slice(0, 40);
+  return `
+    <section class="panel" id="chronicle-panel">
+      <div class="panel-header">
+        <div>
+          <h3>班级大事记</h3>
+          <p class="eyebrow">互助被解决、意见被改进、比赛拿到名次都会自动落到这条时间线上，班委也可以自己记一笔。</p>
+        </div>
+        <div class="panel-actions">
+          <span class="badge blue">${icon("clock-3")} ${items.length} 条</span>
+          ${
+            canManageData()
+              ? `<button class="secondary-button" type="button" data-action="open-modal" data-modal="milestone">${icon(
+                  "flag"
+                )} 记一笔</button>`
+              : ""
+          }
+        </div>
+      </div>
+      ${
+        items.length
+          ? `<ol class="chronicle-list">${items.map(renderChronicleItem).join("")}</ol>`
+          : renderEmpty("flag", "还没有记录", "互助被解决、意见被改进之后，会自动出现在这里。")
+      }
+    </section>
+  `;
+}
+
 function renderHistory() {
   if (!ui.historyLoaded) {
     window.setTimeout(() => void loadHistory(), 0);
@@ -2899,14 +3145,16 @@ function renderHistory() {
     <div class="page-stack">
       <header class="page-intro">
         <div>
-          <p class="eyebrow">栏目中自动隐藏，历史中继续保留</p>
-          <h2>已过期事项与任务记录</h2>
-          <p>发布者设置的保留时间到期后，内容会自动从当前栏目移除，并归档到这里。</p>
+          <p class="eyebrow">班级走到今天，都发生了什么</p>
+          <h2>班级大事记与历史归档</h2>
+          <p>上面这条时间线记的是这个班攒下来的事；下面归档的是发布者设了保留期、已经到期下架的内容。</p>
         </div>
         <div class="page-actions">
           <span class="badge blue">${icon("archive")} ${records.length} 条历史记录</span>
         </div>
       </header>
+
+      ${renderChronicle()}
 
       <section class="history-list" id="history-results">
         ${
@@ -3604,13 +3852,106 @@ function renderFeedback() {
   `;
 }
 
+// 匿名意见的闭环：收到 → 处理中 → 已改进。老数据里的各种说法统一收敛到这里，
+// 免得历史记录一次性全变成「未知状态」。
+const SUGGESTION_FLOW = [
+  { key: "pending", label: "待处理", tone: "blue", next: "处理中", hint: "已收到，等班委认领。" },
+  { key: "doing", label: "处理中", tone: "yellow", next: "已改进", hint: "已经有人在做，进度会在这里更新。" },
+  { key: "done", label: "已改进", tone: "green", next: "", hint: "" }
+];
+
+const SUGGESTION_STATUS_ALIASES = {
+  待处理: "待处理",
+  已收到: "待处理",
+  已纳入计划: "处理中",
+  处理中: "处理中",
+  已反馈: "已改进",
+  已解决: "已改进",
+  已改进: "已改进"
+};
+
+function suggestionStatus(item) {
+  const raw = String((item && item.status) || "").trim();
+  return SUGGESTION_STATUS_ALIASES[raw] || "待处理";
+}
+
+function suggestionFlow(item) {
+  const label = suggestionStatus(item);
+  return SUGGESTION_FLOW.find((step) => step.label === label) || SUGGESTION_FLOW[0];
+}
+
+function canReviewSuggestion() {
+  return canManageData();
+}
+
+function findSuggestion(id) {
+  return state.suggestions.find((item) => item.id === id);
+}
+
+function setSuggestionStatus(item, label) {
+  if (!item || !canReviewSuggestion()) return false;
+  if (!SUGGESTION_FLOW.some((step) => step.label === label)) return false;
+  if (suggestionStatus(item) === label) return false;
+  item.status = label;
+  item.updatedAt = new Date().toISOString();
+  item.repliedBy = authState.session?.username || "";
+  saveState();
+  queueSharedRecord("suggestion", item, { skipQuota: true });
+  return true;
+}
+
+function submitSuggestionReply(item, text) {
+  if (!item || !canReviewSuggestion()) return false;
+  const body = String(text || "").trim().slice(0, 80);
+  if (!body) {
+    showToast("回应不能空着", "写一句你们做了什么改动，全班都看得到。");
+    return false;
+  }
+  item.reply = body;
+  item.repliedBy = authState.session?.username || "";
+  item.repliedAt = new Date().toISOString();
+  item.status = "已改进";
+  item.updatedAt = item.repliedAt;
+  saveState();
+  queueSharedRecord("suggestion", item, { skipQuota: true });
+  return true;
+}
+
+function suggestionReplyBody(item) {
+  return `
+    <form id="suggestion-reply-form">
+      <input type="hidden" name="id" value="${escapeHTML(item.id)}" />
+      <div class="modal-body">
+        <p class="eyebrow" style="margin: 0 0 10px">${escapeHTML(item.text)}</p>
+        <div class="modal-field">
+          <label for="suggestion-reply-text">公开回应（最多 80 字，全班都能看到）</label>
+          <input
+            id="suggestion-reply-text"
+            name="reply"
+            maxlength="80"
+            value="${escapeHTML(item.reply || "")}"
+            placeholder="例如：班费收支表已经传到「资源共享」了"
+            required
+          />
+        </div>
+        <p class="eyebrow" style="margin: 0">发出后这条意见会标记成「已改进」。</p>
+      </div>
+      <div class="modal-footer">
+        <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+        <button class="primary-button" type="submit">${icon("check-check")} 发布回应</button>
+      </div>
+    </form>
+  `;
+}
+
 function renderSuggestionCard(item) {
-  const statusColor = item.status === "已纳入计划" ? "green" : item.status === "处理中" ? "yellow" : "blue";
+  const step = suggestionFlow(item);
+  const reviewer = canReviewSuggestion();
   return `
     <article class="suggestion-card">
       <div class="card-top-row">
-        <span class="badge ${item.urgent ? "red" : statusColor}">${escapeHTML(
-          item.urgent ? "优先处理" : item.status
+        <span class="badge ${item.urgent && step.key === "pending" ? "red" : step.tone}">${escapeHTML(
+          item.urgent && step.key === "pending" ? "优先处理" : step.label
         )}</span>
         <span class="card-time">${formatRelativeTime(item.createdAt)}</span>
       </div>
@@ -3635,6 +3976,39 @@ function renderSuggestionCard(item) {
             : ""
         }
       </div>
+      ${step.hint ? `<p class="suggestion-flow-hint">${escapeHTML(step.hint)}</p>` : ""}
+      ${
+        item.reply
+          ? `
+            <div class="suggestion-reply">
+              <span class="suggestion-reply-head">${icon("megaphone")} ${escapeHTML(
+                item.repliedBy || "班委"
+              )} 的公开回应</span>
+              <p>${escapeHTML(item.reply)}</p>
+            </div>
+          `
+          : ""
+      }
+      ${
+        reviewer
+          ? `
+            <div class="suggestion-actions">
+              ${
+                step.next
+                  ? `<button class="mini-button" type="button" data-action="suggestion-status" data-id="${escapeHTML(
+                      item.id
+                    )}" data-status="${escapeHTML(step.next)}">${icon("circle-check")} 标记${escapeHTML(
+                      step.next
+                    )}</button>`
+                  : ""
+              }
+              <button class="mini-button" type="button" data-action="suggestion-reply" data-id="${escapeHTML(
+                item.id
+              )}">${icon("megaphone")} 写公开回应</button>
+            </div>
+          `
+          : ""
+      }
     </article>
   `;
 }
@@ -4355,6 +4729,39 @@ function openModal(kind, options = {}) {
           </div>
         </form>
       `
+    },
+    "suggestion-reply": {
+      title: "写公开回应",
+      subtitle: "意见的闭环就靠这一句：改了什么，全班都看得到",
+      body: suggestionReplyBody(findSuggestion(options.suggestionId) || { id: "", text: "", reply: "" })
+    },
+    milestone: {
+      title: "记一笔大事",
+      subtitle: "记进班级大事记，毕业以后再翻回来看",
+      body: `
+        <form id="milestone-form">
+          <div class="modal-body">
+            <div class="modal-field">
+              <label for="milestone-title">发生了什么（最多 40 字）</label>
+              <input id="milestone-title" name="title" maxlength="40" placeholder="例如：班级第一次全员合照" required />
+            </div>
+            <div class="modal-field">
+              <label for="milestone-date">日期</label>
+              <input id="milestone-date" name="date" type="date" value="${new Date()
+                .toISOString()
+                .slice(0, 10)}" />
+            </div>
+            <div class="modal-field">
+              <label for="milestone-note">补充一句（可选，最多 80 字）</label>
+              <input id="milestone-note" name="note" maxlength="80" placeholder="例如：三教门口，37 个人到齐" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            <button class="primary-button" type="submit">${icon("flag")} 记进大事记</button>
+          </div>
+        </form>
+      `
     }
   };
 
@@ -4913,6 +5320,54 @@ function getVisitorId() {
   }
 }
 
+// 删除墓碑：本机记住「这条已经删过了」。
+// 云缓存、服务器旧副本、别的设备送回来的一律不再接收，否则删掉的内容会自己长回来。
+function readTombstones(storageKey) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function writeTombstones(storageKey, map) {
+  const now = Date.now();
+  const kept = Object.entries(map)
+    .filter((entry) => now - (Date.parse(entry[1]) || 0) < DELETED_KEEP_MS)
+    .sort((a, b) => (Date.parse(b[1]) || 0) - (Date.parse(a[1]) || 0))
+    .slice(0, 400);
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(kept)));
+  } catch (error) {
+    // 墓碑写不进本地存储时只是退化成旧行为，删除本身照常完成。
+  }
+}
+
+function markSharedDeleted(...keys) {
+  const map = readTombstones(DELETED_SHARED_KEY);
+  const at = new Date().toISOString();
+  keys.filter(Boolean).forEach((key) => {
+    map[String(key)] = at;
+  });
+  writeTombstones(DELETED_SHARED_KEY, map);
+}
+
+function isSharedDeleted(recordKey) {
+  return Boolean(recordKey) && Boolean(readTombstones(DELETED_SHARED_KEY)[String(recordKey)]);
+}
+
+// 大事记这类「一条记录里装着很多条目」的内容，还要按条目立墓碑。
+function markItemDeleted(collection, key) {
+  const map = readTombstones(DELETED_ITEMS_KEY);
+  map[`${collection}|${key}`] = new Date().toISOString();
+  writeTombstones(DELETED_ITEMS_KEY, map);
+}
+
+function isItemDeleted(collection, key) {
+  return Boolean(readTombstones(DELETED_ITEMS_KEY)[`${collection}|${key}`]);
+}
+
 function getCachedSharedRecords() {
   try {
     const parsed = JSON.parse(
@@ -4982,6 +5437,8 @@ function applySharedRecords(records, reconcile = false) {
   const remoteKeys = new Set();
   for (const record of records) {
     if (record?.record_key) remoteKeys.add(record.record_key);
+    // 已经删过的记录：不管是云缓存还是服务器旧副本送来的，一律不再接收。
+    if (isSharedDeleted(record?.record_key)) continue;
     const payload = record?.payload;
     if (!payload?.id) continue;
     const id = String(payload.id);
@@ -5033,10 +5490,23 @@ function applySharedRecords(records, reconcile = false) {
           authorId: record.author_id || ""
         });
         changed = true;
-      } else if (record.author_id && existing.authorId !== record.author_id) {
-        existing.authorId = record.author_id;
-        existing.recordKey = record.record_key;
-        changed = true;
+      } else {
+        // 闭环状态和公开回应是别人推进的，谁的时间戳新就用谁的。
+        const remoteAt = Date.parse((payload && payload.updatedAt) || "") || 0;
+        const localAt = Date.parse(existing.updatedAt || "") || 0;
+        if (remoteAt > localAt) {
+          existing.status = (payload && payload.status) || existing.status;
+          existing.reply = (payload && payload.reply) || "";
+          existing.repliedBy = (payload && payload.repliedBy) || "";
+          existing.repliedAt = (payload && payload.repliedAt) || "";
+          existing.updatedAt = payload.updatedAt;
+          changed = true;
+        }
+        if (record.author_id && existing.authorId !== record.author_id) {
+          existing.authorId = record.author_id;
+          existing.recordKey = record.record_key;
+          changed = true;
+        }
       }
     }
 
@@ -5121,12 +5591,49 @@ function applySharedRecords(records, reconcile = false) {
         }
       }
     }
+
+    if (record.record_type === "chronicle") {
+      const incomingItems = normalizeChronicleItems(payload?.items);
+      const existing = state.chronicle.find((item) => item.id === id);
+      if (!existing) {
+        state.chronicle.push({
+          id: String(id),
+          updatedAt: payload?.updatedAt || new Date().toISOString(),
+          expiresAt: payload?.expiresAt || chronicleExpiry(),
+          items: incomingItems,
+          shared: true,
+          recordKey: record.record_key || "",
+          authorId: record.author_id || ""
+        });
+        changed = true;
+      } else {
+        const merged = mergeChronicleItems(existing.items, incomingItems);
+        const unchanged =
+          merged.length === existing.items.length &&
+          merged.every(
+            (item, index) =>
+              item.key === existing.items[index]?.key && item.at === existing.items[index]?.at
+          );
+        if (!unchanged) {
+          existing.items = merged;
+          existing.updatedAt = payload?.updatedAt || existing.updatedAt;
+          existing.expiresAt = payload?.expiresAt || existing.expiresAt;
+          existing.shared = true;
+          existing.recordKey = record.record_key || existing.recordKey;
+          changed = true;
+          queueSharedRecord("chronicle", existing, { skipQuota: true, defer: true });
+        } else if (record.record_key && existing.recordKey !== record.record_key) {
+          existing.recordKey = record.record_key;
+          changed = true;
+        }
+      }
+    }
   }
 
   // 只在远端成功返回时做对账：本地已经缓存的共享记录若在远端消失，就一并移除。
   if (reconcile) {
     const pendingKeys = new Set(getPendingSharedRecords().map((item) => item.record_key));
-    for (const collectionName of ["posts", "teams", "suggestions", "deadlines", "cheers", "results"]) {
+    for (const collectionName of ["posts", "teams", "suggestions", "deadlines", "cheers", "results", "chronicle"]) {
       const collection = state[collectionName];
       const kept = collection.filter((item) => {
         if (!item?.shared || !item.recordKey) return true;
@@ -5214,7 +5721,7 @@ async function archiveAndDeleteExpiredRecord(record) {
 
 function purgeExpiredLocalRecords() {
   let changed = false;
-  const collections = ["posts", "teams", "suggestions", "deadlines", "cheers", "results"];
+  const collections = ["posts", "teams", "suggestions", "deadlines", "cheers", "results", "chronicle"];
   for (const collectionName of collections) {
     const before = state[collectionName].length;
     state[collectionName] = state[collectionName].filter(
@@ -5432,12 +5939,20 @@ function importLocalRecordsToShared() {
     ["suggestion", state.suggestions],
     ["deadline", state.deadlines],
     ["cheer", state.cheers],
-    ["result", state.results]
+    ["result", state.results],
+    ["chronicle", state.chronicle]
   ];
 
   for (const [recordType, records] of collections) {
     records
-      .filter((record) => record?.id && !record.shared && !isSeedId(record.id))
+      .filter(
+        (record) =>
+          record?.id &&
+          !record.shared &&
+          !isSeedId(record.id) &&
+          !isSharedDeleted(record.recordKey) &&
+          !isSharedDeleted(`${recordType}:${record.id}`)
+      )
       .forEach((record) => {
         record.shared = true;
         queueSharedRecord(recordType, record, { skipQuota: true });
@@ -5481,10 +5996,22 @@ async function syncSharedRecords() {
       ui.historyLoaded = false;
       if (ui.page === "history") void loadHistory(true);
     }
-    cacheSharedRecords(records);
+    // 补删：之前删过、但服务器当时没删掉的，每次同步重试一次，删干净了就不会再冒出来。
+    const revived = records.filter((record) => isSharedDeleted(record?.record_key));
+    if (revived.length) {
+      await Promise.all(
+        revived.map((record) =>
+          mantleRequest(mantleEntryUrl(`records/${encodeURIComponent(record.record_key)}`), {
+            method: "DELETE"
+          }).catch(() => {})
+        )
+      );
+    }
+    const liveRecords = records.filter((record) => !isSharedDeleted(record?.record_key));
+    cacheSharedRecords(liveRecords);
     // 只有本次请求完整成功返回时才按远端结果对账删除本地缓存。
     const reconcile = allRecords.complete !== false;
-    const changed = applySharedRecords(records, reconcile);
+    const changed = applySharedRecords(liveRecords, reconcile);
     syncState.available = true;
     if (changed || accountChanged) {
       saveState();
@@ -8128,6 +8655,27 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "suggestion-status") {
+    const item = findSuggestion(actionElement.dataset.id);
+    const label = actionElement.dataset.status || "";
+    if (item && setSuggestionStatus(item, label)) {
+      showToast("状态已更新", `这条意见现在是「${suggestionStatus(item)}」。`);
+      render();
+    }
+    return;
+  }
+
+  if (action === "suggestion-reply") {
+    const item = findSuggestion(actionElement.dataset.id);
+    if (item) openModal("suggestion-reply", { suggestionId: item.id });
+    return;
+  }
+
+  if (action === "delete-milestone") {
+    deleteMilestone(actionElement.dataset.key || "");
+    return;
+  }
+
   if (action === "sports-filter") {
     sportsUi.filter = actionElement.dataset.filter || "all";
     const wrap = document.getElementById("sports-roster-wrap");
@@ -8702,6 +9250,31 @@ async function handleSubmit(event) {
       render();
     } catch (error) {
       showToast("创建失败", error.message || "班级未能创建。");
+    }
+    return;
+  }
+
+  if (form.id === "suggestion-reply-form") {
+    event.preventDefault();
+    const data = new FormData(form);
+    const item = findSuggestion(data.get("id"));
+    if (item && submitSuggestionReply(item, data.get("reply"))) {
+      closeModal();
+      showToast("回应已发布", "这条意见标记成「已改进」，全班都能看到你的回应。");
+      render();
+    }
+    return;
+  }
+
+  if (form.id === "milestone-form") {
+    event.preventDefault();
+    const data = new FormData(form);
+    const raw = String(data.get("date") || "").trim();
+    const at = raw ? new Date(`${raw}T12:00:00`).toISOString() : new Date().toISOString();
+    if (submitMilestone(data.get("title"), data.get("note"), at)) {
+      closeModal();
+      showToast("已记进大事记", "以后在「历史记录」页能看到这条。");
+      render();
     }
     return;
   }
