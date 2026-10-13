@@ -3095,6 +3095,44 @@ body.is-auth-required .app-shell {
   gap: 12px;
 }
 
+.sports-avatar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(61, 220, 180, 0.16), rgba(56, 189, 248, 0.08));
+}
+
+.sports-avatar {
+  display: block;
+  flex: none;
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  background: #0a1322;
+}
+
+.sports-avatar-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sports-avatar-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.sports-avatar-note {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .sports-name {
   margin: 0;
   font-size: 30px;

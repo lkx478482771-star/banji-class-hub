@@ -5563,7 +5563,8 @@ const SPORTS_ATHLETES = [
   { name: "崔姝斐", group: "女子组", kind: "field", events: ["女子跳远"], cheer: "沙坑那边，等你签名。" },
   { name: "倪欣悦", group: "女子组", kind: "field", events: ["女子跳远"], cheer: "助跑起跳，落点写进纪录里。" },
   { name: "杨娜", group: "女子组", kind: "field", events: ["女子铅球"], cheer: "力量已经预加载完毕。" },
-  { name: "黄林锴", group: "女子组", kind: "field", events: ["女子跳高"], cheer: "横杆之上，还有余量。" }
+  { name: "黄林锴", group: "男子组", kind: "field", events: ["男子跳高"], cheer: "横杆之上，还有余量。" },
+  { name: "汪瑾", group: "女子组", kind: "track", events: ["女子 100 米"], cheer: "枪响就绪，终点见。" }
 ];
 /* ==== ATHLETES:END ==== */
 
@@ -5710,6 +5711,13 @@ function renderSportsPanel(index) {
       <span class="badge ${sportsUi.lit ? "green" : "yellow"}">${sportsUi.lit ? "已通电" : "待机"}</span>
     </header>
     <div class="panel-body sports-datasheet">
+      <div class="sports-avatar-wrap">
+        <img class="sports-avatar" src="${sportsAvatarUrl(athlete, index)}" alt="" width="108" height="108" />
+        <div class="sports-avatar-copy">
+          <p class="sports-avatar-title">${escapeHTML(athlete.name)} 的专属形象</p>
+          <p class="sports-avatar-note">按性别 + 姓名生成，下载的海报里就是这一张。</p>
+        </div>
+      </div>
       <h4 class="sports-name">${escapeHTML(athlete.name)}</h4>
       <p class="sports-event">${escapeHTML(sportsEventText(athlete))}</p>
       <dl class="sports-specs">
@@ -5792,6 +5800,200 @@ function posterKindText(kind) {
   if (kind === "field") return "田赛";
   if (kind === "both") return "径赛 · 田赛";
   return "径赛";
+}
+
+/* ==== 选手形象：按性别定发型，按姓名定肤色/发色/球衣，每人一张不重样的「芯片小人」 ==== */
+const POSTER_SKINS = ["#f7d5b6", "#f0c5a2", "#e6b28a", "#fbe2cc", "#dfa980"];
+const POSTER_HAIRS = ["#2a2e37", "#3b2a21", "#4b3527", "#1d2230", "#5b3c2b", "#12161d"];
+const POSTER_WEARS = ["#3ddcb4", "#38bdf8", "#a78bfa", "#fb7185", "#34d399", "#fbbf24"];
+const POSTER_GIRL_STYLES = ["bob", "pony", "twin", "wave"];
+
+function posterSeed(text) {
+  let seed = 2166136261;
+  const raw = String(text);
+  for (let i = 0; i < raw.length; i += 1) {
+    seed ^= raw.charCodeAt(i);
+    seed = Math.imul(seed, 16777619);
+  }
+  return seed >>> 0;
+}
+
+function posterLook(athlete) {
+  const seed = posterSeed(`${athlete.name}|${athlete.group}`);
+  return {
+    female: /女/.test(athlete.group || ""),
+    skin: POSTER_SKINS[seed % POSTER_SKINS.length],
+    hair: POSTER_HAIRS[(seed >>> 4) % POSTER_HAIRS.length],
+    wear: POSTER_WEARS[(seed >>> 9) % POSTER_WEARS.length],
+    style: POSTER_GIRL_STYLES[(seed >>> 14) % POSTER_GIRL_STYLES.length]
+  };
+}
+
+// 以 (cx, cy) 为圆心、r 为半径画一张头像；海报和页面预览都用它，保证长得一样。
+function drawPosterAvatar(ctx, athlete, index, cx, cy, r) {
+  const look = posterLook(athlete);
+  const headR = r * 0.4;
+  const headY = cy - r * 0.1;
+  const bodyTop = headY + headR * 0.7;
+  const bodyW = r * 1.3;
+
+  ctx.save();
+  ctx.lineJoin = "round";
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  const dish = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+  dish.addColorStop(0, "#1e3452");
+  dish.addColorStop(1, "#0a1322");
+  ctx.fillStyle = dish;
+  ctx.fill();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+
+  const halo = ctx.createRadialGradient(cx, cy - r * 0.25, r * 0.1, cx, cy, r * 1.1);
+  halo.addColorStop(0, "rgba(93, 224, 190, 0.30)");
+  halo.addColorStop(1, "rgba(93, 224, 190, 0)");
+  ctx.fillStyle = halo;
+  ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+
+  // 女生的长发先铺在头后面
+  if (look.female) {
+    ctx.fillStyle = look.hair;
+    if (look.style === "twin") {
+      [-1, 1].forEach((side) => {
+        ctx.beginPath();
+        ctx.ellipse(cx + side * headR * 1.3, headY + headR * 0.78, headR * 0.46, headR * 1.15, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    } else if (look.style === "pony") {
+      ctx.beginPath();
+      ctx.ellipse(cx + headR * 1.28, headY + headR * 0.55, headR * 0.42, headR * 1.05, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(cx, headY + headR * 0.62, headR * 1.32, headR * 1.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 球衣
+  ctx.beginPath();
+  ctx.moveTo(cx - bodyW / 2, cy + r * 1.1);
+  ctx.quadraticCurveTo(cx - bodyW / 2, bodyTop + r * 0.05, cx - bodyW * 0.22, bodyTop);
+  ctx.lineTo(cx + bodyW * 0.22, bodyTop);
+  ctx.quadraticCurveTo(cx + bodyW / 2, bodyTop + r * 0.05, cx + bodyW / 2, cy + r * 1.1);
+  ctx.closePath();
+  ctx.fillStyle = look.wear;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.ellipse(cx, bodyTop, headR * 0.52, headR * 0.24, 0, 0, Math.PI);
+  ctx.fillStyle = "rgba(9, 18, 30, 0.55)";
+  ctx.fill();
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(8, 16, 27, 0.72)";
+  ctx.font = posterFont(Math.round(r * 0.3), 800);
+  ctx.fillText(String(index + 1).padStart(2, "0"), cx, cy + r * 0.64);
+
+  // 头 + 耳朵
+  ctx.beginPath();
+  ctx.arc(cx, headY, headR, 0, Math.PI * 2);
+  ctx.fillStyle = look.skin;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx - headR * 0.98, headY + headR * 0.14, headR * 0.19, 0, Math.PI * 2);
+  ctx.arc(cx + headR * 0.98, headY + headR * 0.14, headR * 0.19, 0, Math.PI * 2);
+  ctx.fillStyle = look.skin;
+  ctx.fill();
+
+  // 头发
+  ctx.fillStyle = look.hair;
+  if (look.female) {
+    ctx.beginPath();
+    ctx.arc(cx, headY, headR * 1.1, Math.PI * 0.96, Math.PI * 2.04);
+    ctx.lineTo(cx + headR * 1.1, headY + headR * (look.style === "pony" || look.style === "twin" ? 0.3 : 0.62));
+    ctx.lineTo(cx - headR * 1.1, headY + headR * (look.style === "pony" || look.style === "twin" ? 0.3 : 0.62));
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx, headY - headR * 0.34, headR * 1.04, headR * 0.5, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.arc(cx, headY - headR * 0.06, headR * 1.06, Math.PI * 1.02, Math.PI * 1.98);
+    ctx.lineTo(cx + headR * 0.92, headY - headR * 0.3);
+    ctx.lineTo(cx - headR * 0.92, headY - headR * 0.3);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // 眼睛
+  const eyeY = headY + headR * 0.14;
+  [-1, 1].forEach((side) => {
+    ctx.beginPath();
+    ctx.ellipse(cx + side * headR * 0.38, eyeY, headR * 0.11, headR * 0.15, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#16202e";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + side * headR * 0.38 + headR * 0.04, eyeY - headR * 0.05, headR * 0.04, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.fill();
+  });
+
+  if (look.female) {
+    [-1, 1].forEach((side) => {
+      ctx.beginPath();
+      ctx.ellipse(cx + side * headR * 0.62, headY + headR * 0.44, headR * 0.18, headR * 0.11, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(244, 138, 150, 0.42)";
+      ctx.fill();
+    });
+  }
+
+  ctx.beginPath();
+  ctx.arc(cx, headY + headR * 0.36, headR * 0.24, Math.PI * 0.16, Math.PI * 0.84);
+  ctx.strokeStyle = "#a24a52";
+  ctx.lineWidth = Math.max(2, headR * 0.09);
+  ctx.lineCap = "round";
+  ctx.stroke();
+
+  ctx.restore();
+
+  // 外圈 + 一圈引脚，看着像颗芯片
+  ctx.strokeStyle = "rgba(148, 226, 205, 0.7)";
+  ctx.lineWidth = Math.max(2, r * 0.045);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(148, 226, 205, 0.55)";
+  for (let i = 0; i < 12; i += 1) {
+    const angle = (i / 12) * Math.PI * 2;
+    ctx.save();
+    ctx.translate(cx + Math.cos(angle) * r * 1.1, cy + Math.sin(angle) * r * 1.1);
+    ctx.rotate(angle);
+    posterRoundRect(ctx, -r * 0.055, -r * 0.035, r * 0.11, r * 0.07, r * 0.02);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+// 页面上的小预览：把同一张头像画成 data URL，直接塞进 <img>。
+function sportsAvatarUrl(athlete, index) {
+  const size = 320;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+  drawPosterAvatar(ctx, athlete, index, size / 2, size / 2, size * 0.43);
+  return canvas.toDataURL("image/png");
 }
 
 function drawSportsPoster(index) {
@@ -5893,6 +6095,9 @@ function drawSportsPoster(index) {
   ctx.fillStyle = SPORTS_POSTER_SOFT;
   ctx.font = posterFont(30, 600);
   ctx.fillText("DATASHEET / Rev.1.0", cardX + 48, cardY + 100);
+
+  // 专属形象
+  drawPosterAvatar(ctx, athlete, index, cardX + cardW - 178, cardY + 300, 138);
 
   // 名字太长就自动收字号，保证不越框
   let nameSize = 136;
