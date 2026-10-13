@@ -1847,23 +1847,7 @@ function renderDeadlineItem(item) {
         >
           ${icon(item.done ? "rotate-ccw" : "check")}
         </button>
-        ${
-          canManageItem(item)
-            ? `
-              <button
-                class="small-icon-button"
-                type="button"
-                data-action="delete-shared-record"
-                data-record-type="deadline"
-                data-id="${escapeHTML(item.id)}"
-                aria-label="删除事项"
-                title="删除事项"
-              >
-                ${icon("trash-2")}
-              </button>
-            `
-            : ""
-        }
+        ${canManageItem(item) ? deleteRecordButton("deadline", item.id, 删除事项) : ""}
       </div>
     </div>
   `;
@@ -1988,23 +1972,7 @@ function renderPostCard(item) {
           </span>
         </div>
         <div class="row-actions">
-          ${
-            canManageItem(item)
-              ? `
-                <button
-                  class="small-icon-button"
-                  type="button"
-                  data-action="delete-shared-record"
-                  data-record-type="post"
-                  data-id="${escapeHTML(item.id)}"
-                  aria-label="删除信息"
-                  title="删除信息"
-                >
-                  ${icon("trash-2")}
-                </button>
-              `
-              : ""
-          }
+          ${canManageItem(item) ? deleteRecordButton("post", item.id, 删除信息) : ""}
           <button
             class="${resolved ? "secondary-button" : "primary-button"}"
             type="button"
@@ -2082,23 +2050,7 @@ function renderTeamCard(item) {
       <div class="team-footer">
         <span class="team-slots">${item.members}/${item.capacity} 人已加入</span>
         <div class="row-actions">
-          ${
-            canManageItem(item)
-              ? `
-                <button
-                  class="small-icon-button"
-                  type="button"
-                  data-action="delete-shared-record"
-                  data-record-type="team"
-                  data-id="${escapeHTML(item.id)}"
-                  aria-label="删除组队"
-                  title="删除组队"
-                >
-                  ${icon("trash-2")}
-                </button>
-              `
-              : ""
-          }
+          ${canManageItem(item) ? deleteRecordButton("team", item.id, 删除组队) : ""}
           <button
             class="${full ? "secondary-button" : "primary-button"}"
             type="button"
@@ -2807,17 +2759,7 @@ function renderPersonalCenter() {
                             <strong>${escapeHTML(record.title)}</strong>
                             <span>${escapeHTML(record.meta)}</span>
                           </div>
-                          <button
-                            class="small-icon-button"
-                            type="button"
-                            data-action="delete-shared-record"
-                            data-record-type="${escapeHTML(record.recordType)}"
-                            data-id="${escapeHTML(record.id)}"
-                            aria-label="删除"
-                            title="删除"
-                          >
-                            ${icon("trash-2")}
-                          </button>
+${deleteRecordButton("${escapeHTML(record.recordType)}", record.id, 删除)}
                         </div>
                       `
                     )
@@ -3937,7 +3879,7 @@ function suggestionReplyBody(item) {
         <p class="eyebrow" style="margin: 0">发出后这条意见会标记成「已改进」。</p>
       </div>
       <div class="modal-footer">
-        <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+        ${MODAL_CANCEL}
         <button class="primary-button" type="submit">${icon("check-check")} 发布回应</button>
       </div>
     </form>
@@ -3958,23 +3900,7 @@ function renderSuggestionCard(item) {
       <p>${escapeHTML(item.text)}</p>
       <div class="suggestion-footer">
         <span>${escapeHTML(item.category)} · 匿名同学</span>
-        ${
-          canManageItem(item)
-            ? `
-              <button
-                class="small-icon-button"
-                type="button"
-                data-action="delete-shared-record"
-                data-record-type="suggestion"
-                data-id="${escapeHTML(item.id)}"
-                aria-label="删除意见"
-                title="删除意见"
-              >
-                ${icon("trash-2")}
-              </button>
-            `
-            : ""
-        }
+        ${canManageItem(item) ? deleteRecordButton("suggestion", item.id, 删除意见) : ""}
       </div>
       ${step.hint ? `<p class="suggestion-flow-hint">${escapeHTML(step.hint)}</p>` : ""}
       ${
@@ -4150,6 +4076,26 @@ function renderNotificationPanel() {
   refreshIcons(panel);
 }
 
+// 模态框的「取消」按钮在 11 个模板里重复，抽成常量。
+const MODAL_CANCEL = '<button class="secondary-button" type="button" data-action="close-modal">取消</button>';
+
+// 各处「删除」小按钮长得一样，抽成一个 helper。
+function deleteRecordButton(recordType, id, label) {
+  return `
+    <button
+      class="small-icon-button"
+      type="button"
+      data-action="delete-shared-record"
+      data-record-type="${recordType}"
+      data-id="${escapeHTML(id)}"
+      aria-label="${label}"
+      title="${label}"
+    >
+      ${icon("trash-2")}
+    </button>
+  `;
+}
+
 function openModal(kind, options = {}) {
   const modalRoot = document.getElementById("modal-root");
   const templates = {
@@ -4227,7 +4173,7 @@ function openModal(kind, options = {}) {
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            ${MODAL_CANCEL}
             <button class="primary-button" type="submit">${icon("plus")} 添加事项</button>
           </div>
         </form>
@@ -4277,7 +4223,7 @@ function openModal(kind, options = {}) {
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            ${MODAL_CANCEL}
             <button class="primary-button" type="submit">${icon("send")} 立即发布</button>
           </div>
         </form>
@@ -4347,7 +4293,7 @@ function openModal(kind, options = {}) {
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            ${MODAL_CANCEL}
             <button class="primary-button" type="submit">${icon("user-round-plus")} 发起组队</button>
           </div>
         </form>
@@ -4382,7 +4328,7 @@ function openModal(kind, options = {}) {
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            ${MODAL_CANCEL}
             <button class="primary-button" type="submit">${icon("building-2")} 创建班级</button>
           </div>
         </form>
@@ -4455,7 +4401,7 @@ function openModal(kind, options = {}) {
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            ${MODAL_CANCEL}
             <button class="primary-button" type="button" data-action="save-course">${icon("save")} 保存课程</button>
           </div>
         </form>
@@ -4603,7 +4549,7 @@ function openModal(kind, options = {}) {
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            ${MODAL_CANCEL}
             <button class="primary-button" type="submit">${icon("save")} 保存并更新</button>
           </div>
         </form>
@@ -4647,7 +4593,7 @@ function openModal(kind, options = {}) {
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            ${MODAL_CANCEL}
             <button class="primary-button" type="submit">${icon("send")} 提交申请</button>
           </div>
         </form>
@@ -4724,7 +4670,7 @@ function openModal(kind, options = {}) {
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            ${MODAL_CANCEL}
             <button class="primary-button" type="submit">${icon("megaphone")} 发布战报</button>
           </div>
         </form>
@@ -4757,7 +4703,7 @@ function openModal(kind, options = {}) {
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+            ${MODAL_CANCEL}
             <button class="primary-button" type="submit">${icon("flag")} 记进大事记</button>
           </div>
         </form>
@@ -5248,6 +5194,23 @@ async function readDailyUsage() {
   };
 }
 
+// 四类发布前的额度检查写法完全一样，抽成一个函数：返回 true 表示可以继续发布。
+async function ensurePublishQuotaOrQueue(kind) {
+  try {
+    await ensurePublishQuota(kind);
+    return true;
+  } catch (error) {
+    if (error?.quotaLimit) {
+      showToast("今日发布次数已用完", error.message);
+      return false;
+    }
+    // 额度读不到（离线/网络故障）时不拦截，内容进入离线待同步队列。
+    setSyncStatus("offline");
+    scheduleSharedSync();
+    return true;
+  }
+}
+
 async function ensurePublishQuota(recordType) {
   if (isCurrentAdmin()) return;
   if (!authState.session || !hasSharedConfig()) return;
@@ -5432,6 +5395,76 @@ function setSyncStatus(status, detail = "") {
   label.textContent = messages[status] || messages.offline;
 }
 
+// 共享记录的接收姿势只有两种，抽出来省掉逐类型复制的分支：
+// ① 简单记录（post / team / deadline）：本地没有就整条收下，有就只同步作者信息；
+// ② 并集线程（result / chronicle）：按子项 key 合并，合并出新内容才入队回写。
+// 加油（cheer）有自己的合并规则，仍单独处理。
+function sharedAuthorChanged(existing, record) {
+  if (record.author_id && existing.authorId !== record.author_id) {
+    existing.authorId = record.author_id;
+    existing.recordKey = record.record_key;
+    return true;
+  }
+  return false;
+}
+
+function applySimpleSharedRecord(collectionName, record, id, payload) {
+  const existing = state[collectionName].find((item) => item.id === id);
+  if (!existing) {
+    state[collectionName].push({
+      ...payload,
+      id,
+      shared: true,
+      recordKey: record.record_key,
+      authorId: record.author_id || ""
+    });
+    return true;
+  }
+  return sharedAuthorChanged(existing, record);
+}
+
+function sameItemKeys(current, merged) {
+  return (
+    merged.length === current.length &&
+    merged.every(
+      (item, index) =>
+        item.key === current[index]?.key && item.at === current[index]?.at
+    )
+  );
+}
+
+function applyThreadSharedRecord(collectionName, recordType, record, id, payload, normalize, merge, expiry) {
+  const incoming = normalize(payload?.items);
+  const existing = state[collectionName].find((item) => item.id === id);
+  if (!existing) {
+    state[collectionName].push({
+      id: String(id),
+      updatedAt: payload?.updatedAt || new Date().toISOString(),
+      expiresAt: payload?.expiresAt || expiry(),
+      items: incoming,
+      shared: true,
+      recordKey: record.record_key || "",
+      authorId: record.author_id || ""
+    });
+    return true;
+  }
+  const merged = merge(existing.items, incoming);
+  if (!sameItemKeys(existing.items, merged)) {
+    existing.items = merged;
+    existing.updatedAt = payload?.updatedAt || existing.updatedAt;
+    existing.expiresAt = payload?.expiresAt || existing.expiresAt;
+    existing.shared = true;
+    existing.recordKey = record.record_key || existing.recordKey;
+    queueSharedRecord(recordType, existing, { skipQuota: true, defer: true });
+    return true;
+  }
+  if (record.record_key && existing.recordKey !== record.record_key) {
+    existing.recordKey = record.record_key;
+    return true;
+  }
+  return false;
+}
+
 function applySharedRecords(records, reconcile = false) {
   let changed = false;
   const remoteKeys = new Set();
@@ -5444,39 +5477,11 @@ function applySharedRecords(records, reconcile = false) {
     const id = String(payload.id);
 
     if (record.record_type === "post") {
-      const existing = state.posts.find((item) => item.id === id);
-      if (!existing) {
-        state.posts.push({
-          ...payload,
-          id,
-          shared: true,
-          recordKey: record.record_key,
-          authorId: record.author_id || ""
-        });
-        changed = true;
-      } else if (record.author_id && existing.authorId !== record.author_id) {
-        existing.authorId = record.author_id;
-        existing.recordKey = record.record_key;
-        changed = true;
-      }
+      changed = applySimpleSharedRecord("posts", record, id, payload) || changed;
     }
 
     if (record.record_type === "team") {
-      const existing = state.teams.find((item) => item.id === id);
-      if (!existing) {
-        state.teams.push({
-          ...payload,
-          id,
-          shared: true,
-          recordKey: record.record_key,
-          authorId: record.author_id || ""
-        });
-        changed = true;
-      } else if (record.author_id && existing.authorId !== record.author_id) {
-        existing.authorId = record.author_id;
-        existing.recordKey = record.record_key;
-        changed = true;
-      }
+      changed = applySimpleSharedRecord("teams", record, id, payload) || changed;
     }
 
     if (record.record_type === "suggestion") {
@@ -5511,21 +5516,7 @@ function applySharedRecords(records, reconcile = false) {
     }
 
     if (record.record_type === "deadline") {
-      const existing = state.deadlines.find((item) => item.id === id);
-      if (!existing) {
-        state.deadlines.push({
-          ...payload,
-          id,
-          shared: true,
-          recordKey: record.record_key,
-          authorId: record.author_id || ""
-        });
-        changed = true;
-      } else if (record.author_id && existing.authorId !== record.author_id) {
-        existing.authorId = record.author_id;
-        existing.recordKey = record.record_key;
-        changed = true;
-      }
+      changed = applySimpleSharedRecord("deadlines", record, id, payload) || changed;
     }
 
     // 加油线程走「并集合并」：两端各自收到的加油都不能被覆盖掉。
@@ -5554,79 +5545,33 @@ function applySharedRecords(records, reconcile = false) {
       }
     }
 
-    // 战报按「选手 + 项目」取最新：谁录的更新就用谁的，后到的覆盖先到的。
+    // 战报按「选手 + 项目」取最新，大事记按条目 key 取最新：都是并集合并。
     if (record.record_type === "result") {
-      const incomingItems = normalizeResultItems(payload?.items);
-      const existing = state.results.find((item) => item.id === id);
-      if (!existing) {
-        state.results.push({
-          id: String(id),
-          updatedAt: payload?.updatedAt || new Date().toISOString(),
-          expiresAt: payload?.expiresAt || resultsExpiry(),
-          items: incomingItems,
-          shared: true,
-          recordKey: record.record_key || "",
-          authorId: record.author_id || ""
-        });
-        changed = true;
-      } else {
-        const merged = mergeResultItems(existing.items, incomingItems);
-        const unchanged =
-          merged.length === existing.items.length &&
-          merged.every(
-            (item, index) =>
-              item.key === existing.items[index]?.key && item.at === existing.items[index]?.at
-          );
-        if (!unchanged) {
-          existing.items = merged;
-          existing.updatedAt = payload?.updatedAt || existing.updatedAt;
-          existing.expiresAt = payload?.expiresAt || existing.expiresAt;
-          existing.shared = true;
-          existing.recordKey = record.record_key || existing.recordKey;
-          changed = true;
-          queueSharedRecord("result", existing, { skipQuota: true, defer: true });
-        } else if (record.record_key && existing.recordKey !== record.record_key) {
-          existing.recordKey = record.record_key;
-          changed = true;
-        }
-      }
+      changed =
+        applyThreadSharedRecord(
+          "results",
+          "result",
+          record,
+          id,
+          payload,
+          normalizeResultItems,
+          mergeResultItems,
+          resultsExpiry
+        ) || changed;
     }
 
     if (record.record_type === "chronicle") {
-      const incomingItems = normalizeChronicleItems(payload?.items);
-      const existing = state.chronicle.find((item) => item.id === id);
-      if (!existing) {
-        state.chronicle.push({
-          id: String(id),
-          updatedAt: payload?.updatedAt || new Date().toISOString(),
-          expiresAt: payload?.expiresAt || chronicleExpiry(),
-          items: incomingItems,
-          shared: true,
-          recordKey: record.record_key || "",
-          authorId: record.author_id || ""
-        });
-        changed = true;
-      } else {
-        const merged = mergeChronicleItems(existing.items, incomingItems);
-        const unchanged =
-          merged.length === existing.items.length &&
-          merged.every(
-            (item, index) =>
-              item.key === existing.items[index]?.key && item.at === existing.items[index]?.at
-          );
-        if (!unchanged) {
-          existing.items = merged;
-          existing.updatedAt = payload?.updatedAt || existing.updatedAt;
-          existing.expiresAt = payload?.expiresAt || existing.expiresAt;
-          existing.shared = true;
-          existing.recordKey = record.record_key || existing.recordKey;
-          changed = true;
-          queueSharedRecord("chronicle", existing, { skipQuota: true, defer: true });
-        } else if (record.record_key && existing.recordKey !== record.record_key) {
-          existing.recordKey = record.record_key;
-          changed = true;
-        }
-      }
+      changed =
+        applyThreadSharedRecord(
+          "chronicle",
+          "chronicle",
+          record,
+          id,
+          payload,
+          normalizeChronicleItems,
+          mergeChronicleItems,
+          chronicleExpiry
+        ) || changed;
     }
   }
 
@@ -7182,7 +7127,7 @@ function cheerModalBody(athleteId) {
         }
       </div>
       <div class="modal-footer">
-        <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+        ${MODAL_CANCEL}
         <button class="primary-button" type="submit">${icon("send")} ${mine ? "更新加油" : "发送加油"}</button>
       </div>
     </form>
@@ -9100,17 +9045,7 @@ async function handleSubmit(event) {
       return;
     }
     const data = new FormData(form);
-    try {
-      await ensurePublishQuota("deadline");
-    } catch (error) {
-      if (error?.quotaLimit) {
-        showToast("今日发布次数已用完", error.message);
-        return;
-      }
-      // 额度读不到（离线/网络故障）时不拦截，内容进入离线待同步队列。
-      setSyncStatus("offline");
-      scheduleSharedSync();
-    }
+    if (!(await ensurePublishQuotaOrQueue("deadline"))) return;
     const item = {
       id: uid("deadline"),
       title: String(data.get("title")).trim(),
@@ -9134,17 +9069,7 @@ async function handleSubmit(event) {
   if (form.id === "post-form") {
     event.preventDefault();
     const data = new FormData(form);
-    try {
-      await ensurePublishQuota("post");
-    } catch (error) {
-      if (error?.quotaLimit) {
-        showToast("今日发布次数已用完", error.message);
-        return;
-      }
-      // 额度读不到（离线/网络故障）时不拦截，内容进入离线待同步队列。
-      setSyncStatus("offline");
-      scheduleSharedSync();
-    }
+    if (!(await ensurePublishQuotaOrQueue("post"))) return;
     const item = {
       id: uid("post"),
       type: String(data.get("type")),
@@ -9172,17 +9097,7 @@ async function handleSubmit(event) {
       return;
     }
     const data = new FormData(form);
-    try {
-      await ensurePublishQuota("team");
-    } catch (error) {
-      if (error?.quotaLimit) {
-        showToast("今日发布次数已用完", error.message);
-        return;
-      }
-      // 额度读不到（离线/网络故障）时不拦截，内容进入离线待同步队列。
-      setSyncStatus("offline");
-      scheduleSharedSync();
-    }
+    if (!(await ensurePublishQuotaOrQueue("team"))) return;
     const item = {
       id: uid("team"),
       type: String(data.get("type")),
@@ -9209,17 +9124,7 @@ async function handleSubmit(event) {
   if (form.id === "feedback-form") {
     event.preventDefault();
     const data = new FormData(form);
-    try {
-      await ensurePublishQuota("suggestion");
-    } catch (error) {
-      if (error?.quotaLimit) {
-        showToast("今日发布次数已用完", error.message);
-        return;
-      }
-      // 额度读不到（离线/网络故障）时不拦截，内容进入离线待同步队列。
-      setSyncStatus("offline");
-      scheduleSharedSync();
-    }
+    if (!(await ensurePublishQuotaOrQueue("suggestion"))) return;
     const item = {
       id: uid("suggestion"),
       category: String(data.get("category")),
