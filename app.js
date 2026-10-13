@@ -447,7 +447,9 @@ function createSeedState() {
     counters: {
       solved: 18,
       responses: 31
-    }
+    },
+    // 每位选手一条「加油线程」，全班对他的加油都攒在这一条共享记录里。
+    cheers: []
   };
 }
 
@@ -881,6 +883,7 @@ function activateClassState() {
     state.suggestions = [];
     state.deadlines = [];
     state.resources = [];
+    state.cheers = [];
   }
   applySharedRecords(getCachedSharedRecords());
   state.candidate.name = authState.session?.username || state.candidate.name;
@@ -4290,6 +4293,18 @@ function openModal(kind, options = {}) {
           </div>
         </div>
       `
+    },
+    cheer: {
+      title: "写一句加油",
+      subtitle: "一句话就够，全班都能看到；同一位同学只保留你最新的一条",
+      wide: false,
+      body: cheerModalBody(options.athleteId)
+    },
+    "cheer-wall": {
+      title: "全班加油墙",
+      subtitle: "谁收到的加油最多，一眼就能看到",
+      wide: true,
+      body: cheerWallBody()
     }
   };
 
@@ -4992,12 +5007,38 @@ function applySharedRecords(records, reconcile = false) {
         changed = true;
       }
     }
+
+    // 加油线程走「并集合并」：两端各自收到的加油都不能被覆盖掉。
+    // 合并出新内容时只入队（defer），等这一轮同步结束后的下一次同步再回写，避免嵌套写。
+    if (record.record_type === "cheer") {
+      const thread = normalizeCheerThread(payload, id, record);
+      thread.expiresAt = thread.expiresAt || cheerExpiry();
+      const existing = state.cheers.find((item) => item.id === id);
+      if (!existing) {
+        state.cheers.push(thread);
+        changed = true;
+      } else {
+        const merged = mergeCheerEntries(existing.entries, thread.entries);
+        if (merged.length !== existing.entries.length) {
+          existing.entries = merged;
+          existing.updatedAt = thread.updatedAt || existing.updatedAt;
+          existing.expiresAt = thread.expiresAt || existing.expiresAt;
+          existing.shared = true;
+          existing.recordKey = record.record_key || existing.recordKey;
+          changed = true;
+          queueSharedRecord("cheer", existing, { skipQuota: true, defer: true });
+        } else if (record.record_key && existing.recordKey !== record.record_key) {
+          existing.recordKey = record.record_key;
+          changed = true;
+        }
+      }
+    }
   }
 
   // 只在远端成功返回时做对账：本地已经缓存的共享记录若在远端消失，就一并移除。
   if (reconcile) {
     const pendingKeys = new Set(getPendingSharedRecords().map((item) => item.record_key));
-    for (const collectionName of ["posts", "teams", "suggestions", "deadlines"]) {
+    for (const collectionName of ["posts", "teams", "suggestions", "deadlines", "cheers"]) {
       const collection = state[collectionName];
       const kept = collection.filter((item) => {
         if (!item?.shared || !item.recordKey) return true;
@@ -5085,7 +5126,7 @@ async function archiveAndDeleteExpiredRecord(record) {
 
 function purgeExpiredLocalRecords() {
   let changed = false;
-  const collections = ["posts", "teams", "suggestions", "deadlines"];
+  const collections = ["posts", "teams", "suggestions", "deadlines", "cheers"];
   for (const collectionName of collections) {
     const before = state[collectionName].length;
     state[collectionName] = state[collectionName].filter(
@@ -5135,6 +5176,8 @@ function queueSharedRecord(recordType, payload, options = {}) {
     skip_quota: Boolean(options.skipQuota)
   });
   savePendingSharedRecords(pending);
+  // 同步过程中合并出来的回写只入队，等这一轮结束后的下一次同步再发，避免嵌套写。
+  if (options.defer) return;
   void flushPendingSharedRecords()
     .then(() => {
       syncState.available = true;
@@ -5299,7 +5342,8 @@ function importLocalRecordsToShared() {
     ["post", state.posts],
     ["team", state.teams],
     ["suggestion", state.suggestions],
-    ["deadline", state.deadlines]
+    ["deadline", state.deadlines],
+    ["cheer", state.cheers]
   ];
 
   for (const [recordType, records] of collections) {
@@ -6335,6 +6379,253 @@ function sportsWaferLayout(count) {
   return { points: picked, spacing: step * scale };
 }
 
+/* ==== 加油墙：每位选手一条共享线程，全班对他的加油都攒在里面 ==== */
+// 一位选手一条共享记录（record_key = cheer:<athleteId>），最多 28 位 + 「全班」＝29 条，
+// 远低于共享库 100 条上限。每个人对同一位只保留一条：再发就是替换，不会刷屏。
+const CHEER_TEXT_MAX = 40;
+const CHEER_MAX_ENTRIES = 60;
+const CHEER_ALL_ID = "ALL";
+
+// 运动会结束后 7 天自动过期，靠通用的 isRecordExpired 清掉，不用手工维护。
+function cheerExpiry() {
+  const meet = Date.parse(SPORTS_MEET.meetTime);
+  const base = Number.isFinite(meet) ? meet : Date.now();
+  return new Date(base + 7 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function cheerAthlete(athleteId) {
+  if (athleteId === CHEER_ALL_ID) return null;
+  const index = SPORTS_ATHLETES.findIndex((item, i) => sportsAthleteId(i) === athleteId);
+  return index >= 0 ? SPORTS_ATHLETES[index] : null;
+}
+
+function cheerTargetName(athleteId) {
+  if (athleteId === CHEER_ALL_ID) return "全班同学";
+  return cheerAthlete(athleteId)?.name || "这位同学";
+}
+
+function normalizeCheerEntries(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((item) => item && item.by && typeof item.text === "string" && item.text.trim())
+    .map((item) => ({
+      by: String(item.by),
+      name: String(item.name || "同学").slice(0, 12),
+      text: String(item.text).trim().slice(0, CHEER_TEXT_MAX),
+      at: item.at || new Date().toISOString()
+    }))
+    .slice(-CHEER_MAX_ENTRIES);
+}
+
+// 并集合并：同一个人按 by 去重，远端有本地没有的就补进来，谁都不会被覆盖掉。
+function mergeCheerEntries(current, incoming) {
+  const merged = normalizeCheerEntries(current);
+  normalizeCheerEntries(incoming).forEach((entry) => {
+    const at = merged.findIndex((item) => item.by === entry.by);
+    if (at >= 0) merged[at] = entry;
+    else merged.push(entry);
+  });
+  return merged.slice(-CHEER_MAX_ENTRIES);
+}
+
+function normalizeCheerThread(payload, id, record) {
+  const athleteId = String(payload?.athleteId || id || "");
+  return {
+    id: athleteId,
+    athleteId,
+    athleteName: String(payload?.athleteName || cheerTargetName(athleteId)).slice(0, 20),
+    entries: normalizeCheerEntries(payload?.entries),
+    updatedAt: payload?.updatedAt || new Date().toISOString(),
+    expiresAt: payload?.expiresAt || cheerExpiry(),
+    shared: true,
+    recordKey: record?.record_key || "",
+    authorId: record?.author_id || ""
+  };
+}
+
+function cheerThread(athleteId, create = false) {
+  let thread = state.cheers.find((item) => item.id === athleteId);
+  if (!thread && create) {
+    thread = {
+      id: athleteId,
+      athleteId,
+      athleteName: cheerTargetName(athleteId),
+      entries: [],
+      updatedAt: new Date().toISOString(),
+      expiresAt: cheerExpiry(),
+      shared: false,
+      recordKey: ""
+    };
+    state.cheers.push(thread);
+  }
+  return thread;
+}
+
+function cheerEntryList(athleteId) {
+  return cheerThread(athleteId)?.entries || [];
+}
+
+function myCheerEntry(athleteId) {
+  const me = authState.session?.user?.id || "";
+  if (!me) return null;
+  return cheerEntryList(athleteId).find((item) => item.by === me) || null;
+}
+
+function submitCheer(athleteId, rawText) {
+  if (!authState.session) {
+    showToast("先登录", "登录之后才能给同学加油。");
+    return false;
+  }
+  const text = String(rawText || "").trim().slice(0, CHEER_TEXT_MAX);
+  if (!text) {
+    showToast("还差一句", "先写一句加油，再点发送。");
+    return false;
+  }
+  const thread = cheerThread(athleteId, true);
+  const me = authState.session.user.id;
+  const entry = {
+    by: me,
+    name: authState.session.username || "同学",
+    text,
+    at: new Date().toISOString()
+  };
+  const at = thread.entries.findIndex((item) => item.by === me);
+  if (at >= 0) thread.entries[at] = entry;
+  else thread.entries.push(entry);
+  thread.entries = thread.entries.slice(-CHEER_MAX_ENTRIES);
+  thread.updatedAt = entry.at;
+  thread.expiresAt = cheerExpiry();
+  thread.shared = true;
+  saveState();
+  // 加油是轻量的正向动作，不该吃掉每天 10 条的发布额度。
+  queueSharedRecord("cheer", thread, { skipQuota: true });
+  return true;
+}
+
+function renderCheerBox(athleteId, athleteName) {
+  const entries = cheerEntryList(athleteId);
+  const mine = myCheerEntry(athleteId);
+  const recent = entries.slice(-2).reverse();
+  const meId = authState.session?.user?.id || "";
+  return `
+    <div class="cheer-box">
+      <div class="cheer-box-head">
+        <div>
+          <p class="cheer-box-title">加油墙</p>
+          <p class="cheer-box-note">${entries.length ? `已收到 ${entries.length} 条加油` : "还没有人给他加油"}</p>
+        </div>
+        <button class="secondary-button" type="button" data-action="open-modal" data-modal="cheer" data-athlete-id="${escapeHTML(athleteId)}">${icon("send")}${mine ? "改我的加油" : "写一句加油"}</button>
+      </div>
+      ${
+        recent.length
+          ? `<ul class="cheer-list">${recent
+              .map(
+                (entry) => `
+                  <li${entry.by === meId ? ' class="is-mine"' : ""}>
+                    <strong>${escapeHTML(entry.name)}</strong>
+                    <span>${escapeHTML(entry.text)}</span>
+                  </li>
+                `
+              )
+              .join("")}</ul>`
+          : `<p class="cheer-empty">第一个给${escapeHTML(athleteName || cheerTargetName(athleteId))}加油的人，会出现在这里。</p>`
+      }
+      <button class="ghost-button full-width" type="button" data-action="open-modal" data-modal="cheer-wall">${icon("users-round")} 看全班加油墙</button>
+    </div>
+  `;
+}
+
+function cheerModalBody(athleteId) {
+  const id = athleteId || CHEER_ALL_ID;
+  const name = cheerTargetName(id);
+  const mine = myCheerEntry(id);
+  const entries = cheerEntryList(id).slice().reverse();
+  return `
+    <form id="cheer-form" data-athlete-id="${escapeHTML(id)}">
+      <div class="modal-body">
+        <div class="modal-field">
+          <label for="cheer-text">给${escapeHTML(name)}的加油</label>
+          <textarea id="cheer-text" name="text" rows="2" maxlength="${CHEER_TEXT_MAX}" placeholder="例如：发令枪一响，你就是最快的那个。" required>${escapeHTML(
+            mine ? mine.text : ""
+          )}</textarea>
+          <p class="eyebrow">最多 ${CHEER_TEXT_MAX} 字。同一位同学只保留你最新的一条，改完再发就是更新。</p>
+        </div>
+        ${
+          entries.length
+            ? `<div class="cheer-wall-list">${entries
+                .map(
+                  (entry) => `
+                    <div class="cheer-wall-item${entry.by === (authState.session?.user?.id || "") ? " is-mine" : ""}">
+                      <strong>${escapeHTML(entry.name)}</strong>
+                      <p>${escapeHTML(entry.text)}</p>
+                    </div>
+                  `
+                )
+                .join("")}</div>`
+            : ""
+        }
+      </div>
+      <div class="modal-footer">
+        <button class="secondary-button" type="button" data-action="close-modal">取消</button>
+        <button class="primary-button" type="submit">${icon("send")} ${mine ? "更新加油" : "发送加油"}</button>
+      </div>
+    </form>
+  `;
+}
+
+function cheerWallBody() {
+  const rows = SPORTS_ATHLETES.map((athlete, index) => ({
+    id: sportsAthleteId(index),
+    name: athlete.name,
+    count: cheerEntryList(sportsAthleteId(index)).length
+  }))
+    .filter((row) => row.count)
+    .sort((a, b) => b.count - a.count);
+  const all = cheerEntryList(CHEER_ALL_ID);
+  const total = rows.reduce((sum, row) => sum + row.count, 0) + all.length;
+  const meId = authState.session?.user?.id || "";
+  const renderEntries = (entries) =>
+    entries
+      .slice()
+      .reverse()
+      .map(
+        (entry) => `
+          <span class="cheer-chip${entry.by === meId ? " is-mine" : ""}">${escapeHTML(entry.text)}</span>
+        `
+      )
+      .join("");
+  return `
+    <div class="modal-body">
+      <p class="eyebrow">全班一共写下 ${total} 条加油，覆盖 ${rows.length} 位选手。</p>
+      ${
+        total
+          ? `<div class="cheer-wall-list">
+              ${
+                all.length
+                  ? `<div class="cheer-wall-item"><strong>全班同学</strong><p class="cheer-chips">${renderEntries(all)}</p></div>`
+                  : ""
+              }
+              ${rows
+                .map(
+                  (row) => `
+                    <div class="cheer-wall-item">
+                      <strong>${escapeHTML(row.name)}<i>${row.count}</i></strong>
+                      <p class="cheer-chips">${renderEntries(cheerEntryList(row.id))}</p>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>`
+          : `<p class="cheer-empty">还没有人写加油。翻到上面选一位同学，写第一句吧。</p>`
+      }
+    </div>
+    <div class="modal-footer">
+      <button class="secondary-button" type="button" data-action="close-modal">关闭</button>
+      <button class="primary-button" type="button" data-action="open-modal" data-modal="cheer" data-athlete-id="${CHEER_ALL_ID}">${icon("send")} 给全班加油</button>
+    </div>
+  `;
+}
+
 function renderSportsPanel(index) {
   const total = SPORTS_ATHLETES.length;
   if (!total) return `<div class="panel-body"><p>名单还没有数据。</p></div>`;
@@ -6383,6 +6674,7 @@ function renderSportsPanel(index) {
         <button class="primary-button full-width" type="button" data-action="sports-poster" data-index="${current}">${icon("download")} 生成专属海报</button>
         <p class="sports-hint">一键出图，存到手机直接发群里。</p>
       </div>
+      ${renderCheerBox(sportsAthleteId(current), athlete.name)}
     </div>
   `;
 }
@@ -7617,7 +7909,8 @@ function handleClick(event) {
 
   if (action === "open-modal") {
     openModal(actionElement.dataset.modal, {
-      requestType: actionElement.dataset.requestType
+      requestType: actionElement.dataset.requestType,
+      athleteId: actionElement.dataset.athleteId
     });
     return;
   }
@@ -8109,6 +8402,16 @@ async function handleSubmit(event) {
       render();
     } catch (error) {
       showToast("创建失败", error.message || "班级未能创建。");
+    }
+    return;
+  }
+
+  if (form.id === "cheer-form") {
+    event.preventDefault();
+    const athleteId = form.dataset.athleteId || CHEER_ALL_ID;
+    if (submitCheer(athleteId, new FormData(form).get("text"))) {
+      closeModal();
+      showToast("加油已送达", `全班都能在${cheerTargetName(athleteId)}的加油墙上看到。`);
     }
     return;
   }
