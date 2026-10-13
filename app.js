@@ -6236,11 +6236,11 @@ function renderSportsPanel(index) {
 /* ==== 选手海报：用 canvas 现画一张竖版图，存下来就能直接发群里 ==== */
 const SPORTS_POSTER_W = 1080;
 const SPORTS_POSTER_H = 1620;
-const SPORTS_POSTER_INK = "#eaf3ff";
-const SPORTS_POSTER_SOFT = "#9db6d4";
-const SPORTS_POSTER_MINT = "#3ddcb4";
-const SPORTS_POSTER_GOLD = "#f2b84b";
-const SPORTS_POSTER_LINE = "rgba(150, 205, 245, 0.3)";
+const SPORTS_POSTER_INK = "#0d2f25";
+const SPORTS_POSTER_SOFT = "#5b7d71";
+const SPORTS_POSTER_MINT = "#0e9a70";
+const SPORTS_POSTER_GOLD = "#d9870f";
+const SPORTS_POSTER_LINE = "rgba(18, 130, 95, 0.28)";
 
 const posterFont = (size, weight) =>
   `${weight || 700} ${size}px "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", system-ui, sans-serif`;
@@ -6335,8 +6335,8 @@ function drawPosterAvatar(ctx, athlete, index, cx, cy, r) {
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   const dish = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
-  dish.addColorStop(0, "#1e3452");
-  dish.addColorStop(1, "#0a1322");
+  dish.addColorStop(0, "#ffffff");
+  dish.addColorStop(1, "#dcf3e7");
   ctx.fillStyle = dish;
   ctx.fill();
 
@@ -6346,8 +6346,8 @@ function drawPosterAvatar(ctx, athlete, index, cx, cy, r) {
   ctx.clip();
 
   const halo = ctx.createRadialGradient(cx, cy - r * 0.25, r * 0.1, cx, cy, r * 1.1);
-  halo.addColorStop(0, "rgba(93, 224, 190, 0.30)");
-  halo.addColorStop(1, "rgba(93, 224, 190, 0)");
+  halo.addColorStop(0, "rgba(18, 185, 129, 0.20)");
+  halo.addColorStop(1, "rgba(18, 185, 129, 0)");
   ctx.fillStyle = halo;
   ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 
@@ -6383,12 +6383,12 @@ function drawPosterAvatar(ctx, athlete, index, cx, cy, r) {
 
   ctx.beginPath();
   ctx.ellipse(cx, bodyTop, headR * 0.52, headR * 0.24, 0, 0, Math.PI);
-  ctx.fillStyle = "rgba(9, 18, 30, 0.55)";
+  ctx.fillStyle = "rgba(18, 110, 80, 0.20)";
   ctx.fill();
 
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgba(8, 16, 27, 0.72)";
+  ctx.fillStyle = "rgba(14, 122, 88, 0.85)";
   ctx.font = posterFont(Math.round(r * 0.3), 800);
   ctx.fillText(String(index + 1).padStart(2, "0"), cx, cy + r * 0.64);
 
@@ -6456,13 +6456,13 @@ function drawPosterAvatar(ctx, athlete, index, cx, cy, r) {
   ctx.restore();
 
   // 外圈 + 一圈引脚，看着像颗芯片
-  ctx.strokeStyle = "rgba(148, 226, 205, 0.7)";
+  ctx.strokeStyle = "rgba(18, 185, 129, 0.7)";
   ctx.lineWidth = Math.max(2, r * 0.045);
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.fillStyle = "rgba(148, 226, 205, 0.55)";
+  ctx.fillStyle = "rgba(18, 185, 129, 0.45)";
   for (let i = 0; i < 12; i += 1) {
     const angle = (i / 12) * Math.PI * 2;
     ctx.save();
@@ -6503,13 +6503,13 @@ function drawSportsPoster(index) {
   const id = sportsAthleteId(index);
 
   const bg = ctx.createLinearGradient(0, 0, W * 0.5, H);
-  bg.addColorStop(0, "#1b2c4a");
-  bg.addColorStop(0.52, "#0c1626");
-  bg.addColorStop(1, "#060a13");
+  bg.addColorStop(0, "#e6f5ff");
+  bg.addColorStop(0.5, "#eefaf1");
+  bg.addColorStop(1, "#fff7ea");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  ctx.strokeStyle = "rgba(140, 190, 240, 0.07)";
+  ctx.strokeStyle = "rgba(18, 130, 95, 0.07)";
   ctx.lineWidth = 1;
   for (let x = 0; x <= W; x += 54) {
     ctx.beginPath();
@@ -6526,7 +6526,7 @@ function drawSportsPoster(index) {
 
   // 右上角那圈同心圆 = 晶圆
   ctx.save();
-  ctx.strokeStyle = "rgba(93, 224, 190, 0.22)";
+  ctx.strokeStyle = "rgba(18, 185, 129, 0.22)";
   ctx.lineWidth = 2;
   for (let r = 70; r <= 420; r += 66) {
     ctx.beginPath();
@@ -6536,8 +6536,8 @@ function drawSportsPoster(index) {
   ctx.restore();
 
   const glow = ctx.createRadialGradient(W / 2, H + 60, 30, W / 2, H + 60, 640);
-  glow.addColorStop(0, "rgba(61, 220, 180, 0.4)");
-  glow.addColorStop(1, "rgba(61, 220, 180, 0)");
+  glow.addColorStop(0, "rgba(255, 206, 92, 0.5)");
+  glow.addColorStop(1, "rgba(255, 206, 92, 0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, H - 700, W, 700);
 
@@ -6554,9 +6554,9 @@ function drawSportsPoster(index) {
   const cardW = W - pad * 2;
   const cardH = 1080;
   posterRoundRect(ctx, cardX, cardY, cardW, cardH, 40);
-  ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
   ctx.fill();
-  ctx.strokeStyle = "rgba(150, 205, 245, 0.32)";
+  ctx.strokeStyle = "rgba(18, 130, 95, 0.18)";
   ctx.lineWidth = 2;
   ctx.stroke();
 
@@ -6574,9 +6574,9 @@ function drawSportsPoster(index) {
   ctx.font = posterFont(38, 700);
   const idWidth = ctx.measureText(id).width + 60;
   posterRoundRect(ctx, cardX + cardW - 48 - idWidth, cardY + 54, idWidth, 68, 34);
-  ctx.fillStyle = "rgba(242, 184, 75, 0.16)";
+  ctx.fillStyle = "rgba(240, 147, 43, 0.14)";
   ctx.fill();
-  ctx.strokeStyle = "rgba(242, 184, 75, 0.75)";
+  ctx.strokeStyle = "rgba(240, 147, 43, 0.7)";
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.fillStyle = SPORTS_POSTER_GOLD;
@@ -6629,9 +6629,9 @@ function drawSportsPoster(index) {
       chipY += 78;
     }
     posterRoundRect(ctx, chipX, chipY - 46, width, 66, 33);
-    ctx.fillStyle = "rgba(93, 224, 190, 0.14)";
+    ctx.fillStyle = "rgba(18, 185, 129, 0.10)";
     ctx.fill();
-    ctx.strokeStyle = "rgba(93, 224, 190, 0.6)";
+    ctx.strokeStyle = "rgba(18, 185, 129, 0.55)";
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.fillStyle = SPORTS_POSTER_INK;
@@ -6643,12 +6643,12 @@ function drawSportsPoster(index) {
   const cheerLines = posterWrap(ctx, athlete.cheer || "信号满格，等你冲线。", cardW - 160, 36, 600);
   const cheerH = 56 + cheerLines.length * 54;
   posterRoundRect(ctx, cardX + 48, cheerY, cardW - 96, cheerH, 30);
-  ctx.fillStyle = "rgba(61, 220, 180, 0.12)";
+  ctx.fillStyle = "rgba(18, 185, 129, 0.10)";
   ctx.fill();
-  ctx.strokeStyle = "rgba(61, 220, 180, 0.4)";
+  ctx.strokeStyle = "rgba(18, 185, 129, 0.42)";
   ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.fillStyle = "#c6f7e8";
+  ctx.fillStyle = "#0e7a58";
   ctx.font = posterFont(36, 600);
   cheerLines.forEach((text, i) => {
     ctx.fillText(text, cardX + 80, cheerY + 74 + i * 54);
@@ -6681,7 +6681,7 @@ function drawSportsPoster(index) {
   ctx.fillStyle = SPORTS_POSTER_MINT;
   ctx.font = posterFont(30, 600);
   ctx.fillText(SPORTS_MEET.slogan, pad, 1532);
-  ctx.fillStyle = "rgba(157, 182, 212, 0.75)";
+  ctx.fillStyle = "rgba(91, 125, 113, 0.85)";
   ctx.font = posterFont(26, 600);
   ctx.fillText(
     `集成电路 4 班 · 班级共建站　|　${id} · ${SPORTS_ATHLETES.length} 颗芯片之一`,

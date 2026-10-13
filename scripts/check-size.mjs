@@ -14,7 +14,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 /** 每个文件的上限（字节）。改这些值时请先想清楚首屏成本。 */
 const BUDGETS = [
   { file: "index.html", max: 14_000 },
-  { file: "styles.css", max: 76_000 },
+  { file: "styles.css", max: 80_000 },
   { file: "app.js", max: 296_000 },
   { file: "config.js", max: 2_000 },
   { file: "ahu-import.js", max: 12_000 },
@@ -37,6 +37,8 @@ const FIRST_PAINT_FILES = [
 // 当天又把 20 条示例名单换成全院报名表里的 27 条真实名单（每人多项），再调到 265 KB；
 // 同一天又加了晶圆动效和 canvas 选手海报，调到 285 KB；
 // 接着加了「加入 / 更换 / 退出班级（需审核）」与管理员删除账号，调到 296 KB，首屏上限同步调到 490 KB。
+// 2026-10-13 又把运动会栏目从「深夜芯片风」改成「校园青春亮色主题」，styles.css 末尾追加了一层
+// 亮色覆盖块（+4 KB），styles.css 单文件上限从 76 KB 调到 80 KB；首屏合计仍在上限内。
 const FIRST_PAINT_MAX = 490_000;
 
 /** assets/ 下任何单个文件都不该超过这个大小（除非在 BUDGETS 里单独放宽）。 */

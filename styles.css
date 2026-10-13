@@ -4261,3 +4261,177 @@ body.is-admin {
     flex: 1;
   }
 }
+
+/* ============================================================
+   IC-4 运动会 · 校园青春亮色主题
+   把「深夜芯片风」换成白天操场：亮底 + 绿橙配色，
+   晶圆 / 切割道 / 芯片 / 走线这些科技元素保留。
+   追加在文件末尾，靠层叠覆盖前面的深色值；删掉这一段即可整体回退。
+   ============================================================ */
+.sports-wafer {
+  border: 1px solid rgba(18, 130, 95, 0.18);
+  background:
+    radial-gradient(circle at 36% 26%, rgba(126, 206, 255, 0.34), transparent 58%),
+    radial-gradient(circle at 74% 80%, rgba(18, 185, 129, 0.18), transparent 52%),
+    radial-gradient(circle at 50% 38%, #ffffff, #ecfaf3 62%, #dcf3e7);
+  box-shadow:
+    0 0 0 14px rgba(255, 255, 255, 0.72),
+    0 24px 56px rgba(18, 110, 80, 0.16),
+    inset 0 0 60px rgba(18, 185, 129, 0.1);
+}
+
+.sports-wafer-grid {
+  background-image:
+    linear-gradient(rgba(18, 130, 95, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(18, 130, 95, 0.1) 1px, transparent 1px);
+}
+
+.sports-wafer-traces {
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(18, 130, 95, 0.1) 0deg 1.4deg,
+    transparent 1.4deg 7deg
+  );
+}
+
+.sports-wafer-sweep {
+  background: conic-gradient(from 0deg, rgba(18, 185, 129, 0.26), rgba(18, 185, 129, 0) 42%);
+}
+
+.sports-probe {
+  border: 2px solid #12b981;
+  box-shadow: 0 0 12px rgba(18, 185, 129, 0.7);
+}
+
+.sports-die {
+  border: 1px solid var(--die-edge, #bfe6d7);
+  background: #ffffff;
+  color: #0d2f25;
+  box-shadow: 0 6px 14px rgba(17, 96, 70, 0.14);
+}
+
+.sports-die::after {
+  background: repeating-linear-gradient(90deg, rgba(18, 130, 95, 0.22) 0 2px, transparent 2px 5px);
+}
+
+.sports-die:hover,
+.sports-die:focus-visible {
+  border-color: #12b981;
+  box-shadow: 0 0 0 2px rgba(18, 185, 129, 0.32), 0 12px 26px rgba(17, 96, 70, 0.22);
+  filter: none;
+}
+
+.sports-die-id {
+  color: #7ea79a;
+}
+
+.sports-die.is-active {
+  border-color: #f0932b;
+  background: #fff6e6;
+  box-shadow: 0 0 0 2px rgba(240, 147, 43, 0.4), 0 10px 22px rgba(196, 138, 20, 0.22);
+}
+
+.sports-die.is-lit {
+  border-color: #12b981;
+  background: #eafff6;
+  box-shadow: 0 0 0 2px rgba(18, 185, 129, 0.4), 0 0 18px rgba(18, 185, 129, 0.5);
+}
+
+.sports-die.is-active.is-lit {
+  border-color: #f0932b;
+  background: #fffbe9;
+  box-shadow: 0 0 0 2px rgba(240, 147, 43, 0.45), 0 0 20px rgba(18, 185, 129, 0.45);
+}
+
+.sports-avatar {
+  background: #eef7f2;
+}
+
+.sports-hero {
+  background:
+    radial-gradient(520px 320px at 88% 10%, rgba(255, 206, 92, 0.55), transparent 68%),
+    radial-gradient(440px 300px at 4% 104%, rgba(126, 206, 255, 0.45), transparent 70%),
+    linear-gradient(140deg, #e6f5ff, #eefaf1 52%, #fff7ea);
+  box-shadow: 0 20px 44px rgba(14, 90, 70, 0.16);
+  color: #10352a;
+}
+
+.sports-hero::after {
+  background-image:
+    linear-gradient(rgba(18, 130, 95, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(18, 130, 95, 0.1) 1px, transparent 1px);
+}
+
+.sports-hero-eyebrow {
+  color: #0e7a58;
+}
+
+.sports-hero h2 {
+  color: #0d2f25;
+}
+
+.sports-hero h2 b {
+  color: #12b981;
+}
+
+.sports-hero-sub {
+  color: rgba(16, 53, 42, 0.66);
+}
+
+.sports-hero-slogan {
+  border: 1px solid rgba(18, 185, 129, 0.42);
+  background: rgba(18, 185, 129, 0.12);
+  color: #0e7a58;
+}
+
+.sports-count-label {
+  color: rgba(16, 53, 42, 0.6);
+}
+
+.sports-count-nums b {
+  border: 1px solid rgba(18, 185, 129, 0.34);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(220, 243, 231, 0.9));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  color: #0e7a58;
+}
+
+.sports-count-nums i {
+  color: rgba(16, 53, 42, 0.6);
+}
+
+.sports-wafer-ring {
+  border: 1px dashed rgba(18, 130, 95, 0.22);
+}
+
+.sports-wafer-ring::before {
+  border-bottom-color: rgba(240, 147, 43, 0.55);
+}
+
+.sports-wafer-ring::after {
+  border-top-color: rgba(18, 185, 129, 0.8);
+}
+
+.sports-legend-item i {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(18, 130, 95, 0.3);
+}
+
+.sports-legend-item.is-lit i {
+  background: #12b981;
+  box-shadow: inset 0 0 0 1px #12b981;
+}
+
+.sports-legend-item.is-active i {
+  background: #f0932b;
+  box-shadow: inset 0 0 0 1px #f0932b;
+}
+
+.sports-legend-item.is-track i {
+  background: #3aa0ff;
+  box-shadow: inset 0 0 0 1px #3aa0ff;
+}
+
+.sports-legend-item.is-field i {
+  background: #ff8a3d;
+  box-shadow: inset 0 0 0 1px #ff8a3d;
+}
