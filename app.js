@@ -649,8 +649,11 @@ function isCurrentAdmin() {
 
 function canViewCampaign() {
   const username = authState.session?.username;
-  return (sharedConfig.campaignUsernames || []).some(
-    (campaignName) => localUsernameKey(campaignName) === localUsernameKey(username)
+  return (
+    isAdminUsername(username) &&
+    (sharedConfig.campaignUsernames || []).some(
+      (campaignName) => localUsernameKey(campaignName) === localUsernameKey(username)
+    )
   );
 }
 
@@ -5364,10 +5367,13 @@ function savePendingSharedRecords(records) {
   }
 }
 
+let lastSharedSyncAt = null;
+
 function setSyncStatus(status, detail = "") {
   const dot = document.getElementById("sync-dot");
   const label = document.getElementById("sync-status");
   if (!dot || !label) return;
+  if (status === "online") lastSharedSyncAt = Date.now();
   dot.classList.remove("is-syncing", "is-online", "is-offline", "is-unavailable");
   dot.classList.add(
     status === "online"
@@ -5387,11 +5393,20 @@ function setSyncStatus(status, detail = "") {
     error: "共享服务暂不可用 · 稍后自动重试",
     ratelimited: "已达上限 · 暂停自动刷新"
   };
-  label.textContent = messages[status] || messages.offline;
+  const syncTime = lastSharedSyncAt
+    ? new Date(lastSharedSyncAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+    : "";
+  const lastSuccess = syncTime ? `上次成功同步：${syncTime}` : "尚无成功同步记录";
+  label.textContent =
+    status === "online"
+      ? `${messages[status] || messages.offline} · ${syncTime}`
+      : `${messages[status] || messages.offline} · ${lastSuccess}`;
   label.title =
     status === "ratelimited"
-      ? "班级共享库的请求额度已用完（免费档 10,000 次 / 24 小时），已自动暂停刷新，避免越刷越受限。"
-      : "";
+      ? `班级共享库的请求额度已用完（免费档 10,000 次 / 24 小时），已自动暂停刷新。 ${lastSuccess}；可以稍后手动重试。`
+      : syncTime
+        ? `上次成功同步：${syncTime}`
+        : "";
   // 被限流时给一个手动出口：点一下就能立刻重试，不必等冷却结束。
   const refresh = document.getElementById("sync-refresh");
   if (refresh) refresh.hidden = status !== "ratelimited";
