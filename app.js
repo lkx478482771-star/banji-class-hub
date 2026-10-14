@@ -205,267 +205,79 @@ function dateAtOffset(days, hour = 20, minute = 0) {
   return date.toISOString();
 }
 
+const SEEDED_SYSTEM_IDS = {
+  deadlines: new Set(["d-1", "d-2", "d-3", "d-4"]),
+  posts: new Set(["p-1", "p-2", "p-3", "p-4", "p-5"]),
+  teams: new Set(["t-1", "t-2", "t-3", "t-4"]),
+  resources: new Set(["r-1", "r-2", "r-3", "r-4"]),
+  suggestions: new Set(["s-1", "s-2", "s-3"]),
+  notifications: new Set(["n-1", "n-2", "n-3"])
+};
+
+function removeSeededSystemContent(saved) {
+  if (!saved || typeof saved !== "object") return saved;
+  const cleaned = { ...saved };
+
+  for (const [collection, seededIds] of Object.entries(SEEDED_SYSTEM_IDS)) {
+    if (Array.isArray(cleaned[collection])) {
+      cleaned[collection] = cleaned[collection].filter(
+        (item) => !seededIds.has(String(item?.id || ""))
+      );
+    }
+  }
+
+  const candidate = cleaned.candidate;
+  if (
+    candidate?.name === "候选人" &&
+    candidate?.slogan === "让每个声音有回应，让每件小事有结果" &&
+    candidate?.intro?.startsWith("我想把班委工作从临时通知变成稳定服务：") &&
+    candidate?.letter?.startsWith("各位同学：\\n\\n竞选班委，我不只是想多一个头衔。")
+  ) {
+    cleaned.candidate = {
+      ...candidate,
+      name: "",
+      slogan: "",
+      intro: "",
+      letter: "",
+      promises: []
+    };
+  }
+
+  const seededOptions = [
+    ["公开待办与截止提醒", 23],
+    ["每周资料整理与共享", 18],
+    ["匿名意见与公开回应", 14],
+    ["学习、运动和竞赛组队", 19]
+  ];
+  if (
+    cleaned.poll?.question === "如果班级先上线一个固定服务，你最希望是？" &&
+    cleaned.poll.userVote == null &&
+    Array.isArray(cleaned.poll.options) &&
+    JSON.stringify(cleaned.poll.options.map(({ text, votes }) => [text, votes])) ===
+      JSON.stringify(seededOptions)
+  ) {
+    cleaned.poll = { question: "", options: [], userVote: null };
+  }
+
+  if (cleaned.counters?.solved === 18 && cleaned.counters?.responses === 31) {
+    cleaned.counters = { ...cleaned.counters, solved: 0, responses: 0 };
+  }
+  return cleaned;
+}
+
 function createSeedState() {
   return {
-    candidate: {
-      name: "候选人",
-      slogan: "让每个声音有回应，让每件小事有结果",
-      intro:
-        "我想把班委工作从临时通知变成稳定服务：问题有入口，处理有进度，结果有反馈。班集就是这个想法的第一份行动答卷。",
-      letter:
-        "各位同学：\n\n竞选班委，我不只是想多一个头衔。我想把大家每天真正会遇到的小麻烦，做成看得见、用得上的解决方案。\n\n班集会持续记录需求、汇总截止日期、连接互助和资源，也会把匿名意见变成公开行动。如果当选，我会每周发布一次处理清单，让每一条意见都知道自己走到了哪里。\n\n请大家用这个网站检验我的执行力。",
-      promises: PROMISE_DEFAULTS.map((item) => ({ ...item }))
-    },
-    deadlines: [
-      {
-        id: "d-1",
-        title: "大学英语单元展示",
-        category: "课程",
-        due: dateAtOffset(1, 14),
-        priority: "高",
-        done: false
-      },
-      {
-        id: "d-2",
-        title: "奖学金材料班级汇总",
-        category: "材料",
-        due: dateAtOffset(3, 17),
-        priority: "高",
-        done: false
-      },
-      {
-        id: "d-3",
-        title: "高等数学阶段测验",
-        category: "考试",
-        due: dateAtOffset(6, 9),
-        priority: "中",
-        done: false
-      },
-      {
-        id: "d-4",
-        title: "志愿服务报名截止",
-        category: "活动",
-        due: dateAtOffset(9, 18),
-        priority: "中",
-        done: false
-      }
-    ],
-    posts: [
-      {
-        id: "p-1",
-        type: "借用",
-        title: "周三下午有人顺路去图书馆吗？",
-        description: "想请同学帮忙借一本专业参考书，校园卡和取书码都已经准备好。",
-        place: "图书馆南门",
-        author: "周琪",
-        createdAt: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
-        responseCount: 3,
-        status: "open"
-      },
-      {
-        id: "p-2",
-        type: "失物",
-        title: "在三教捡到一张校园卡",
-        description: "卡面姓氏为张，目前放在三教一楼值班室，请失主尽快领取。",
-        place: "三教一楼",
-        author: "陈可",
-        createdAt: new Date(Date.now() - 48 * 60 * 1000).toISOString(),
-        responseCount: 5,
-        status: "resolved"
-      },
-      {
-        id: "p-3",
-        type: "学习",
-        title: "求高数第 3 章错题整理",
-        description: "想交换复习笔记，我这里有线代前三章的公式汇总和例题。",
-        place: "线上",
-        author: "许成",
-        createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-        responseCount: 2,
-        status: "open"
-      },
-      {
-        id: "p-4",
-        type: "求助",
-        title: "周五晚搬社团物资，差一位同学",
-        description: "预计 40 分钟，从大学生活动中心搬到二食堂门口，有推车。",
-        place: "大学生活动中心",
-        author: "林晓",
-        createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-        responseCount: 1,
-        status: "open"
-      },
-      {
-        id: "p-5",
-        type: "求助",
-        title: "谁能借一下四级听力耳机？",
-        description: "周六上午考试结束后归还，可以带一杯咖啡作为感谢。",
-        place: "二号教学楼",
-        author: "王然",
-        createdAt: new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString(),
-        responseCount: 4,
-        status: "resolved"
-      }
-    ],
-    teams: [
-      {
-        id: "t-1",
-        title: "大学英语情景展示组队",
-        type: "课程作业",
-        description: "已有选题方向，希望找两位擅长口语和视频剪辑的同学。",
-        date: dateAtOffset(2, 16),
-        place: "文科楼 304",
-        members: 3,
-        capacity: 5,
-        owner: "姜南"
-      },
-      {
-        id: "t-2",
-        title: "周六上午羽毛球搭子",
-        type: "运动",
-        description: "新手友好，主要是活动身体，结束后可以一起吃饭。",
-        date: dateAtOffset(4, 9),
-        place: "体育馆 3 号场",
-        members: 2,
-        capacity: 4,
-        owner: "赵一"
-      },
-      {
-        id: "t-3",
-        title: "敬老院志愿服务小队",
-        type: "志愿",
-        description: "负责陪伴聊天和节目协助，统一记录志愿服务时长。",
-        date: dateAtOffset(7, 13),
-        place: "校门口集合",
-        members: 5,
-        capacity: 8,
-        owner: "林晓"
-      },
-      {
-        id: "t-4",
-        title: "高数互助晚自习",
-        type: "学习",
-        description: "每周固定两次，先做题再互相讲思路，拒绝只报答案。",
-        date: dateAtOffset(1, 19),
-        place: "图书馆 4 楼",
-        members: 4,
-        capacity: 6,
-        owner: "许成"
-      }
-    ],
-    resources: [
-      {
-        id: "r-1",
-        title: "高数上册期末复习清单",
-        category: "课程资料",
-        size: "18 KB",
-        uploader: "班集资料组",
-        uploadedAt: dateAtOffset(-6, 10),
-        content:
-          "# 高数上册期末复习清单\n\n1. 极限与连续\n2. 导数与微分\n3. 微分中值定理\n4. 不定积分\n5. 定积分及应用\n\n建议：每章整理 5 道代表题，错误原因单独标注。\n"
-      },
-      {
-        id: "r-2",
-        title: "四六级高频词两周计划",
-        category: "考试提升",
-        size: "24 KB",
-        uploader: "英语学习小组",
-        uploadedAt: dateAtOffset(-4, 16),
-        content:
-          "# 四六级高频词两周计划\n\n- 每天 60 个新词\n- 次日复习 120 个旧词\n- 每周完成一套听力\n- 错词按阅读、听力、写作分类\n"
-      },
-      {
-        id: "r-3",
-        title: "创新创业比赛计划书模板",
-        category: "竞赛模板",
-        size: "31 KB",
-        uploader: "科创委员",
-        uploadedAt: dateAtOffset(-2, 9),
-        content:
-          "# 创新创业比赛计划书模板\n\n一、项目背景\n二、用户痛点\n三、解决方案\n四、市场分析\n五、商业模式\n六、团队分工\n七、财务预测\n八、风险与应对\n"
-      },
-      {
-        id: "r-4",
-        title: "奖学金申请材料检查表",
-        category: "办事指南",
-        size: "12 KB",
-        uploader: "班集资料组",
-        uploadedAt: dateAtOffset(-1, 15),
-        content:
-          "# 奖学金申请材料检查表\n\n- [ ] 申请审批表\n- [ ] 成绩单\n- [ ] 获奖证明\n- [ ] 志愿服务证明\n- [ ] 个人陈述\n- [ ] 电子材料命名规范\n"
-      }
-    ],
-    suggestions: [
-      {
-        id: "s-1",
-        category: "班级事务",
-        text: "希望每月公开一次班费收支，截图和用途放在同一个文件里。",
-        urgent: false,
-        createdAt: dateAtOffset(-1, 21),
-        status: "已纳入计划"
-      },
-      {
-        id: "s-2",
-        category: "学习互助",
-        text: "考前可以组织一次自愿答疑，建议提前收集大家最没把握的章节。",
-        urgent: false,
-        createdAt: dateAtOffset(-2, 18),
-        status: "处理中"
-      },
-      {
-        id: "s-3",
-        category: "日常服务",
-        text: "快递站晚上排队太久，能否统计大家的空档时间，试试错峰取件。",
-        urgent: false,
-        createdAt: dateAtOffset(-4, 12),
-        status: "已反馈"
-      }
-    ],
-    poll: {
-      question: "如果班级先上线一个固定服务，你最希望是？",
-      options: [
-        { text: "公开待办与截止提醒", votes: 23 },
-        { text: "每周资料整理与共享", votes: 18 },
-        { text: "匿名意见与公开回应", votes: 14 },
-        { text: "学习、运动和竞赛组队", votes: 19 }
-      ],
-      userVote: null
-    },
-    notifications: [
-      {
-        id: "n-1",
-        title: "奖学金材料还有 3 天截止",
-        text: "已有 12 位同学完成提交，缺材料的同学可在资源页下载检查表。",
-        time: "今天 09:20",
-        type: "deadline",
-        read: false
-      },
-      {
-        id: "n-2",
-        title: "你的求助收到了新回应",
-        text: "高数错题交换已有 2 位同学回应。",
-        time: "今天 08:45",
-        type: "help",
-        read: false
-      },
-      {
-        id: "n-3",
-        title: "匿名意见已更新进度",
-        text: "“每月公开班费收支”已纳入本期改进计划。",
-        time: "昨天 21:10",
-        type: "feedback",
-        read: true
-      }
-    ],
-    counters: {
-      solved: 18,
-      responses: 31
-    },
-    // 每位选手一条「加油线程」，全班对他的加油都攒在这一条共享记录里。
+    candidate: { name: "", slogan: "", intro: "", letter: "", promises: [] },
+    deadlines: [],
+    posts: [],
+    teams: [],
+    resources: [],
+    suggestions: [],
+    poll: { question: "", options: [], userVote: null },
+    notifications: [],
+    counters: { solved: 0, responses: 0 },
     cheers: [],
-    // 整个班一条「现场战报 · 奖牌榜」记录。
     results: [],
-    // 整个班一条「班级大事记」记录（班委手动记的里程碑；自动条目是推导出来的，不占共享库）。
     chronicle: []
   };
 }
@@ -473,7 +285,7 @@ function createSeedState() {
 function loadState() {
   const defaults = createSeedState();
   try {
-    const saved = JSON.parse(localStorage.getItem(currentStorageKey) || "null");
+    const saved = removeSeededSystemContent(JSON.parse(localStorage.getItem(currentStorageKey) || "null"));
     if (!saved) {
       return defaults;
     }
