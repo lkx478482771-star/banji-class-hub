@@ -34,6 +34,7 @@
         </a>
 
         <nav class="main-nav" aria-label="主导航">
+          <p class="nav-section-label">班级功能</p>
           <button class="nav-item is-active" type="button" data-action="navigate" data-page="today">
             <i data-lucide="layout-dashboard"></i>
             <span>今日班级</span>
@@ -55,14 +56,7 @@
             <i data-lucide="library-big"></i>
             <span>资源共享</span>
           </button>
-          <button class="nav-item" type="button" data-action="navigate" data-page="profile">
-            <i data-lucide="user-round"></i>
-            <span>个人中心</span>
-          </button>
-          <button class="nav-item" type="button" data-action="navigate" data-page="history">
-            <i data-lucide="history"></i>
-            <span>历史记录</span>
-          </button>
+          <p class="nav-section-label">班级管理</p>
           <button
             class="nav-item"
             id="nav-class-manager"
@@ -82,6 +76,15 @@
             <i data-lucide="message-square-lock"></i>
             <span>匿名意见箱</span>
           </button>
+          <p class="nav-section-label">个人</p>
+          <button class="nav-item" type="button" data-action="navigate" data-page="profile">
+            <i data-lucide="user-round"></i>
+            <span>个人中心</span>
+          </button>
+          <button class="nav-item" type="button" data-action="navigate" data-page="history">
+            <i data-lucide="history"></i>
+            <span>历史记录</span>
+          </button>
         </nav>
 
         <section class="sidebar-progress" id="campaign-progress-card" aria-label="竞选主页完成度">
@@ -100,7 +103,7 @@
 
         <footer class="sidebar-footer">
           <span class="status-dot is-syncing" id="sync-dot" aria-hidden="true"></span>
-          <span id="sync-status">正在连接班级云...</span>
+          <span id="sync-status" role="status" aria-live="polite" aria-atomic="true">正在连接班级云...</span>
           <button
             class="sync-refresh"
             id="sync-refresh"
