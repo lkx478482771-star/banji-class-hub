@@ -5394,7 +5394,12 @@ function setSyncStatus(status, detail = "") {
     ratelimited: "已达上限 · 暂停自动刷新"
   };
   const syncTime = lastSharedSyncAt
-    ? new Date(lastSharedSyncAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+    ? new Date(lastSharedSyncAt).toLocaleString("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      })
     : "";
   const lastSuccess = syncTime ? `上次成功同步：${syncTime}` : "尚无成功同步记录";
   label.textContent =
