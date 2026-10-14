@@ -680,9 +680,11 @@ svg {
   padding: clamp(24px, 3.6vw, 48px);
   border-radius: 8px;
   color: #ffffff;
-  background-color: #17372b;
+  background-color: #123b52;
   background-image:
-    linear-gradient(90deg, rgba(12, 32, 25, 0.92) 0%, rgba(12, 32, 25, 0.72) 48%, rgba(12, 32, 25, 0.18) 100%),
+    radial-gradient(ellipse at 88% 12%, rgba(255, 190, 72, 0.42), transparent 34%),
+    radial-gradient(ellipse at 8% 100%, rgba(22, 211, 157, 0.38), transparent 42%),
+    linear-gradient(112deg, rgba(8, 40, 68, 0.82) 0%, rgba(9, 77, 99, 0.58) 54%, rgba(30, 62, 112, 0.28) 100%),
     url("assets/campus-collaboration.webp");
   background-position: center;
   background-size: cover;
