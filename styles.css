@@ -221,6 +221,19 @@ svg {
   margin-top: 34px;
 }
 
+.nav-section-label {
+  margin: 10px 11px 1px;
+  color: var(--ink-faint);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+
+.nav-section-label:first-child {
+  margin-top: 0;
+}
+
 .nav-item {
   display: grid;
   width: 100%;
