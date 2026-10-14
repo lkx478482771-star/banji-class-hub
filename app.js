@@ -231,7 +231,7 @@ function removeSeededSystemContent(saved) {
     candidate?.name === "候选人" &&
     candidate?.slogan === "让每个声音有回应，让每件小事有结果" &&
     candidate?.intro?.startsWith("我想把班委工作从临时通知变成稳定服务：") &&
-    candidate?.letter?.startsWith("各位同学：\\n\\n竞选班委，我不只是想多一个头衔。")
+    candidate?.letter?.startsWith("各位同学：\n\n竞选班委，我不只是想多一个头衔。")
   ) {
     cleaned.candidate = {
       ...candidate,
