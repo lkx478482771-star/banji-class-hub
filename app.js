@@ -6884,7 +6884,10 @@ const SPORTS_ATHLETES = [
   { name: "倪欣悦", group: "女子组", kind: "field", events: ["女子跳远"], cheer: "助跑起跳，落点写进纪录里。" },
   { name: "杨娜", group: "女子组", kind: "field", events: ["女子铅球"], cheer: "力量已经预加载完毕。" },
   { name: "黄林锴", group: "男子组", kind: "field", events: ["男子跳高"], cheer: "横杆之上，还有余量。" },
-  { name: "汪瑾", group: "女子组", kind: "track", events: ["女子 100 米"], cheer: "枪响就绪，终点见。" }
+  { name: "汪瑾", group: "女子组", kind: "track", events: ["女子 100 米"], cheer: "枪响就绪，终点见。" },
+  { name: "鲁宇乐", group: "男子组", kind: "field", events: ["男子跳远"], cheer: "三步起飞，落点见真章。" },
+  { name: "李知远", group: "男子组", kind: "field", events: ["男子跳远"], cheer: "沙坑那边，等你签名。" },
+  { name: "马飞扬", group: "男子组", kind: "field", events: ["男子铅球"], cheer: "一掷定音，全场静默。" }
 ];
 /* ==== ATHLETES:END ==== */
 
