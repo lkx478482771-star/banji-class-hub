@@ -214,6 +214,13 @@ const SEEDED_SYSTEM_IDS = {
   notifications: new Set(["n-1", "n-2", "n-3"])
 };
 
+const SEEDED_SHARED_RECORD_KEYS = new Set([
+  ...Array.from(SEEDED_SYSTEM_IDS.deadlines, (id) => `deadline:${id}`),
+  ...Array.from(SEEDED_SYSTEM_IDS.posts, (id) => `post:${id}`),
+  ...Array.from(SEEDED_SYSTEM_IDS.teams, (id) => `team:${id}`),
+  ...Array.from(SEEDED_SYSTEM_IDS.suggestions, (id) => `suggestion:${id}`)
+]);
+
 function removeSeededSystemContent(saved) {
   if (!saved || typeof saved !== "object") return saved;
   const cleaned = { ...saved };
@@ -261,6 +268,26 @@ function removeSeededSystemContent(saved) {
 
   if (cleaned.counters?.solved === 18 && cleaned.counters?.responses === 31) {
     cleaned.counters = { ...cleaned.counters, solved: 0, responses: 0 };
+  }
+
+  try {
+    const pending = JSON.parse(localStorage.getItem(PENDING_SHARED_KEY) || "[]");
+    if (Array.isArray(pending)) {
+      localStorage.setItem(
+        PENDING_SHARED_KEY,
+        JSON.stringify(pending.filter((item) => !SEEDED_SHARED_RECORD_KEYS.has(item?.record_key)))
+      );
+    }
+    const cacheKey = `${SHARED_CACHE_KEY}:${currentClassId()}`;
+    const cached = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+    if (Array.isArray(cached)) {
+      localStorage.setItem(
+        cacheKey,
+        JSON.stringify(cached.filter((item) => !SEEDED_SHARED_RECORD_KEYS.has(item?.record_key)))
+      );
+    }
+  } catch (error) {
+    // 清理本地演示缓存失败不影响剩余用户内容的读取。
   }
   return cleaned;
 }
