@@ -4997,6 +4997,14 @@ function mantleEntryUrl(path) {
   )}/${path}`;
 }
 
+// 写入只影响被写的那一条：从写入 URL 反推出它的 path，用来精准失效增量缓存。
+// 前缀复用 mantleEntryUrl("")，避免两处各写一份拼接逻辑而互相漂移。
+function mantlePathFromUrl(url) {
+  const prefix = mantleEntryUrl("");
+  const text = String(url);
+  return text.startsWith(prefix) ? text.slice(prefix.length) : "";
+}
+
 function mantleListUrl() {
   return `${sharedConfig.mantleApiBase}/list/${encodeURIComponent(
     sharedConfig.mantleNamespace
@@ -5088,9 +5096,10 @@ async function mantleRequest(url, options = {}) {
     // 写入成功后立刻让短时缓存失效，避免随后读到旧列表。
     mantleCacheEpoch += 1;
     mantleValueCache.clear();
-    // 写完之后的列表 updated_at 一定会变，但这一轮未必已经拿到新列表；
-    // 直接整体清空增量缓存，保证紧接着的那次读取一定是最新版本。
-    mantleEntryCache.clear();
+    // 写完之后的列表 updated_at 一定会变，但这一轮未必已经拿到新列表。
+    // 只失效被写的这一条：既覆盖 updated_at 同秒、版本戳没变的边界情况，
+    // 又不会因为一次写入就让下一次同步重新拉全部记录。
+    mantleEntryCache.delete(mantlePathFromUrl(url));
     return result;
   }
   const key = String(url);
@@ -5622,7 +5631,7 @@ function applySharedRecords(records, reconcile = false) {
 
 // 增量同步：列表接口的每条 entry 都带 updated_at，版本没变就直接复用上一轮的响应体，
 // 不再逐条重新 GET。轮询成本从 1+N 降到 1（只有真正变过的条目才会发请求）。
-// 缓存挂在模块作用域、跨轮询复用；任何写操作都会整体清空它。
+// 缓存挂在模块作用域、跨轮询复用；写操作只精准失效被写的那一条。
 const mantleEntryCache = new Map();
 
 // 服务器上已经没有的路径要从缓存里摘掉，否则缓存只涨不落。
@@ -8977,7 +8986,11 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   if (location.protocol !== "https:" && location.hostname !== "localhost") return;
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(() => {
+    // 把构建版本带进 sw.js，让缓存名跟着版本走；否则旧版本缓存永远清不掉。
+    const scriptTag = document.querySelector('script[src*="app.js"]');
+    const buildTag = scriptTag ? new URL(scriptTag.src, location.href).searchParams.get("v") : "";
+    const swUrl = buildTag ? `sw.js?v=${encodeURIComponent(buildTag)}` : "sw.js";
+    navigator.serviceWorker.register(swUrl).catch(() => {
       // 注册失败（隐私模式、策略限制等）只是没有离线外壳，不影响正常使用。
     });
   });

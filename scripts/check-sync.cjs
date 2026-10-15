@@ -13,11 +13,27 @@ const APP = path.join(__dirname, "..", "app.js");
 const src = fs.readFileSync(APP, "utf8");
 
 // 从源码里按大括号配对抠出一段函数体，保证测的是真正在跑的那份代码。
+// 先配对参数表的圆括号——默认值里可能出现 {}（如 options = {}），
+// 直接找第一个 { 会在那里提前收尾。
 function sliceFrom(startIndex) {
-  const open = src.indexOf("{", startIndex);
-  if (open < 0) throw new Error("no body brace");
+  const parenOpen = src.indexOf("(", startIndex);
+  if (parenOpen < 0) throw new Error("no param list");
+  let parens = 0;
+  let bodyAt = -1;
+  for (let i = parenOpen; i < src.length; i += 1) {
+    const ch = src[i];
+    if (ch === "(") parens += 1;
+    else if (ch === ")") {
+      parens -= 1;
+      if (parens === 0) {
+        bodyAt = src.indexOf("{", i);
+        break;
+      }
+    }
+  }
+  if (bodyAt < 0) throw new Error("no body brace");
   let depth = 0;
-  for (let i = open; i < src.length; i += 1) {
+  for (let i = bodyAt; i < src.length; i += 1) {
     const ch = src[i];
     if (ch === "{") depth += 1;
     else if (ch === "}") {
@@ -90,15 +106,24 @@ let entryValues = new Map();
 let listCount = 0;
 let getCount = 0;
 let failPaths = new Set();
+const sharedConfig = { mantleApiBase: "https://db", mantleNamespace: "ns" };
+const ENTRY_PREFIX = "https://db/ns/";
+const MANTLE_CACHE_TTL_MS = 5000;
+const mantleValueCache = new Map();
+const mantleInFlight = new Map();
+let mantleCacheEpoch = 0;
+function fetchMantle(url) { return Promise.resolve({ ok: true, url }); }
+${pick("function mantleEntryUrl(")}
+${pick("function mantlePathFromUrl(")}
+${pick("async function mantleRequest(").replace("async function mantleRequest(", "async function realMantleRequest(")}
 function mantleListUrl() { return "list"; }
-function mantleEntryUrl(p) { return "entry:" + p; }
 async function mantleRequest(url) {
   if (url === "list") {
     listCount += 1;
     return { entries: serverEntries.map((e) => ({ ...e })) };
   }
   getCount += 1;
-  const key = url.slice(6);
+  const key = url.slice(ENTRY_PREFIX.length);
   if (failPaths.has(key)) throw new Error("boom");
   const value = entryValues.get(key);
   return value === undefined ? null : value;
@@ -218,6 +243,43 @@ const assertions = `
   runSyncTick();
   check("J 限流期间 tick 不同步", synced === 0, "synced=" + synced);
   check("J 限流期间仍旧续排", timers.length === 2);
+
+  // K 写入只精准失效被写的那一条：一旦退回"写一次清整份缓存"，
+  // 下一次同步就会重新拉全部记录，这里是那条底线的守门测试。
+  mantleEntryCache.clear();
+  mantleEntryCache.set("records/a", { stamp: 1, value: rec("a") });
+  mantleEntryCache.set("records/b", { stamp: 2, value: rec("b") });
+  mantleEntryCache.set("accounts/zzz", { stamp: 3, value: {} });
+  check("K 反推写入 path", mantlePathFromUrl(mantleEntryUrl("records/b")) === "records/b");
+  check("K 列表 URL 反推为空", mantlePathFromUrl(mantleListUrl()) === "");
+  await realMantleRequest(mantleEntryUrl("records/b"), { method: "POST", body: "{}" });
+  check("K 被写条目已失效", mantleEntryCache.has("records/b") === false);
+  check(
+    "K 无关条目仍复用缓存",
+    mantleEntryCache.has("records/a") === true && mantleEntryCache.has("accounts/zzz") === true
+  );
+
+  // L 端到端：写入之后紧接着的那一轮同步，只重取被写的那一条。
+  // 旧实现（写一次就 mantleEntryCache.clear()）这里会变成 3 次 GET。
+  serverEntries = [
+    { path: "records/a", updated_at: 10 },
+    { path: "records/b", updated_at: 20 },
+    { path: "records/c", updated_at: 30 }
+  ];
+  entryValues.set("records/a", rec("a"));
+  entryValues.set("records/b", rec("b"));
+  entryValues.set("records/c", rec("c"));
+  mantleEntryCache.clear();
+  getCount = 0;
+  await readIncrementalEntries("records/");
+  check("L 首次全取 3 条", getCount === 3, "get=" + getCount);
+  entryValues.set("records/b", rec("b3"));
+  serverEntries = serverEntries.map((e) => (e.path === "records/b" ? { ...e, updated_at: 21 } : e));
+  await realMantleRequest(mantleEntryUrl("records/b"), { method: "POST", body: "{}" });
+  getCount = 0;
+  const afterWrite = await readIncrementalEntries("records/");
+  check("L 写入后只重取 1 条", getCount === 1, "get=" + getCount);
+  check("L 写后读到的是新内容", afterWrite.find((v) => v.record_key === "b3") !== undefined);
 
   const failed = results.filter((r) => !r.ok);
   for (const row of results) {
