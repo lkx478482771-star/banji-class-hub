@@ -7513,7 +7513,7 @@ function renderSportsPanel(index) {
         <img class="sports-avatar" src="${window.BANJI_PROFILE_FEATURES_READY ? window.sportsAvatarUrl(athlete, index) : ""}" alt="" width="108" height="108" />
         <div class="sports-avatar-copy">
           <p class="sports-avatar-title">${escapeHTML(athlete.name)} 的专属形象</p>
-          <p class="sports-avatar-note">${isOwnSportsAthlete(athlete) ? "这是与你账号绑定的运动员形象。" : "同名账号自动绑定，海报沿用已设置形象。"}</p>
+          <p class="sports-avatar-note">${window.BANJI_PROFILE_FEATURES_READY ? (window.isOwnSportsAthlete(athlete) ? "这是与你账号绑定的运动员形象。" : "同名账号自动绑定，海报沿用已设置形象。") : "正在加载形象设置…"}</p>
         </div>
       </div>
       ${window.BANJI_PROFILE_FEATURES_READY ? window.sportsLookEditor(athlete, current) : '<p class="sports-avatar-note">正在加载形象设置…</p>'}

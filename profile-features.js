@@ -629,6 +629,7 @@ function downloadSportsPoster(index) {
 
 window.sportsAvatarUrl = sportsAvatarUrl;
 window.downloadSportsPoster = downloadSportsPoster;
+window.isOwnSportsAthlete = isOwnSportsAthlete;
 window.BANJI_PROFILE_FEATURES_READY = true;
 window.profilePatchCurrentAccount = profilePatchCurrentAccount;
 window.sportsLookFor = sportsLookFor;
