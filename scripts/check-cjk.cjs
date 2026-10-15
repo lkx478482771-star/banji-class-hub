@@ -130,7 +130,9 @@ function skeleton(src) {
 }
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith("-"));
-const files = args.length ? args : ["app.js", "config.js", "ahu-import.js", "sw.js"];
+const files = args.length
+  ? args
+  : ["app.js", "config.js", "ahu-import.js", "sw.js", "backend-supabase.js"];
 
 let failed = 0;
 for (const file of files) {

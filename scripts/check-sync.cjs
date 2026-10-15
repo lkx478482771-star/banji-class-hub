@@ -133,6 +133,7 @@ const mantleValueCache = new Map();
 const mantleInFlight = new Map();
 let mantleCacheEpoch = 0;
 function fetchMantle(url) { return Promise.resolve({ ok: true, url }); }
+${pick("function sharedApiBase(")}
 ${pick("function mantleEntryUrl(")}
 ${pick("function mantlePathFromUrl(")}
 ${pick("async function mantleRequest(").replace("async function mantleRequest(", "async function realMantleRequest(")}

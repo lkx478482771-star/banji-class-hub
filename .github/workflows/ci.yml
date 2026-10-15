@@ -8,7 +8,7 @@ on:
 
 jobs:
   checks:
-    name: 语法 / 中文标识符 / 同步逻辑 / 图标 / 体积
+    name: 语法 / 中文标识符 / 同步逻辑 / 后端接缝 / 图标 / 体积
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +23,7 @@ jobs:
           node --check app.js
           node --check ahu-import.js
           node --check config.js
+          node --check backend-supabase.js
           node --check assets/icons.js
           node --check scripts/check-icons.mjs
           node --check scripts/check-size.mjs
@@ -31,6 +32,8 @@ jobs:
           node --check scripts/check-cjk.cjs
           node --check scripts/check-sync.cjs
           node --check scripts/check-budget.cjs
+          node --check scripts/check-backend.cjs
+          node --check scripts/migrate-to-supabase.mjs
 
       - name: 中文标识符（防止字符串漏引号）
         run: node scripts/check-cjk.cjs
@@ -40,6 +43,9 @@ jobs:
 
       - name: 存储容量预算（免费档每命名空间 100 条）
         run: node scripts/check-budget.cjs
+
+      - name: 后端接缝（MantleDB / Supabase 两套 provider 的 URL 契约）
+        run: node scripts/check-backend.cjs
 
       - name: 图标名一致性
         run: node scripts/check-icons.mjs

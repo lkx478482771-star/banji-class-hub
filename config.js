@@ -1,6 +1,11 @@
 window.BANJI_CONFIG = {
   cloudEnabled: true,
-  provider: "mantle",
+  provider: "mantle", // "mantle" = 现状；"supabase" = 迁移目标（步骤见 README「迁移到 Supabase」）
+  // Supabase：建好项目、跑完 supabase/202610160001_class_hub_entries.sql 之后，
+  // 把下面两行填上、再把 provider 改成 "supabase" 就完成切换。
+  // anon key 本来就是公开密钥，放这里不泄密；真正的安全边界是数据库里的 RLS 策略。
+  supabaseUrl: "", // 形如 https://abcdefgh.supabase.co（Project Settings → API → Project URL）
+  supabaseAnonKey: "", // Project Settings → API → anon public
   mantleApiBase: "https://mantledb.sh/v2",
   // 免费档每个命名空间最多 100 条 entry、每 24 小时 10000 次请求。
   // 全班 40 人光「账号 + 课表」就有 80 条，再加记录/归档/照片当天必炸，

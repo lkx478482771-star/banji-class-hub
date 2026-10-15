@@ -4986,13 +4986,36 @@ function showToast(title, text) {
   }, 3200);
 }
 
+// 共享存储两套后端：MantleDB（默认，即现状）与 Supabase（真 Postgres，适配器在 backend-supabase.js）。
+// 分片名在 Supabase 里就是普通分区字段，所以换后端不用动页面逻辑。
 function hasSharedConfig() {
+  if (sharedConfig.cloudEnabled !== true) return false;
+  if (sharedConfig.provider === "supabase") {
+    return Boolean(
+      sharedConfig.supabaseUrl && sharedConfig.supabaseAnonKey && sharedConfig.mantleNamespace
+    );
+  }
   return Boolean(
-    sharedConfig.cloudEnabled === true &&
-      sharedConfig.provider === "mantle" &&
+    sharedConfig.provider === "mantle" &&
       sharedConfig.mantleApiBase &&
       sharedConfig.mantleNamespace
   );
+}
+
+// 两套后端的 URL 形状一致（`${base}/${分片}/${path}`），所以上层不必关心底下是哪一套。
+function sharedApiBase() {
+  if (sharedConfig.provider !== "supabase") return String(sharedConfig.mantleApiBase || "");
+  const root = String(sharedConfig.supabaseUrl || "").replace(/\/+$/, "");
+  return root ? `${root}/rest/v1/class_hub_entries` : "";
+}
+
+function sharedBackend() {
+  if (sharedConfig.provider !== "supabase") return null;
+  const backend = window.SharedBackendSupabase;
+  if (backend) return backend;
+  const error = new Error("共享后端脚本没加载成功，请刷新页面重试。");
+  error.status = 0;
+  throw error;
 }
 
 // —— 存储分片：免费档每个命名空间只有 100 条 entry、每 24 小时 10000 次请求。
@@ -5027,7 +5050,7 @@ function mantleKnownNamespaces() {
 }
 
 function mantleEntryUrl(path) {
-  return `${sharedConfig.mantleApiBase}/${encodeURIComponent(
+  return `${sharedApiBase()}/${encodeURIComponent(
     mantleNamespaceForPath(path)
   )}/${path}`;
 }
@@ -5036,7 +5059,7 @@ function mantleEntryUrl(path) {
 // 分片之后前缀不止一个，所以先取出命名空间、确认是本站认识的片，再切出 path。
 function mantlePathFromUrl(url) {
   const text = String(url);
-  const base = `${sharedConfig.mantleApiBase}/`;
+  const base = `${sharedApiBase()}/`;
   if (!text.startsWith(base)) return "";
   const rest = text.slice(base.length);
   const slash = rest.indexOf("/");
@@ -5049,7 +5072,7 @@ function mantlePathFromUrl(url) {
 
 function mantleListUrl(namespace) {
   const target = namespace || sharedConfig.mantleNamespace || "";
-  return `${sharedConfig.mantleApiBase}/list/${encodeURIComponent(target)}`;
+  return `${sharedApiBase()}/list/${encodeURIComponent(target)}`;
 }
 
 const MANTLE_TIMEOUT_MS = 8000;
@@ -5083,6 +5106,15 @@ async function mapLimit(items, limit, worker) {
 }
 
 async function fetchMantle(url, options) {
+  // 换成 Supabase 后只有这里要分叉，下面的缓存 / 去重 / 超时语义全部沿用。
+  const backend = sharedBackend();
+  if (backend) {
+    return backend.request(url, options, {
+      base: sharedApiBase(),
+      anonKey: sharedConfig.supabaseAnonKey,
+      timeoutMs: MANTLE_TIMEOUT_MS
+    });
+  }
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), MANTLE_TIMEOUT_MS);
   try {

@@ -88,10 +88,11 @@ python -m http.server 4173
 
 ```powershell
 node scripts/check-icons.mjs    # 源码里用到的每个图标都必须已打包进 assets/icons.js
-node scripts/check-size.mjs     # 体积预算（首屏 ≤ 400 KB，单文件各有上限）
+node scripts/check-size.mjs     # 体积预算（首屏 ≤ 580 KB，单文件各有上限）
 node scripts/check-cjk.cjs      # 中文标识符（防止字符串漏引号）
 node scripts/check-sync.cjs     # 增量同步 / 限流冷却 / 轮询节奏的回归测试
 node scripts/check-budget.cjs   # 「每个命名空间 100 条」的容量预算（按 40 人规模推算）
+node scripts/check-backend.cjs  # 后端接缝：MantleDB / Supabase 两套 provider 的 URL 契约与错误语义
 node scripts/verify-icons.mjs   # 用最小 DOM 桩验证图标垫片真能渲染出 SVG
 node scripts/build-icons.mjs    # 新增图标后重新生成 assets/icons.js（需联网下载 lucide）
 python scripts/optimize-hero-image.py .   # 首图重新缩放 + 重压（跳过已压缩过的版本）
@@ -106,14 +107,16 @@ python scripts/optimize-hero-image.py .   # 首图重新缩放 + 重压（跳过
 
 当前版本使用轻量共享模式，请先看清「哪些在云端、哪些只在本机」：
 
-- **在 MantleDB 里（公开可读、任何人可写）**：账号记录（含加盐口令摘要）、班级、
-  互助 / 组队 / 意见 / 截止事项、个人课表、发布额度计数、成员身份与审核状态。
+- **在共享存储里（现在是 MantleDB：公开可读、任何人可写）**：账号记录（含加盐口令摘要）、班级、
+  互助 / 组队 / 意见 / 截止事项、个人课表、发布额度计数、成员身份与审核状态、运动会照片。
 - **只在这台设备上**：登录会话、上传的文件（IndexedDB）、界面缓存与待发送队列。
+- 两套后端共用同一份数据模型（`分片名 + path → 一段 JSON`），换后端只换适配器：
+  `provider: "mantle"`（现状）↔ `provider: "supabase"`，详见下面的「迁移到 Supabase」。
 - MantleDB 是无账号的公共原型服务：没有备份、没有审计、没有限流、没有 SLA，
   命名空间一旦泄漏即可被任意读写。
 - 因此**不要**在这里存身份证号、学号、手机号、住址一类信息。
-- 长期稳定运营或要处理班级隐私数据时，请迁移到自建后端
-  （`legacy/supabase/` 里的建表语句、RLS 策略和限流触发器可以直接复用）。
+- 长期稳定运营或要处理班级隐私数据时，请迁移到真正的后端：Supabase 这条路仓库里已经铺好
+  （见「迁移到 Supabase」），`legacy/supabase/` 是更早一版只有单一 records 表的建表语句，仅作参考。
 
 ### 存储分片（免费档 100 条 / 10000 次请求的硬顶）
 
@@ -145,6 +148,38 @@ node --dns-result-order=ipv4first scripts/migrate-shards.mjs --apply   # 执行
 少了它会拿到 500 Internal Server Error；本机到 mantledb.sh（Cloudflare）的 IPv6 不通，
 所有直连脚本都建议加 `--dns-result-order=ipv4first`。
 
+### 迁移到 Supabase（替代 MantleDB）
+
+MantleDB 的两条硬顶（100 条 / 10000 次请求）和「口令摘要在公开命名空间可被离线爆破」这两件事，
+只有换到真正的后端才能根治。仓库已经把迁移准备好，**但线上现在仍然跑 MantleDB**（`provider: "mantle"`）：
+
+- `backend-supabase.js` — Supabase（PostgREST）适配器，接口与 MantleDB 版完全一致；
+- `supabase/202610160001_class_hub_entries.sql` — 建表 + 条数/频率触发器 + RLS（幂等，可重复跑）；
+- `scripts/migrate-to-supabase.mjs` — 把 MantleDB 的数据搬过去（默认只预演，`--apply` 才写）；
+- `scripts/check-backend.cjs` — 守住「换后端只换适配器」这条约定（URL 形状、四种读写、错误语义）。
+
+切换步骤（第 1、3 步需要你在浏览器里自己点）：
+
+1. 打开 <https://supabase.com/dashboard>，用邮箱注册并新建项目；区域选 **Southeast Asia (Singapore)**（离国内最近）。
+2. 左侧 **SQL Editor → New query**，把 `supabase/202610160001_class_hub_entries.sql` 整段粘贴后 Run。
+   正常会看到自检结果 `entries = 0`、`policies = 4`。
+3. **Project Settings → API** 里复制 `Project URL` 和 `anon public`，填进 `config.js` 的
+   `supabaseUrl` / `supabaseAnonKey`（anon key 本来就是公开密钥，写在静态站里不算泄露）。
+4. 导入数据（这一步不影响线上，只是往 Supabase 写一份副本）：
+
+   ```powershell
+   node --dns-result-order=ipv4first scripts/migrate-to-supabase.mjs           # 预演，只读
+   node --dns-result-order=ipv4first scripts/migrate-to-supabase.mjs --apply   # 写入 + 回读校验
+   ```
+
+5. 把 `config.js` 的 `provider` 改成 `"supabase"`，跑 `node scripts/bump-version.mjs`，提交推送，
+   然后打开线上页面把登录、发布、课表、运动会照片各走一遍。
+6. 回退：把 `provider` 改回 `"mantle"` 再推一次就行 —— 迁移脚本**只读不删**，MantleDB 里的数据一条没动。
+
+⚠️ 第一阶段（也就是现在这套 SQL）的权限与 MantleDB 时期**同级**：anon 可以读写整个 `banji-*` 分区，
+换来的只是「更可靠的数据库 + 没有 100 条/10000 次的天花板」。真正的权限边界要等第二阶段接入
+Supabase Auth（用 `auth.uid()` 收紧 RLS、把口令校验搬进 `security definer` 函数）之后才立得起来。
+
 ### 备份
 
 MantleDB 不会替你备份，请定期自己导出一份：
@@ -175,8 +210,11 @@ python scripts/backup-mantle.py
 - **免费档有硬顶**：每个命名空间最多 100 条 entry、每 24 小时最多 10000 次请求
   （详见「存储分片」）。满了以后**新同学注册、发布事项、传照片都会失败**；
   客户端会提前提示「共享库已满」或「照片位快满了」，但真正解决要靠清理或迁移。
-- 迁移到自建后端（Supabase / 腾讯云 / 阿里云）是解决上述问题的正路，
+- 迁移到真正的后端（Supabase / 腾讯云 / 阿里云）是解决上述问题的正路，
   触发条件大致是：出现一次数据丢失、同学数超过 60、开始存任何敏感字段、需要审计或删除请求。
+- **Supabase 第一阶段不等于安全**：搬过去之后，`provider: "supabase"` 的读写权限和 MantleDB 时期同级
+  （anon 可读写 `banji-*` 分区），口令摘要同样可以被离线爆破。它解决的是「容量/限流天花板」和
+  「数据库可靠性」；权限边界要等第二阶段接入 Supabase Auth 才算立起来。
 
 ## 部署
 

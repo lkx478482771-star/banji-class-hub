@@ -20,7 +20,7 @@
     <meta name="apple-mobile-web-app-title" content="班集" />
     <meta name="application-name" content="班集" />
 
-    <link rel="stylesheet" href="styles.css?v=20261016e-die-name-fit" />
+    <link rel="stylesheet" href="styles.css?v=20261016g-die-name-fit" />
   </head>
   <body>
     <div class="app-shell">
@@ -219,8 +219,10 @@
     <div class="modal-root" id="modal-root"></div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-    <script src="config.js?v=20261016c-shards" defer></script>
-    <script src="assets/icons.js?v=20261016b" defer></script>
-    <script src="app.js?v=20261016e-die-name-fit" defer></script>
+    <script src="config.js?v=20261016g-shards" defer></script>
+    <script src="assets/icons.js?v=20261016g" defer></script>
+    <!-- Supabase 适配器：只在 config.js 把 provider 改成 "supabase" 后才被调用，见 README「迁移到 Supabase」 -->
+    <script src="backend-supabase.js?v=20261016g-supabase" defer></script>
+    <script src="app.js?v=20261016g-die-name-fit" defer></script>
   </body>
 </html>

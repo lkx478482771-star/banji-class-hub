@@ -1,5 +1,35 @@
 # 变更记录
 
+## 2026-10-16 — 迁移第一步：把「换后端」这条接缝铺好（Supabase，线上仍跑 MantleDB）
+
+上一轮把 MantleDB 的 100 条硬顶用分片绕开了，但绕不过两件事：两天花板的算法本身很脆
+（主片约 91 人就满），以及**口令摘要躺在公开可写的命名空间里可以被离线爆破**。
+这两条只有在真正的后端上才能根治，所以这一轮准备迁移——但**只做准备，不切线上**。
+
+- 先把存储层拆出接缝：`app.js` 里新增 `sharedApiBase()` 与 `sharedBackend()`，
+  `mantleEntryUrl` / `mantlePathFromUrl` / `mantleListUrl` 不再直接读 `sharedConfig.mantleApiBase`；
+  `fetchMantle` 第一行就是「有适配器就交给适配器」。**换后端 = 换一个适配器 + 改 `config.js` 一行**，
+  业务代码（增量同步、限流冷却、抖动节流）一行没动。
+- `backend-supabase.js`：与 MantleDB 版接口一模一样的适配器（list / GET / POST upsert / DELETE，
+  以及 `status` / `entryLimit` / `rateLimited` 三种错误语义），挂在页面上、由 `provider` 决定是否启用。
+- `supabase/202610160001_class_hub_entries.sql`：建表 + 两条守护触发器 + `class_hub_list` RPC + RLS。
+  特意保留了和 MantleDB 同名的 `Entry limit reached` 报错文案，这样**客户端已有的「共享库已满」中文提示
+  一个字都不用改**；条数上限从 100 放宽到 4000/分区，并额外挡住「同一条路径一分钟内写 20 次」。
+- `scripts/migrate-to-supabase.mjs`：把 MantleDB 现有数据搬过去，默认只预演，`--apply` 才写，
+  写完回读校验（Prefer: return=representation）。**只读不删**，MantleDB 里数据一条没动，回退就是改回 provider。
+- 新门禁 `scripts/check-backend.cjs`（45 项）：钉住适配器契约——URL 形状（含分片命名空间）、
+  四种读写的报文、404→null、429/403 错误语义、以及「不得出现 service_role」。
+  它同时会在 CI 里检查 app.js 的接缝是否被退回直读 MantleDB。
+- 接线：`index.html` 挂上 `backend-supabase.js`（排在 app.js 前、`defer`），
+  `config.js` 新增 `supabaseUrl` / `supabaseAnonKey` 两个空占位，CI 加语法检查 + 一步「后端接缝」。
+- 体积：首屏因多了一个 5.5 KB 的适配器，预算从 560 KB 提到 580 KB（实测 552 KB，余量 28 KB），
+  app.js 单文件上限 344 KB → 347 KB（实测 335.7 KB）。
+
+剩下要用户自己做的三步：建 Supabase 项目（Singapore 区）→ 在 SQL Editor 跑那份 SQL →
+把 URL 和 anon key 填进 `config.js`，然后 `migrate-to-supabase.mjs --apply` 导入，最后把
+`provider` 改成 `"supabase"` 推上线。⚠️ 第一阶段的权限与 MantleDB 时期同级（anon 可读写 `banji-*`），
+真正的权限边界要等第二阶段接 Supabase Auth 之后才立得起来。
+
 ## 2026-10-16 — 修复：手机端晶圆图里的姓名被芯片切掉
 
 用户反馈「运动会圆盘上那个名字直接被遮住了」。可桌面端怎么量名字都不裁，

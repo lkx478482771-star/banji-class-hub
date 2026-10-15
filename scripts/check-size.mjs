@@ -15,9 +15,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BUDGETS = [
   { file: "index.html", max: 14_000 },
   { file: "styles.css", max: 100_000 },
-  { file: "app.js", max: 344_000 },
+  { file: "app.js", max: 347_000 },
   { file: "config.js", max: 2_000 },
   { file: "ahu-import.js", max: 12_000 },
+  { file: "backend-supabase.js", max: 12_000 },
   { file: "assets/icons.js", max: 50_000 },
   { file: "assets/campus-collaboration.webp", max: 150_000 },
 ];
@@ -29,6 +30,7 @@ const FIRST_PAINT_FILES = [
   "assets/icons.js",
   "app.js",
   "config.js",
+  "backend-supabase.js",
   "assets/campus-collaboration.webp",
 ];
 // 当前实测约 415 KB（首图从 JPEG 换成 WebP 后省下约 50 KB），原始版本约 876 KB。
@@ -55,7 +57,13 @@ const FIRST_PAINT_FILES = [
 // applyThreadSharedRecord / applySimpleSharedRecord / sharedAuthorChanged 等 helper；另外把 11 处
 // 模态框「取消」按钮、5 处删除小按钮、4 处发布额度 try/catch 各抽成一个共用函数。
 // app.js 343.7 KB → 331.5 KB（省 4.2 KB），上限从 356 KB 收回到 344 KB，首屏上限也从 570 KB 收到 560 KB。
-const FIRST_PAINT_MAX = 560_000;
+// 2026-10-16 存储分片（把 5 个命名空间分开）+ 后端可切换接缝（provider 分发、sharedApiBase、
+// sharedBackend）落在 app.js；同时新增 backend-supabase.js（Supabase 适配器，约 7 KB）并挂进首屏。
+// 现状：app.js 343.5 KB（344 KB 只剩 0.5 KB，日常改动已经不能动了）、首屏 559.1 KB（560 KB 只剩 0.9 KB）。
+// 留出余量：app.js 上限 344 KB → 347 KB，backend-supabase.js 上限 12 KB，首屏上限 560 KB → 580 KB。
+// 注意：**下一轮再往 app.js 加东西之前，必须先把后端适配/同步逻辑挪进 backend-*.js 或做一次真瘦身**，
+// 不要继续抬这个数——单文件上限是软性维护线，首屏合计才是红线。
+const FIRST_PAINT_MAX = 580_000;
 
 /** assets/ 下任何单个文件都不该超过这个大小（除非在 BUDGETS 里单独放宽）。 */
 const ASSET_HARD_MAX = 250_000;
