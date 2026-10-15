@@ -459,6 +459,16 @@ function getInitials(name) {
   return cleaned.slice(-1);
 }
 
+function validProfileAvatar(value) {
+  return typeof value === "string" && value.length <= 80000 &&
+    /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value);
+}
+function profileAvatarMarkup(className, username, avatarDataUrl) {
+  const image = validProfileAvatar(avatarDataUrl)
+    ? '<img src="' + escapeHTML(avatarDataUrl) + '" alt="" loading="lazy" />'
+    : escapeHTML(getInitials(username));
+  return '<span class="' + className + '">' + image + '</span>';
+}
 function getRoleMeta(role) {
   return ROLE_META[role] || ROLE_META.student;
 }
@@ -1196,7 +1206,17 @@ function updateShell() {
     roleMeta.group === "faculty" ? "身份资料完整度" : "竞选主页";
   document.getElementById("campaign-progress-card").hidden = !canViewCampaign();
   document.getElementById("nav-class-manager").hidden = !canManageClasses();
-  document.getElementById("top-avatar").textContent = initials;
+  const topAvatar = document.getElementById("top-avatar");
+  const avatarUrl = authState.session?.avatarDataUrl || currentAccountRecord()?.avatarDataUrl || "";
+  topAvatar.replaceChildren();
+  if (validProfileAvatar(avatarUrl)) {
+    const image = document.createElement("img");
+    image.src = avatarUrl;
+    image.alt = "";
+    topAvatar.append(image);
+  } else {
+    topAvatar.textContent = initials;
+  }
   document.getElementById("nav-post-count").textContent = String(openPosts);
   document.getElementById("candidate-readiness").textContent = `${readiness}%`;
   document.getElementById("candidate-progress-bar").style.width = `${readiness}%`;
@@ -2636,7 +2656,7 @@ function renderPersonalCenter() {
     <div class="page-stack">
       <section class="personal-hero">
         <article class="personal-profile">
-          <span class="personal-avatar">${escapeHTML(getInitials(username))}</span>
+          ${profileAvatarMarkup("personal-avatar", username, currentAccountRecord()?.avatarDataUrl || authState.session?.avatarDataUrl)}
           <div>
             <div class="member-name-row">
               <h2>${escapeHTML(username)}</h2>
@@ -2658,6 +2678,11 @@ function renderPersonalCenter() {
           </div>
         </article>
         <aside class="personal-actions">
+          <label class="secondary-button full-width profile-avatar-upload">
+            ${icon("image")} 更换我的头像
+            <input id="profile-avatar-file" type="file" accept="image/*" />
+          </label>
+          <small class="sports-hint">头像会显示给本班成员，图片自动压缩。</small>
           <button class="primary-button full-width" type="button" data-action="open-profile">
             ${icon("pencil")}
             编辑个人信息
@@ -3302,6 +3327,32 @@ function renderClassManager() {
   `;
 }
 
+function currentAccountRecord() {
+  const key = localUsernameKey(authState.session?.username || "");
+  return key ? getLocalAccounts().find((account) => account.usernameKey === key) || null : null;
+}
+function profilePatchCurrentAccount(patch) {
+  const key = localUsernameKey(authState.session?.username || "");
+  const accounts = getLocalAccounts();
+  const index = accounts.findIndex((account) => account.usernameKey === key);
+  if (index < 0) {
+    showToast("账号资料暂不可用", "请重新登录后再保存个人设置。");
+    return false;
+  }
+  const account = { ...accounts[index], ...patch, updatedAt: new Date().toISOString() };
+  accounts[index] = account;
+  saveLocalAccounts(accounts);
+  Object.assign(authState.session, patch);
+  saveAuthSession(authState.session);
+  ui.members = ui.members.map((member) => member.usernameKey === key ? { ...member, ...patch } : member);
+  if (hasSharedConfig()) {
+    void writeRemoteAccount(account).then(() => {
+      ui.membersLoaded = false;
+      void loadMemberDirectory(true);
+    }).catch(() => showToast("已保存到本机", "网络恢复后再登录即可同步到班级。"));
+  }
+  return true;
+}
 function publicMemberFromAccount(account) {
   const role = resolveAccountRole(account);
   return {
@@ -3314,14 +3365,21 @@ function publicMemberFromAccount(account) {
     identityNote: String(account?.identityNote || "").trim(),
     createdAt: account?.createdAt || "",
     identityStatus: account?.identityStatus || "student",
-    classRequest: normalizeClassRequest(account?.classRequest)
+    classRequest: normalizeClassRequest(account?.classRequest),
+    avatarDataUrl: validProfileAvatar(account?.avatarDataUrl) ? account.avatarDataUrl : "",
+    sportsLook: account?.sportsLook && typeof account.sportsLook === "object" ? {
+      skin: POSTER_SKINS.includes(account.sportsLook.skin) ? account.sportsLook.skin : "",
+      hair: POSTER_HAIRS.includes(account.sportsLook.hair) ? account.sportsLook.hair : "",
+      wear: POSTER_WEARS.includes(account.sportsLook.wear) ? account.sportsLook.wear : "",
+      style: [...POSTER_GIRL_STYLES, ...POSTER_BOY_STYLES].includes(account.sportsLook.style) ? account.sportsLook.style : ""
+    } : null
   };
 }
 
 async function loadMemberDirectory(force = false) {
   if (ui.membersLoading || (ui.membersLoaded && !force)) return;
   ui.membersLoading = true;
-  if (ui.page === "members" && !ui.membersLoaded) render();
+  if ((ui.page === "members" || ui.page === "sports") && !ui.membersLoaded) render();
 
   try {
     if (hasSharedConfig()) {
@@ -3342,7 +3400,7 @@ async function loadMemberDirectory(force = false) {
   } finally {
     ui.membersLoading = false;
     ui.membersLoaded = true;
-    if (ui.page === "members") render();
+    if (ui.page === "members" || ui.page === "sports") render();
   }
 }
 
@@ -3465,7 +3523,7 @@ function renderMemberCards() {
       return `
         <article class="member-card">
           <div class="member-card-main">
-            <span class="member-avatar ${meta.color}">${escapeHTML(getInitials(member.username))}</span>
+            ${profileAvatarMarkup(`member-avatar ${meta.color}`, member.username, member.avatarDataUrl)}
             <div class="member-copy">
               <div class="member-name-row">
                 <strong>${escapeHTML(member.username)}</strong>
@@ -7428,10 +7486,57 @@ function renderResultsPanel() {
   `;
 }
 
+function sportsAthleteAccount(athlete) {
+  const key = localUsernameKey(athlete?.name || "");
+  if (!key) return null;
+  if (key === localUsernameKey(authState.session?.username || "")) return currentAccountRecord();
+  return ui.members.find((member) => member.usernameKey === key) || null;
+}
+function isOwnSportsAthlete(athlete) {
+  return Boolean(authState.session && localUsernameKey(authState.session.username) === localUsernameKey(athlete?.name || ""));
+}
+function sportsLookFor(athlete) {
+  const base = posterLook(athlete);
+  const saved = sportsAthleteAccount(athlete)?.sportsLook || {};
+  const styles = base.female ? POSTER_GIRL_STYLES : POSTER_BOY_STYLES;
+  return {
+    ...base,
+    skin: POSTER_SKINS.includes(saved.skin) ? saved.skin : base.skin,
+    hair: POSTER_HAIRS.includes(saved.hair) ? saved.hair : base.hair,
+    wear: POSTER_WEARS.includes(saved.wear) ? saved.wear : base.wear,
+    style: styles.includes(saved.style) ? saved.style : base.style
+  };
+}
+function sportsLookEditor(athlete, index) {
+  if (!isOwnSportsAthlete(athlete)) {
+    return '<p class="sports-avatar-note">' +
+      (sportsAthleteAccount(athlete) ? "已与同名账号绑定" : "与账号同名时自动绑定") +
+      " · 仅本人可以更改形象</p>";
+  }
+  const look = sportsLookFor(athlete);
+  const skinNames = ["暖杏", "浅棕", "蜜糖", "奶油", "麦色"];
+  const hairNames = ["墨黑", "栗棕", "深棕", "蓝黑", "焦糖", "乌黑"];
+  const wearNames = ["薄荷绿", "天蓝", "薰衣紫", "珊瑚粉", "翠绿", "活力黄"];
+  const styleValues = look.female ? POSTER_GIRL_STYLES : POSTER_BOY_STYLES;
+  const styleNames = look.female ? ["齐耳短发", "高马尾", "双马尾", "微卷长发"] : ["清爽短发", "蓬松短发", "侧分短发"];
+  const options = (values, names, selected) => values.map((value, i) =>
+    '<option value="' + value + '"' + (value === selected ? " selected" : "") + ">" +
+    (names[i] || value) + "</option>").join("");
+  const field = (key, label, values, names, selected) =>
+    '<label class="sports-look-field"><span>' + label + '</span><select data-sports-look="' +
+    key + '" data-index="' + index + '">' + options(values, names, selected) + "</select></label>";
+  return '<div class="sports-look-editor"><strong>自定义我的运动员形象</strong><div class="sports-look-grid">' +
+    field("skin", "肤色", POSTER_SKINS, skinNames, look.skin) +
+    field("hair", "发色", POSTER_HAIRS, hairNames, look.hair) +
+    field("wear", "队服", POSTER_WEARS, wearNames, look.wear) +
+    field("style", "发型", styleValues, styleNames, look.style) +
+    '</div><p class="sports-avatar-note">更改会同步到账号，并用于运动员预览和专属海报。</p></div>';
+}
 function renderSportsPanel(index) {
   const total = SPORTS_ATHLETES.length;
   if (!total) return `<div class="panel-body"><p>名单还没有数据。</p></div>`;
   const current = ((index % total) + total) % total;
+  if (!ui.membersLoaded && !ui.membersLoading) window.setTimeout(() => void loadMemberDirectory(), 0);
   const athlete = SPORTS_ATHLETES[current];
   const specs = [
     ["EVENT", sportsEventText(athlete)],
@@ -7454,9 +7559,10 @@ function renderSportsPanel(index) {
         <img class="sports-avatar" src="${sportsAvatarUrl(athlete, index)}" alt="" width="108" height="108" />
         <div class="sports-avatar-copy">
           <p class="sports-avatar-title">${escapeHTML(athlete.name)} 的专属形象</p>
-          <p class="sports-avatar-note">按性别 + 姓名生成，下载的海报里就是这一张。</p>
+          <p class="sports-avatar-note">${isOwnSportsAthlete(athlete) ? "这是与你账号绑定的运动员形象。" : "同名账号自动绑定，海报沿用已设置形象。"}</p>
         </div>
       </div>
+      ${sportsLookEditor(athlete, current)}
       <h4 class="sports-name">${escapeHTML(athlete.name)}</h4>
       <p class="sports-event">${escapeHTML(sportsEventText(athlete))}</p>
       <dl class="sports-specs">
@@ -7547,6 +7653,7 @@ const POSTER_SKINS = ["#f7d5b6", "#f0c5a2", "#e6b28a", "#fbe2cc", "#dfa980"];
 const POSTER_HAIRS = ["#2a2e37", "#3b2a21", "#4b3527", "#1d2230", "#5b3c2b", "#12161d"];
 const POSTER_WEARS = ["#3ddcb4", "#38bdf8", "#a78bfa", "#fb7185", "#34d399", "#fbbf24"];
 const POSTER_GIRL_STYLES = ["bob", "pony", "twin", "wave"];
+const POSTER_BOY_STYLES = ["short", "spiky", "parted"];
 
 function posterSeed(text) {
   let seed = 2166136261;
@@ -7560,18 +7667,19 @@ function posterSeed(text) {
 
 function posterLook(athlete) {
   const seed = posterSeed(`${athlete.name}|${athlete.group}`);
+  const female = /女/.test(athlete.group || "");
   return {
-    female: /女/.test(athlete.group || ""),
+    female,
     skin: POSTER_SKINS[seed % POSTER_SKINS.length],
     hair: POSTER_HAIRS[(seed >>> 4) % POSTER_HAIRS.length],
     wear: POSTER_WEARS[(seed >>> 9) % POSTER_WEARS.length],
-    style: POSTER_GIRL_STYLES[(seed >>> 14) % POSTER_GIRL_STYLES.length]
+    style: female ? POSTER_GIRL_STYLES[(seed >>> 14) % POSTER_GIRL_STYLES.length] : POSTER_BOY_STYLES[(seed >>> 14) % POSTER_BOY_STYLES.length]
   };
 }
 
 // 以 (cx, cy) 为圆心、r 为半径画一张头像；海报和页面预览都用它，保证长得一样。
 function drawPosterAvatar(ctx, athlete, index, cx, cy, r) {
-  const look = posterLook(athlete);
+  const look = sportsLookFor(athlete);
   const headR = r * 0.4;
   const headY = cy - r * 0.1;
   const bodyTop = headY + headR * 0.7;
@@ -7670,6 +7778,23 @@ function drawPosterAvatar(ctx, athlete, index, cx, cy, r) {
     ctx.lineTo(cx - headR * 0.92, headY - headR * 0.3);
     ctx.closePath();
     ctx.fill();
+    if (look.style === "spiky") {
+      ctx.beginPath();
+      ctx.moveTo(cx - headR * 0.55, headY - headR * 0.72);
+      ctx.lineTo(cx - headR * 0.18, headY - headR * 1.18);
+      ctx.lineTo(cx + headR * 0.02, headY - headR * 0.63);
+      ctx.lineTo(cx + headR * 0.38, headY - headR * 1.08);
+      ctx.lineTo(cx + headR * 0.72, headY - headR * 0.36);
+      ctx.closePath();
+      ctx.fill();
+    } else if (look.style === "parted") {
+      ctx.beginPath();
+      ctx.moveTo(cx + headR * 0.12, headY - headR * 0.92);
+      ctx.quadraticCurveTo(cx + headR * 0.35, headY - headR * 0.55, cx + headR * 0.82, headY - headR * 0.48);
+      ctx.strokeStyle = "rgba(255,255,255,0.28)";
+      ctx.lineWidth = Math.max(2, headR * 0.08);
+      ctx.stroke();
+    }
   }
 
   // 眼睛
@@ -9366,9 +9491,72 @@ function handleInput(event) {
   }
 }
 
+async function compressProfileAvatar(file) {
+  if (!file || !file.type.startsWith("image/")) throw new Error("请选择图片文件。");
+  if (file.size > 10 * 1024 * 1024) throw new Error("图片需要小于 10 MB。");
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error("图片读取失败，请换一张图片。"));
+      image.src = url;
+    });
+    const side = 256;
+    const crop = Math.min(image.naturalWidth, image.naturalHeight);
+    const canvas = document.createElement("canvas");
+    canvas.width = side;
+    canvas.height = side;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("当前浏览器无法处理图片。");
+    ctx.drawImage(image, (image.naturalWidth-crop)/2, (image.naturalHeight-crop)/2, crop, crop, 0, 0, side, side);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+    if (dataUrl.length > 80000) throw new Error("压缩后的图片仍然过大，请换一张图片。");
+    return dataUrl;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+async function handleProfileAvatarChange(event) {
+  const input = event.target;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const avatarDataUrl = await compressProfileAvatar(file);
+    if (profilePatchCurrentAccount({ avatarDataUrl })) {
+      render();
+      showToast("头像已更新", "成员目录和顶部账号栏都会显示新头像。");
+    }
+  } catch (error) {
+    showToast("头像设置失败", error.message || "请换一张图片后重试。");
+  } finally {
+    input.value = "";
+  }
+}
+async function saveOwnSportsLook(index, field, value) {
+  const athlete = SPORTS_ATHLETES[index];
+  if (!athlete || !isOwnSportsAthlete(athlete)) {
+    showToast("只能修改自己的运动员形象", "账号用户名需与运动员姓名一致。");
+    return;
+  }
+  const base = sportsLookFor(athlete);
+  const allowed = { skin: POSTER_SKINS, hair: POSTER_HAIRS, wear: POSTER_WEARS, style: base.female ? POSTER_GIRL_STYLES : POSTER_BOY_STYLES };
+  if (!allowed[field]?.includes(value)) return;
+  if (!profilePatchCurrentAccount({ sportsLook: { ...base, [field]: value } })) return;
+  selectSportsAthlete(index);
+  showToast("运动员形象已更新", "预览和之后生成的专属海报会使用新形象。");
+}
 function handleChange(event) {
   if (event.target.id === "resource-file") {
     handleFileUpload(event);
+    return;
+  }
+  if (event.target.id === "profile-avatar-file") {
+    void handleProfileAvatarChange(event);
+    return;
+  }
+  if (event.target.dataset.sportsLook) {
+    void saveOwnSportsLook(Number(event.target.dataset.index), event.target.dataset.sportsLook, event.target.value);
   }
 }
 
