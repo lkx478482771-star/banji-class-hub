@@ -2679,7 +2679,7 @@ function renderPersonalCenter() {
         </article>
         <aside class="personal-actions">
           <label class="secondary-button full-width profile-avatar-upload">
-            ${icon("image")} 更换我的头像
+            ${icon("user-round")} 更换我的头像
             <input id="profile-avatar-file" type="file" accept="image/*" />
           </label>
           <small class="sports-hint">头像会显示给本班成员，图片自动压缩。</small>
