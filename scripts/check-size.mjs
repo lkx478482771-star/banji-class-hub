@@ -19,6 +19,7 @@ const BUDGETS = [
   { file: "config.js", max: 2_000 },
   { file: "ahu-import.js", max: 12_000 },
   { file: "backend-supabase.js", max: 12_000 },
+  { file: "photo-store.js", max: 12_000 },
   { file: "assets/icons.js", max: 50_000 },
   { file: "assets/campus-collaboration.webp", max: 150_000 },
 ];
@@ -31,6 +32,7 @@ const FIRST_PAINT_FILES = [
   "app.js",
   "config.js",
   "backend-supabase.js",
+  "photo-store.js",
   "assets/campus-collaboration.webp",
 ];
 // 当前实测约 415 KB（首图从 JPEG 换成 WebP 后省下约 50 KB），原始版本约 876 KB。
@@ -63,6 +65,8 @@ const FIRST_PAINT_FILES = [
 // 留出余量：app.js 上限 344 KB → 347 KB，backend-supabase.js 上限 12 KB，首屏上限 560 KB → 580 KB。
 // 注意：**下一轮再往 app.js 加东西之前，必须先把后端适配/同步逻辑挪进 backend-*.js 或做一次真瘦身**，
 // 不要继续抬这个数——单文件上限是软性维护线，首屏合计才是红线。
+// 2026-10-16 照片清晰化：把照片的压缩/上传从 app.js 抽进新文件 photo-store.js（约 8.7 KB，上首屏），
+// app.js 只留调用、净减约 0.2 KB；首屏上限 580 KB 不变，仍在预算内。
 const FIRST_PAINT_MAX = 580_000;
 
 /** assets/ 下任何单个文件都不该超过这个大小（除非在 BUDGETS 里单独放宽）。 */

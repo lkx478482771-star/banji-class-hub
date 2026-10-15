@@ -1,5 +1,28 @@
 # 变更记录
 
+## 2026-10-16 — 运动会照片上传清晰化：改存 Supabase Storage
+
+上传的照片「点开就糊」，根子在 MantleDB 的两条硬顶：一条记录最多 64 KB（Supabase 版是
+256 KB），而一张照片必须塞进一条记录，所以只能压到 480~640 px、质量开 0.46，可 lightbox
+最宽要显示到 900 px —— 放大就是马赛克。
+
+- **新增 `photo-store.js`**：照片压缩与托管拆成独立模块。provider 是 `supabase` 时走 Storage，
+  否则一律维持原来的内嵌 base64 老路，**不会因为没配好后端就白屏**。两档输出：网格用的
+  缩略图 480 px / 约 13 KB，点开看的原图 2048 px / 0.2~0.8 MB。
+- **新增 `supabase/202610160002_sports_photo_storage.sql`**：建公开读的 `sports-photos` 桶
+  （单文件 2 MB、只收 jpeg/png/webp）与三个 RLS policy，刻意不给 update（照片只增删不改）。
+- `app.js`：删掉 `sportsLoadImage` / `sportsReadDataUrl` / `sportsCompressPhoto` 三个内嵌压缩
+  函数，换成 `sportsPhotoStore()` + `sportsPhotoUrl()`；`submitSportsPhoto()` 改成先上传再写记录，
+  记录里只留 `thumb_path` / `photo_path` 两个路径；`removeSportsPhoto()` 顺手删掉存储里的对象。
+- `sw.js` 不用动：Supabase 是跨域请求，`if (url.origin !== self.location.origin) return;` 早就
+  把它们排除在缓存之外了。
+- 桶没建好、或 provider 还是 `mantle` 时，照片自动退回内嵌模式，行为和以前完全一样
+  （继续糊，但不报错、不白屏）。
+
+⚠️ **这一步只改了前端，清晰化要等你把 Supabase 建好**：注册项目 → 跑两个 SQL → 把
+`Project URL` 和 `anon public` 填进 `config.js` → 把 `provider` 改成 `"supabase"`。
+详细步骤见 README 的「迁移到 Supabase（替代 MantleDB）」一节。
+
 ## 2026-10-16 — 运动会页加「赛场原声」：三首歌，点了才响
 
 班级宣传这边给了三首 MP3，希望在运动会页能选择性播放。做法刻意保守，不为播放器牺牲首屏：

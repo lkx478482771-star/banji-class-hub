@@ -155,14 +155,21 @@ MantleDB 的两条硬顶（100 条 / 10000 次请求）和「口令摘要在公�
 
 - `backend-supabase.js` — Supabase（PostgREST）适配器，接口与 MantleDB 版完全一致；
 - `supabase/202610160001_class_hub_entries.sql` — 建表 + 条数/频率触发器 + RLS（幂等，可重复跑）；
+- `supabase/202610160002_sports_photo_storage.sql` — 运动会照片的 Storage 桶 + RLS（**照片清晰化的关键**）；
 - `scripts/migrate-to-supabase.mjs` — 把 MantleDB 的数据搬过去（默认只预演，`--apply` 才写）；
 - `scripts/check-backend.cjs` — 守住「换后端只换适配器」这条约定（URL 形状、四种读写、错误语义）。
+
+> **为什么照片要单独建桶**：`class_hub_entries` 把一张照片当成一条 JSON 记录，单条上限
+> 256 KB（MantleDB 更只有 64 KB），所以照片只能压到 480~640 px，点开就糊。照片改存对象
+> 存储后，记录里只留两个路径，网格读缩略图（约 13 KB）、点开才读原图（2048 px、0.2~0.8 MB），
+> 清晰度和首屏流量一起解决。桶没建好时照片仍走内嵌模式，不会白屏，只是继续糊。
 
 切换步骤（第 1、3 步需要你在浏览器里自己点）：
 
 1. 打开 <https://supabase.com/dashboard>，用邮箱注册并新建项目；区域选 **Southeast Asia (Singapore)**（离国内最近）。
 2. 左侧 **SQL Editor → New query**，把 `supabase/202610160001_class_hub_entries.sql` 整段粘贴后 Run。
-   正常会看到自检结果 `entries = 0`、`policies = 4`。
+   正常会看到自检结果 `entries = 0`、`policies = 4`。再开一个 New query，把
+   `supabase/202610160002_sports_photo_storage.sql` 整段粘贴后 Run，会看到 `bucket = 1`、`policies = 3`。
 3. **Project Settings → API** 里复制 `Project URL` 和 `anon public`，填进 `config.js` 的
    `supabaseUrl` / `supabaseAnonKey`（anon key 本来就是公开密钥，写在静态站里不算泄露）。
 4. 导入数据（这一步不影响线上，只是往 Supabase 写一份副本）：

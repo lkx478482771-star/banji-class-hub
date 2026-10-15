@@ -7104,7 +7104,6 @@ const sportsPickAthletes = () =>
   );
 
 const SPORTS_PHOTO_PATH = "photos/";
-const SPORTS_PHOTO_MAX_BYTES = 45000;
 // 运动会当天免审：投稿直接进「美好片刻」，不合适的管理员/班委当场删掉。
 // 想改回先审后发，把这里改成 false 即可——审核弹窗和「全部通过」都还在。
 const SPORTS_PHOTO_AUTO_APPROVE = true;
@@ -7746,11 +7745,15 @@ function sportsPhotoId() {
 function sportsMomentList() {
   const repo = (sportsUi.photos || []).map((photo) => ({
     src: SPORTS_MEET.momentsDir + photo.file,
+    thumb: SPORTS_MEET.momentsDir + photo.file,
     title: photo.title || "美好片刻",
     note: photo.date || SPORTS_MEET.dateLabel
   }));
   const shared = sportsPhotos.approved.map((record) => ({
-    src: record.data_url,
+    // src 是点开看的大图，thumb 是网格里的缩略图。
+    // 迁移前的老记录没有路径，两者都回落到内嵌的 data_url。
+    src: sportsPhotoUrl(record, "full"),
+    thumb: sportsPhotoUrl(record, "thumb"),
     title: record.title || "美好片刻",
     note: `${record.uploader_name || "同学"} 投稿`,
     photoId: record.photo_id || ""
@@ -7768,7 +7771,7 @@ function renderSportsMomentsPanel() {
     actions.push(`<button class="secondary-button" type="button" data-action="sports-photo-review">${icon("check")} 审核投稿${sportsPhotos.pending.length ? `（${sportsPhotos.pending.length}）` : ""}</button>`);
   }
   const grid = photos.length
-    ? photos.map((photo, index) => `<figure class="sports-moment"><button class="sports-moment-thumb" type="button" data-action="sports-photo" data-index="${index}"><img src="${escapeHTML(photo.src)}" alt="${escapeHTML(photo.title)}" loading="lazy" /></button><figcaption><strong>${escapeHTML(photo.title)}</strong><small>${escapeHTML(photo.note)}</small></figcaption></figure>`).join("")
+    ? photos.map((photo, index) => `<figure class="sports-moment"><button class="sports-moment-thumb" type="button" data-action="sports-photo" data-index="${index}"><img src="${escapeHTML(photo.thumb || photo.src)}" alt="${escapeHTML(photo.title)}" loading="lazy" /></button><figcaption><strong>${escapeHTML(photo.title)}</strong><small>${escapeHTML(photo.note)}</small></figcaption></figure>`).join("")
     : renderSportsMomentSlots();
   return `<header class="panel-header"><div><h3>美好片刻</h3><p>${SPORTS_PHOTO_AUTO_APPROVE ? "全班可投稿，发出来立刻就能看到；不合适的管理员/班委会删掉" : "全班可投稿，管理员/班委审核后显示"}</p></div><span class="badge${photos.length ? " green" : " yellow"}" id="sports-moments-state">${photos.length ? `${photos.length} 张` : "待收录"}</span></header><div class="panel-body">${actions.length ? `<div class="sports-photo-actions">${actions.join("")}</div>` : ""}${sportsUi.photoNotice ? `<p class="sports-photo-notice">${escapeHTML(sportsUi.photoNotice)}</p>` : ""}<div class="sports-moments-grid" id="sports-moments-grid">${grid}</div></div>`;
 }
@@ -8075,65 +8078,31 @@ async function loadSportsPhotos() {
     (record) => record && record.photo_id && (record.class_id || DEFAULT_CLASS_ID) === currentClassId()
   );
   all.sort((a, b) => parseDate(b.created_at) - parseDate(a.created_at));
-  sportsPhotos.approved = all.filter((record) => record.status === "approved" && record.data_url);
+  // 有路径（Storage 上的图）或 data_url（内嵌的老记录）都算有图；
+  // 两样都没有的是半截记录，不显示，免得出现裂图。
+  sportsPhotos.approved = all.filter(
+    (record) => record.status === "approved" && (record.photo_path || record.data_url)
+  );
   sportsPhotos.pending = all.filter((record) => record.status !== "approved" && record.status !== "rejected");
   return all;
 }
 
-function sportsLoadImage(file) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const image = new Image();
-    image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
-    image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("这张图读不出来，请换一张 JPG 或 PNG。")); };
-    image.src = url;
-  });
+// 照片的压缩与上传全交给 photo-store.js：它按 config.js 的 provider 选
+// 「Storage 两档图（清晰）」还是「内嵌 base64（老路，受 MantleDB 64 KB 限制）」。
+function sportsPhotoStore() {
+  const store = window.BanjiPhotoStore;
+  if (!store) throw new Error("照片模块没加载成功，请刷新页面重试。");
+  return store;
 }
 
-function sportsReadDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("照片读取失败，请重试。"));
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function sportsCompressPhoto(file) {
-  if (!file || String(file.type || "").indexOf("image/") !== 0) {
-    throw new Error("请选择图片文件（JPG 或 PNG）。");
-  }
-  const source = await sportsLoadImage(file);
-  const srcWidth = source.naturalWidth || source.width;
-  const srcHeight = source.naturalHeight || source.height;
-  let smallest = null;
-  for (const edge of [1280, 1000, 800, 640, 480]) {
-    const ratio = Math.min(1, edge / Math.max(srcWidth, srcHeight));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(srcWidth * ratio));
-    canvas.height = Math.max(1, Math.round(srcHeight * ratio));
-    const context = canvas.getContext("2d");
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(source, 0, 0, canvas.width, canvas.height);
-    for (const quality of [0.8, 0.68, 0.56, 0.46]) {
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-      if (!blob) continue;
-      if (!smallest || blob.size < smallest.bytes) {
-        smallest = { blob, width: canvas.width, height: canvas.height, bytes: blob.size };
-      }
-      if (blob.size <= SPORTS_PHOTO_MAX_BYTES) {
-        return { dataUrl: await sportsReadDataUrl(blob), width: canvas.width, height: canvas.height, bytes: blob.size };
-      }
-    }
-  }
-  if (!smallest) throw new Error("照片压缩失败，请换一张再试。");
-  return {
-    dataUrl: await sportsReadDataUrl(smallest.blob),
-    width: smallest.width,
-    height: smallest.height,
-    bytes: smallest.bytes
-  };
+// 记录里的图片地址：新记录存路径（走 Storage），老记录存 data_url（内嵌）。
+// 两种都要能显示，否则迁移前传的照片会集体变成裂图。
+function sportsPhotoUrl(record, inlineField) {
+  if (!record) return "";
+  const path = inlineField === "thumb" ? record.thumb_path : record.photo_path;
+  const store = window.BanjiPhotoStore;
+  if (path && store) return store.publicUrl(path);
+  return record.data_url || "";
 }
 
 function closeSportsDialog() {
@@ -8172,7 +8141,7 @@ function pickSportsPhoto() {
     sportsUi.photoNotice = "正在压缩…";
     refreshSportsMoments();
     try {
-      sportsUi.photoDraft = await sportsCompressPhoto(file);
+      sportsUi.photoDraft = await sportsPhotoStore().prepare(file);
       sportsUi.photoNotice = "";
       openSportsUploadDialog();
     } catch (error) {
@@ -8188,7 +8157,7 @@ function openSportsUploadDialog() {
   if (!draft) return;
   sportsDialogShell(
     "提交照片",
-    `<img class="sports-dialog-preview" src="${escapeHTML(draft.dataUrl)}" alt="待提交的照片" /><p class="sports-dialog-hint">已压到 ${Math.round(draft.bytes / 1024)} KB（${draft.width}×${draft.height}）。共享库一条只放 64 KB，原图不会上传。</p><label class="sports-dialog-field">照片说明<input type="text" id="sports-photo-title" maxlength="24" placeholder="例如：接力交棒瞬间" /></label><div class="sports-dialog-actions"><button class="secondary-button" type="button" data-action="sports-dialog-close">取消</button><button class="primary-button" type="button" data-action="sports-photo-submit">${icon("cloud-upload")} 提交投稿</button></div>`
+    `<img class="sports-dialog-preview" src="${escapeHTML(draft.previewUrl)}" alt="待提交的照片" /><p class="sports-dialog-hint">${draft.mode === "storage" ? `原图 ${draft.width}×${draft.height}，约 ${Math.round(draft.bytes / 1024)} KB，清晰上传。` : `已压到 ${Math.round(draft.bytes / 1024)} KB（${draft.width}×${draft.height}）。共享库一条只放 64 KB，原图不会上传。`}</p><label class="sports-dialog-field">照片说明<input type="text" id="sports-photo-title" maxlength="24" placeholder="例如：接力交棒瞬间" /></label><div class="sports-dialog-actions"><button class="secondary-button" type="button" data-action="sports-dialog-close">取消</button><button class="primary-button" type="button" data-action="sports-photo-submit">${icon("cloud-upload")} 提交投稿</button></div>`
   );
   document.getElementById("sports-photo-title")?.focus();
 }
@@ -8196,39 +8165,42 @@ function openSportsUploadDialog() {
 async function submitSportsPhoto() {
   const draft = sportsUi.photoDraft;
   if (!draft || !authState.session || sportsUi.photoBusy) return;
-  // 照片和账号共用「每个命名空间 100 条」的免费额度，满了再写只会拿到 403。
-  // 留 5 条余量，提前把话说清楚，而不是让同学看到「提交失败：Shared storage request failed: 403」。
-  const usedPhotoSlots = sportsPhotos.approved.length + sportsPhotos.pending.length;
-  if (usedPhotoSlots >= MANTLE_ENTRY_LIMIT - 5) {
-    sportsUi.photoNotice = `共享库照片位快满了（${usedPhotoSlots}/${MANTLE_ENTRY_LIMIT}），请管理员先删掉几张旧照片再传。`;
-    closeSportsDialog();
-    refreshSportsMoments();
-    return;
+  // 内嵌模式（MantleDB）下照片和账号共用「每个命名空间 100 条」的额度，
+  // 满了再写只会拿到 403，所以留 5 条余量提前把话说清楚。
+  // 走 Storage 时照片不占这条额度，直接跳过。
+  const inlineMode = draft.mode !== "storage";
+  if (inlineMode) {
+    const usedPhotoSlots = sportsPhotos.approved.length + sportsPhotos.pending.length;
+    if (usedPhotoSlots >= MANTLE_ENTRY_LIMIT - 5) {
+      sportsUi.photoNotice = `共享库照片位快满了（${usedPhotoSlots}/${MANTLE_ENTRY_LIMIT}），请管理员先删掉几张旧照片再传。`;
+      closeSportsDialog();
+      refreshSportsMoments();
+      return;
+    }
   }
-  const record = {
-    photo_id: sportsPhotoId(),
-    class_id: currentClassId(),
-    title: (document.getElementById("sports-photo-title")?.value || "").trim().slice(0, 24),
-    data_url: draft.dataUrl,
-    width: draft.width,
-    height: draft.height,
-    bytes: draft.bytes,
-    uploader_id: authState.session.user?.id || "",
-    uploader_name: authState.session.username || "",
-    uploader_role: authState.session.role || "student",
-    status: SPORTS_PHOTO_AUTO_APPROVE ? "approved" : "pending",
-    created_at: new Date().toISOString()
-  };
-  if (JSON.stringify(record).length > 65536) {
-    sportsUi.photoDraft = null;
-    sportsUi.photoNotice = "照片太大，请换一张更小的。";
-    closeSportsDialog();
-    refreshSportsMoments();
-    return;
-  }
+  const photoId = sportsPhotoId();
   sportsUi.photoBusy = true;
   try {
-    await mantleRequest(mantleEntryUrl(SPORTS_PHOTO_PATH + encodeURIComponent(record.photo_id)), {
+    // 先把图片传上去、拿到路径，再写记录。反过来会留下指向空文件的记录。
+    const uploaded = await sportsPhotoStore().uploadPhoto(photoId, draft);
+    const record = {
+      photo_id: photoId,
+      class_id: currentClassId(),
+      title: (document.getElementById("sports-photo-title")?.value || "").trim().slice(0, 24),
+      width: draft.width,
+      height: draft.height,
+      bytes: draft.bytes,
+      uploader_id: authState.session.user?.id || "",
+      uploader_name: authState.session.username || "",
+      uploader_role: authState.session.role || "student",
+      status: SPORTS_PHOTO_AUTO_APPROVE ? "approved" : "pending",
+      created_at: new Date().toISOString(),
+      ...uploaded
+    };
+    if (inlineMode) record.data_url = draft.dataUrl;
+    // 内嵌模式必须自己盯着 64 KB；Storage 模式的记录只有几十字节，这条永远不会触发。
+    if (JSON.stringify(record).length > 65536) throw new Error("照片太大，请换一张更小的。");
+    await mantleRequest(mantleEntryUrl(SPORTS_PHOTO_PATH + encodeURIComponent(photoId)), {
       method: "POST",
       body: JSON.stringify(record)
     });
@@ -8319,6 +8291,9 @@ async function removeSportsPhoto(id) {
   sportsUi.photoBusy = true;
   try {
     await mantleRequest(mantleEntryUrl(SPORTS_PHOTO_PATH + encodeURIComponent(id)), { method: "DELETE" });
+    // 记录删掉之后再清桶里的对象；对象删不掉不该让整件事变成失败（记录已经没了）。
+    const gone = sportsPhotos.approved.concat(sportsPhotos.pending).find((item) => item.photo_id === id);
+    await sportsPhotoStore().removePhoto(gone).catch(() => {});
     sportsUi.photoNotice = "已删掉 1 张照片。";
     closeSportsPhoto();
     await loadSportsPhotos();
