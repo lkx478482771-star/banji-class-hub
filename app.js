@@ -1467,6 +1467,8 @@ function renderDashboard() {
         </div>
       </section>
 
+      ${renderTodayFocus()}
+
       ${
         isSpecialRole
           ? `
@@ -1669,6 +1671,110 @@ function renderDashboard() {
         </aside>
       </section>
     </div>
+  `;
+}
+
+function renderTodayFocus() {
+  if (!ui.scheduleLoaded && !ui.scheduleLoading) {
+    window.setTimeout(() => void loadSchedule(), 0);
+  }
+
+  const today = new Date();
+  const todayKey = toDateInputValue(today);
+  const weekday = ((today.getDay() + 6) % 7) + 1;
+  const nowClock = today.getHours() * 100 + today.getMinutes();
+  const schedule = ui.schedule;
+  let todaySessions = [];
+
+  if (ui.scheduleLoaded && schedule) {
+    const datedSessions = (schedule.sessions || []).filter(
+      (item) => String(item.date || "").slice(0, 10) === todayKey
+    );
+    todaySessions = datedSessions.length
+      ? datedSessions
+      : (schedule.sessions || []).filter(
+          (item) =>
+            Number(item.weekIndex) === Number(schedule.currentWeek || 1) &&
+            Number(item.weekday) === weekday
+        );
+  }
+
+  todaySessions.sort((a, b) => Number(a.startTime) - Number(b.startTime));
+  const nextSession = todaySessions.find((item) => {
+    const fallback = manualUnitTimes(item.startUnit, item.endUnit);
+    return Number(item.endTime || fallback.endTime) >= nowClock;
+  });
+  const nextDeadline = [...state.deadlines]
+    .filter((item) => !item.done)
+    .sort((a, b) => parseDate(a.due) - parseDate(b.due))[0];
+  const openPosts = [...state.posts]
+    .filter((item) => item.status === "open")
+    .sort((a, b) => parseDate(b.createdAt) - parseDate(a.createdAt));
+  const nextStart = nextSession
+    ? Number(nextSession.startTime || manualUnitTimes(nextSession.startUnit, nextSession.endUnit).startTime)
+    : 0;
+  const nextEnd = nextSession
+    ? Number(nextSession.endTime || manualUnitTimes(nextSession.startUnit, nextSession.endUnit).endTime)
+    : 0;
+  const classTitle = !ui.scheduleLoaded
+    ? "正在读取个人课表"
+    : nextSession
+      ? nextSession.courseName
+      : todaySessions.length
+        ? "今天课程已结束"
+        : schedule?.courses?.length
+          ? "今天没有课程"
+          : "还没有添加个人课表";
+  const classDetail = !ui.scheduleLoaded
+    ? "稍后会显示今天的课程安排"
+    : nextSession
+      ? `${formatClock(nextStart)}–${formatClock(nextEnd)} · ${nextSession.room || "地点待定"}`
+      : todaySessions.length
+        ? "今天的课程安排已全部结束"
+        : schedule?.courses?.length
+          ? "可以先处理截止事项或互助请求"
+          : "添加课程后，这里会显示下一节课";
+  const classStatus =
+    nextSession && nextStart <= nowClock ? "正在上课" : nextSession ? "下一节课" : "个人课表";
+
+  return `
+    <section class="today-focus" aria-labelledby="today-focus-title">
+      <header class="today-focus-header">
+        <div>
+          <p class="eyebrow">打开首页，先看今天</p>
+          <h2 id="today-focus-title">今日待办</h2>
+          <p>下一节课、最近截止和还在等待回应的互助</p>
+        </div>
+      </header>
+      <div class="today-focus-grid">
+        <button class="today-focus-card" type="button" data-action="navigate" data-page="profile">
+          <span class="today-focus-label">${icon("book-open-check")} ${classStatus}</span>
+          <strong>${escapeHTML(classTitle)}</strong>
+          <span class="today-focus-detail">${escapeHTML(classDetail)}</span>
+          <span class="today-focus-link">查看我的课表 ${icon("arrow-up-right")}</span>
+        </button>
+        <button class="today-focus-card" type="button" data-action="scroll-to" data-target="deadline-panel">
+          <span class="today-focus-label">${icon(nextDeadline && daysUntil(nextDeadline.due) <= 1 ? "alarm-clock" : "calendar-clock")} 最近截止</span>
+          <strong>${escapeHTML(nextDeadline?.title || "暂时没有待办事项")}</strong>
+          <span class="today-focus-detail">${escapeHTML(
+            nextDeadline
+              ? `${dueLabel(nextDeadline.due)} · ${nextDeadline.category || "班级事项"}`
+              : "有新的截止提醒时会显示在这里"
+          )}</span>
+          <span class="today-focus-link">查看全部事项 ${icon("arrow-up-right")}</span>
+        </button>
+        <button class="today-focus-card" type="button" data-action="navigate" data-page="mutual-aid">
+          <span class="today-focus-label">${icon("hand-heart")} 待回应互助 · ${openPosts.length} 条</span>
+          <strong>${escapeHTML(openPosts[0]?.title || "目前没有待回应互助")}</strong>
+          <span class="today-focus-detail">${escapeHTML(
+            openPosts[0]
+              ? `${openPosts[0].type} · ${openPosts[0].author} 发布`
+              : "有同学发布需求时，会汇总到这里"
+          )}</span>
+          <span class="today-focus-link">前往互助广场 ${icon("arrow-up-right")}</span>
+        </button>
+      </div>
+    </section>
   `;
 }
 
@@ -2166,7 +2272,7 @@ async function loadSchedule(force = false) {
       : [];
     ui.schedule.currentWeek = Math.max(1, Number(ui.schedule.currentWeek || 1));
     ui.scheduleLoaded = true;
-    if (ui.page === "profile") render();
+    if (ui.page === "profile" || ui.page === "today") render();
   } finally {
     // 任何异常都不能让课表永久停在加载中。
     ui.scheduleLoading = false;
