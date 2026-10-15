@@ -5304,3 +5304,15 @@ body.is-admin {
   }
 }
 
+
+
+/* 个人头像与运动员形象设置 */
+.avatar > img, .personal-avatar > img, .member-avatar > img { display:block; width:100%; height:100%; border-radius:inherit; object-fit:cover; }
+.profile-avatar-upload { position:relative; overflow:hidden; justify-content:center; cursor:pointer; }
+.profile-avatar-upload input { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+.sports-look-editor { display:grid; gap:10px; padding:14px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-soft); }
+.sports-look-editor > strong { font-size:13px; }
+.sports-look-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.sports-look-field { display:grid; gap:5px; color:var(--ink-faint); font-size:11px; }
+.sports-look-field select { width:100%; min-height:38px; padding:7px 9px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:var(--surface); font:inherit; }
+@media (max-width:480px) { .sports-look-grid { grid-template-columns:1fr; } }
