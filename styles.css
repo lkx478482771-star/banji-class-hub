@@ -37,6 +37,11 @@
 
 html {
   min-width: 320px;
+  /* 手机浏览器（Android Chrome、微信 X5 等）会把过小的字自动放大。
+     晶圆芯片里的姓名只有 7~12px，被放大后芯片宽度不变，名字左右就被
+     overflow:hidden 切掉了。这里关掉字体自动调整，字号只由我们说了算。 */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   background: var(--page);
 }
 
@@ -3152,6 +3157,9 @@ body.is-auth-required .app-shell {
   aspect-ratio: 1 / 1;
   padding: 0;
   overflow: hidden;
+  /* 芯片是 <button>，个别内核对表单控件里的字体增强更激进，这里再钉一次 */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   transform: translate(-50%, -50%);
   border: 1px solid rgba(150, 205, 245, 0.42);
   border-radius: 3px;
