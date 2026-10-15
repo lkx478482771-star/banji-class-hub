@@ -685,7 +685,8 @@ svg {
     radial-gradient(ellipse at 88% 12%, rgba(255, 190, 72, 0.42), transparent 34%),
     radial-gradient(ellipse at 8% 100%, rgba(22, 211, 157, 0.38), transparent 42%),
     linear-gradient(112deg, rgba(8, 40, 68, 0.82) 0%, rgba(9, 77, 99, 0.58) 54%, rgba(30, 62, 112, 0.28) 100%),
-    url("assets/campus-collaboration.webp");
+    /* Photo: George Pak via Pexels, https://www.pexels.com/photo/students-walking-on-the-campus-7972653/ */
+    url("https://images.pexels.com/photos/7972653/pexels-photo-7972653.jpeg?auto=compress&cs=tinysrgb&w=1800");
   background-position: center;
   background-size: cover;
 }
