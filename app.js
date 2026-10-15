@@ -886,6 +886,10 @@ async function registerAccount(
     await writeRemoteAccount(account);
   } catch (error) {
     saveLocalAccounts(accounts.filter((item) => item.usernameKey !== usernameKey));
+    // 100 条上限撞上了：这跟网络抖动不是一回事，重试一万次也存不进去，得说人话。
+    if (error.entryLimit) {
+      throw new Error("共享库已满（同班上限 100 条），请联系管理员清理后再注册。");
+    }
     throw new Error("账号暂时无法保存到共享数据库，请稍后重试。");
   }
   const session = createLocalSession(account);
@@ -4991,24 +4995,61 @@ function hasSharedConfig() {
   );
 }
 
+// —— 存储分片：免费档每个命名空间只有 100 条 entry、每 24 小时 10000 次请求。
+// 全班 40 人挤在一个命名空间时，「40 个账号 + 40 份课表」就已经 80 条，
+// 第 101 条新数据会直接 403（"Entry limit reached"）——新同学注册就此卡死。
+// 分片表在 config.js 的 mantleNamespaceMap（path 前缀 → 命名空间），
+// 每个片各自拥有独立的 100 条与 10000 次额度，容量和限流同时翻倍。
+function mantleNamespaceMap() {
+  const map = sharedConfig.mantleNamespaceMap;
+  return map && typeof map === "object" ? map : {};
+}
+
+// 最长前缀优先：以后加更细的规则不会被粗规则抢走。
+function mantleNamespaceForPath(path) {
+  const text = String(path || "");
+  const map = mantleNamespaceMap();
+  let namespace = "";
+  let matched = -1;
+  for (const prefix of Object.keys(map)) {
+    if (prefix.length > matched && text.startsWith(prefix)) {
+      matched = prefix.length;
+      namespace = map[prefix];
+    }
+  }
+  return namespace || sharedConfig.mantleNamespace || "";
+}
+
+function mantleKnownNamespaces() {
+  const known = new Set(Object.values(mantleNamespaceMap()));
+  if (sharedConfig.mantleNamespace) known.add(sharedConfig.mantleNamespace);
+  return known;
+}
+
 function mantleEntryUrl(path) {
   return `${sharedConfig.mantleApiBase}/${encodeURIComponent(
-    sharedConfig.mantleNamespace
+    mantleNamespaceForPath(path)
   )}/${path}`;
 }
 
 // 写入只影响被写的那一条：从写入 URL 反推出它的 path，用来精准失效增量缓存。
-// 前缀复用 mantleEntryUrl("")，避免两处各写一份拼接逻辑而互相漂移。
+// 分片之后前缀不止一个，所以先取出命名空间、确认是本站认识的片，再切出 path。
 function mantlePathFromUrl(url) {
-  const prefix = mantleEntryUrl("");
   const text = String(url);
-  return text.startsWith(prefix) ? text.slice(prefix.length) : "";
+  const base = `${sharedConfig.mantleApiBase}/`;
+  if (!text.startsWith(base)) return "";
+  const rest = text.slice(base.length);
+  const slash = rest.indexOf("/");
+  if (slash < 0) return "";
+  if (!mantleKnownNamespaces().has(decodeURIComponent(rest.slice(0, slash)))) {
+    return "";
+  }
+  return rest.slice(slash + 1);
 }
 
-function mantleListUrl() {
-  return `${sharedConfig.mantleApiBase}/list/${encodeURIComponent(
-    sharedConfig.mantleNamespace
-  )}`;
+function mantleListUrl(namespace) {
+  const target = namespace || sharedConfig.mantleNamespace || "";
+  return `${sharedConfig.mantleApiBase}/list/${encodeURIComponent(target)}`;
 }
 
 const MANTLE_TIMEOUT_MS = 8000;
@@ -5064,6 +5105,15 @@ async function fetchMantle(url, options) {
     if (!response.ok) {
       const error = new Error(`Shared storage request failed: ${response.status}`);
       error.status = response.status;
+      // 免费档有两堵硬墙：403「Entry limit reached」＝命名空间满 100 条，
+      // 429＝24 小时请求额度用完。只回一句状态码的话，界面上既解释不了也降级不了，
+      // 所以把服务端原话读出来（读 body 同样在超时保护之内），交给上层分辨。
+      if (response.status === 403 || response.status === 429) {
+        const detail = await response.text().catch(() => "");
+        error.detail = String(detail || "").slice(0, 200);
+        if (/entry limit/i.test(error.detail)) error.entryLimit = true;
+        if (response.status === 429) error.rateLimited = true;
+      }
       throw error;
     }
     if (response.status === 204) return null;
@@ -5175,21 +5225,28 @@ function localDateKey(date = new Date()) {
   ).padStart(2, "0")}`;
 }
 
+// 路径里不再带日期：每人每天留一条的话，40 个人一学期就是几百条，
+// 光「今天还没过期的旧记录」就能把命名空间的 100 条额度吃光。
+// 现在每人固定一条，日期写在内容里，跨天直接覆盖——条目数与用了多少天无关。
 function dailyUsagePath() {
-  return `usage/${encodeURIComponent(authState.session.user.id)}/${localDateKey()}`;
+  return `usage/${encodeURIComponent(authState.session.user.id)}`;
 }
+
+const EMPTY_DAILY_USAGE = { total: 0, post: 0, team: 0, suggestion: 0, deadline: 0 };
 
 async function readDailyUsage() {
   if (!authState.session || !hasSharedConfig()) {
-    return { total: 0, post: 0, team: 0, suggestion: 0, deadline: 0 };
+    return { ...EMPTY_DAILY_USAGE };
   }
-  const usage = await mantleRequest(mantleEntryUrl(dailyUsagePath()));
+  const stored = await mantleRequest(mantleEntryUrl(dailyUsagePath()));
+  // 昨天的计数不能算进今天：日期对不上就当作零。
+  if (!stored || stored.date !== localDateKey()) return { ...EMPTY_DAILY_USAGE };
   return {
-    total: Number(usage?.total || 0),
-    post: Number(usage?.post || 0),
-    team: Number(usage?.team || 0),
-    suggestion: Number(usage?.suggestion || 0),
-    deadline: Number(usage?.deadline || 0)
+    total: Number(stored.total || 0),
+    post: Number(stored.post || 0),
+    team: Number(stored.team || 0),
+    suggestion: Number(stored.suggestion || 0),
+    deadline: Number(stored.deadline || 0)
   };
 }
 
@@ -5642,8 +5699,22 @@ function pruneMantleEntryCache(prefix, allPaths) {
   }
 }
 
+// 每个命名空间装了多少条：越接近 100 越要提前说，而不是等第 101 条被 403 打回来。
+const MANTLE_ENTRY_LIMIT = 100;
+const mantleNamespaceLoad = new Map();
+
+function noteMantleNamespaceLoad(namespace, entries) {
+  if (!namespace) return;
+  mantleNamespaceLoad.set(namespace, {
+    count: Array.isArray(entries) ? entries.length : 0,
+    at: Date.now()
+  });
+}
+
 async function readIncrementalEntries(prefix, limit = 500, tolerant = false) {
-  const list = await mantleRequest(mantleListUrl());
+  const namespace = mantleNamespaceForPath(prefix);
+  const list = await mantleRequest(mantleListUrl(namespace));
+  noteMantleNamespaceLoad(namespace, list?.entries);
   const allPaths = [];
   const scoped = [];
   for (const entry of list?.entries || []) {
@@ -5715,6 +5786,27 @@ async function archiveAndDeleteExpiredRecord(record) {
     mantleEntryUrl(`records/${encodeURIComponent(record.record_key)}`),
     { method: "DELETE" }
   );
+}
+
+// 归档只留最近 N 条：history 是第二个「只增不减」的无底洞
+// （界面上只能管理员一条条删），40 个人用一学期轻松破百。
+const HISTORY_KEEP_MAX = 40;
+
+async function pruneSharedHistory() {
+  const archived = await readIncrementalEntries("history/", 500, true);
+  const alive = archived.filter((record) => record?.record_key);
+  if (alive.length <= HISTORY_KEEP_MAX) return 0;
+  const byAge = alive
+    .slice()
+    .sort((a, b) => String(a.archived_at || "").localeCompare(String(b.archived_at || "")));
+  const doomed = byAge.slice(0, alive.length - HISTORY_KEEP_MAX);
+  // 并发删但限流；单条失败就跳过，下一轮同步还会再试。
+  await mapLimit(doomed, 3, (record) =>
+    mantleRequest(mantleEntryUrl(`history/${encodeURIComponent(record.record_key)}`), {
+      method: "DELETE"
+    }).catch(() => null)
+  );
+  return doomed.length;
 }
 
 function purgeExpiredLocalRecords() {
@@ -5865,19 +5957,25 @@ function noteRateLimit() {
   setSyncStatus("ratelimited");
 }
 
+// 全班同一时间打开页面时，所有人的定时器锁步在一起，请求也一起砸过去。
+// 给每次排期加 ±15% 抖动把尖峰摊平；失败重试逐次退避（12s→24s→…最多 5 分钟）。
+function jitterMs(base, ratio = 0.15) {
+  return Math.round(base * (1 + (Math.random() * 2 - 1) * ratio));
+}
+
 function scheduleSharedSync(delay = 12_000) {
   if (syncState.retryTimer || isRateLimited()) return;
   syncState.retryTimer = window.setTimeout(() => {
     syncState.retryTimer = null;
     void syncSharedRecords();
-  }, delay);
+  }, jitterMs(delay));
 }
 
 // 活跃时每 60 秒刷一次；连续 3 分钟没人操作就退到 5 分钟一次。
 function scheduleSyncTick() {
   if (syncState.tickTimer) window.clearTimeout(syncState.tickTimer);
   const idle = Date.now() - syncState.lastActiveAt > SYNC_IDLE_AFTER_MS;
-  syncState.tickTimer = window.setTimeout(runSyncTick, idle ? SYNC_IDLE_MS : SYNC_ACTIVE_MS);
+  syncState.tickTimer = window.setTimeout(runSyncTick, jitterMs(idle ? SYNC_IDLE_MS : SYNC_ACTIVE_MS));
 }
 
 function runSyncTick() {
@@ -6029,6 +6127,8 @@ async function syncSharedRecords() {
     if (expiredRecords.length) {
       ui.historyLoaded = false;
       if (ui.page === "history") void loadHistory(true);
+      // 归档完顺手删掉最老的：history 否则只增不减，迟早顶满 100 条。
+      if (await pruneSharedHistory().catch(() => 0)) ui.historyLoaded = false;
     }
     // 补删：之前删过、但服务器当时没删掉的，每次同步重试一次，删干净了就不会再冒出来。
     const revived = records.filter((record) => isSharedDeleted(record?.record_key));
@@ -6047,6 +6147,7 @@ async function syncSharedRecords() {
     const reconcile = allRecords.complete !== false;
     const changed = applySharedRecords(liveRecords, reconcile);
     syncState.available = true;
+    syncState.failStreak = 0;
     if (changed || accountChanged) {
       saveState();
       render();
@@ -6060,13 +6161,19 @@ async function syncSharedRecords() {
   } catch (error) {
     if (error.status === 429) {
       noteRateLimit();
+    } else if (error.entryLimit) {
+      // 命名空间顶满 100 条：继续重试只会一直 403，说清楚并退到 5 分钟一轮。
+      setSyncStatus("offline", "共享库已满，请联系管理员");
+      scheduleSharedSync(SYNC_IDLE_MS);
     } else if (error.status === 404) {
       syncState.available = false;
       setSyncStatus("unavailable");
     } else {
       syncState.available = false;
       setSyncStatus("offline");
-      scheduleSharedSync();
+      // 连续失败就退避（12s→24s→48s…），别在网络或服务端不顺时火上浇油。
+      syncState.failStreak = (syncState.failStreak || 0) + 1;
+      scheduleSharedSync(Math.min(12_000 * 2 ** (syncState.failStreak - 1), SYNC_IDLE_MS));
     }
   } finally {
     syncState.inFlight = false;
@@ -6273,11 +6380,20 @@ function saveBlob(blob, fileName) {
   URL.revokeObjectURL(url);
 }
 
+// 导出 / 快照必须覆盖全部分片：只列一个命名空间会漏掉课表、照片和归档。
 async function listSharedPaths() {
-  const listing = await mantleRequest(mantleListUrl());
-  return (listing?.entries || [])
-    .map((entry) => (entry && typeof entry.path === "string" ? entry.path : null))
-    .filter(Boolean);
+  const namespaces = [...mantleKnownNamespaces()];
+  const listings = await mapLimit(namespaces, MANTLE_MAX_CONCURRENCY, (namespace) =>
+    mantleRequest(mantleListUrl(namespace)).catch(() => null)
+  );
+  const paths = [];
+  listings.forEach((listing, index) => {
+    noteMantleNamespaceLoad(namespaces[index], listing?.entries);
+    (listing?.entries || []).forEach((entry) => {
+      if (entry && typeof entry.path === "string") paths.push(entry.path);
+    });
+  });
+  return paths;
 }
 
 async function fetchAllRecords() {
@@ -6946,6 +7062,9 @@ const sportsPickAthletes = () =>
 
 const SPORTS_PHOTO_PATH = "photos/";
 const SPORTS_PHOTO_MAX_BYTES = 45000;
+// 运动会当天免审：投稿直接进「美好片刻」，不合适的管理员/班委当场删掉。
+// 想改回先审后发，把这里改成 false 即可——审核弹窗和「全部通过」都还在。
+const SPORTS_PHOTO_AUTO_APPROVE = true;
 const SPORTS_PHOTO_REVIEW_ROLES = SCHEDULE_EDIT_ROLES.concat(["publicity", "league_secretary"]);
 const sportsPhotos = { approved: [], pending: [] };
 
@@ -7590,7 +7709,8 @@ function sportsMomentList() {
   const shared = sportsPhotos.approved.map((record) => ({
     src: record.data_url,
     title: record.title || "美好片刻",
-    note: `${record.uploader_name || "同学"} 投稿`
+    note: `${record.uploader_name || "同学"} 投稿`,
+    photoId: record.photo_id || ""
   }));
   return repo.concat(shared);
 }
@@ -7607,7 +7727,7 @@ function renderSportsMomentsPanel() {
   const grid = photos.length
     ? photos.map((photo, index) => `<figure class="sports-moment"><button class="sports-moment-thumb" type="button" data-action="sports-photo" data-index="${index}"><img src="${escapeHTML(photo.src)}" alt="${escapeHTML(photo.title)}" loading="lazy" /></button><figcaption><strong>${escapeHTML(photo.title)}</strong><small>${escapeHTML(photo.note)}</small></figcaption></figure>`).join("")
     : renderSportsMomentSlots();
-  return `<header class="panel-header"><div><h3>美好片刻</h3><p>全班可投稿，管理员/班委审核后显示</p></div><span class="badge${photos.length ? " green" : " yellow"}" id="sports-moments-state">${photos.length ? `${photos.length} 张` : "待收录"}</span></header><div class="panel-body">${actions.length ? `<div class="sports-photo-actions">${actions.join("")}</div>` : ""}${sportsUi.photoNotice ? `<p class="sports-photo-notice">${escapeHTML(sportsUi.photoNotice)}</p>` : ""}<div class="sports-moments-grid" id="sports-moments-grid">${grid}</div></div>`;
+  return `<header class="panel-header"><div><h3>美好片刻</h3><p>${SPORTS_PHOTO_AUTO_APPROVE ? "全班可投稿，发出来立刻就能看到；不合适的管理员/班委会删掉" : "全班可投稿，管理员/班委审核后显示"}</p></div><span class="badge${photos.length ? " green" : " yellow"}" id="sports-moments-state">${photos.length ? `${photos.length} 张` : "待收录"}</span></header><div class="panel-body">${actions.length ? `<div class="sports-photo-actions">${actions.join("")}</div>` : ""}${sportsUi.photoNotice ? `<p class="sports-photo-notice">${escapeHTML(sportsUi.photoNotice)}</p>` : ""}<div class="sports-moments-grid" id="sports-moments-grid">${grid}</div></div>`;
 }
 
 function refreshSportsMoments() {
@@ -7992,7 +8112,7 @@ async function submitSportsPhoto() {
     uploader_id: authState.session.user?.id || "",
     uploader_name: authState.session.username || "",
     uploader_role: authState.session.role || "student",
-    status: "pending",
+    status: SPORTS_PHOTO_AUTO_APPROVE ? "approved" : "pending",
     created_at: new Date().toISOString()
   };
   if (JSON.stringify(record).length > 65536) {
@@ -8009,7 +8129,9 @@ async function submitSportsPhoto() {
       body: JSON.stringify(record)
     });
     sportsUi.photoDraft = null;
-    sportsUi.photoNotice = "已提交，等管理员或班委审核后就会出现。";
+    sportsUi.photoNotice = SPORTS_PHOTO_AUTO_APPROVE
+      ? "已发布，大家现在就能在「美好片刻」里看到。"
+      : "已提交，等管理员或班委审核后就会出现。";
     closeSportsDialog();
     await loadSportsPhotos();
   } catch (error) {
@@ -8025,7 +8147,10 @@ function openSportsReviewDialog() {
   const rows = pending.length
     ? pending.map((record) => `<div class="sports-review-item"><img src="${escapeHTML(record.data_url)}" alt="待审核照片" loading="lazy" /><div class="sports-review-meta"><strong>${escapeHTML(record.title || "未命名照片")}</strong><small>${escapeHTML(record.uploader_name || "同学")} 投稿</small></div><div class="sports-review-actions"><button class="primary-button" type="button" data-action="sports-photo-approve" data-id="${escapeHTML(record.photo_id)}">通过</button><button class="danger-button" type="button" data-action="sports-photo-reject" data-id="${escapeHTML(record.photo_id)}">驳回</button></div></div>`).join("")
     : `<p class="sports-dialog-hint">暂无待审核投稿。</p>`;
-  sportsDialogShell(`审核投稿（${pending.length}）`, `<div class="sports-review-list">${rows}</div>`);
+  const bulk = pending.length > 1
+    ? `<div class="sports-review-bulk"><button class="primary-button" type="button" data-action="sports-photo-approve-all">${icon("check")} 全部通过（${pending.length} 张）</button><span>一次点完，不用一张一张来。</span></div>`
+    : "";
+  sportsDialogShell(`审核投稿（${pending.length}）`, `${bulk}<div class="sports-review-list">${rows}</div>`);
 }
 
 async function reviewSportsPhoto(id, approve) {
@@ -8055,6 +8180,51 @@ async function reviewSportsPhoto(id, approve) {
   else closeSportsDialog();
 }
 
+// 一键通过全部待审：单张失败不打断整批，最后统一报数。
+async function approveAllSportsPhotos() {
+  if (!hasRolePermission(SPORTS_PHOTO_REVIEW_ROLES) || sportsUi.photoBusy) return;
+  const pending = sportsPhotos.pending.slice();
+  if (!pending.length) return;
+  sportsUi.photoBusy = true;
+  let done = 0;
+  for (const record of pending) {
+    try {
+      await mantleRequest(mantleEntryUrl(SPORTS_PHOTO_PATH + encodeURIComponent(record.photo_id)), {
+        method: "POST",
+        body: JSON.stringify({ ...record, status: "approved", reviewed_by: authState.session?.username || "", reviewed_at: new Date().toISOString() })
+      });
+      done += 1;
+    } catch (error) {
+      // 单张失败就跳过，下面会把成功数报出来。
+    }
+  }
+  sportsUi.photoBusy = false;
+  sportsUi.photoNotice = done === pending.length
+    ? `已通过全部 ${done} 张投稿。`
+    : `通过 ${done} 张，${pending.length - done} 张失败，可以再点一次。`;
+  await loadSportsPhotos();
+  refreshSportsMoments();
+  if (sportsPhotos.pending.length) openSportsReviewDialog();
+  else closeSportsDialog();
+}
+
+// 免审之后没了事前把关，得能当场删掉不合适的照片。
+async function removeSportsPhoto(id) {
+  if (!id || !hasRolePermission(SPORTS_PHOTO_REVIEW_ROLES) || sportsUi.photoBusy) return;
+  if (!window.confirm("确定删掉这张照片吗？删了就找不回来了。")) return;
+  sportsUi.photoBusy = true;
+  try {
+    await mantleRequest(mantleEntryUrl(SPORTS_PHOTO_PATH + encodeURIComponent(id)), { method: "DELETE" });
+    sportsUi.photoNotice = "已删掉 1 张照片。";
+    closeSportsPhoto();
+    await loadSportsPhotos();
+  } catch (error) {
+    sportsUi.photoNotice = `删除失败：${error?.message || "请检查网络后重试。"}`;
+  }
+  sportsUi.photoBusy = false;
+  refreshSportsMoments();
+}
+
 function openSportsPhoto(index) {
   const photo = sportsMomentList()[Number(index)];
   if (!photo) return;
@@ -8069,7 +8239,7 @@ function openSportsPhoto(index) {
     <button class="sports-lightbox-close" type="button" data-action="sports-close-photo" aria-label="关闭">${icon("x")}</button>
     <figure>
       <img src="${escapeHTML(photo.src)}" alt="${escapeHTML(photo.title || "运动会照片")}" />
-      <figcaption>${escapeHTML(photo.title || "美好片刻")}</figcaption>
+      <figcaption>${escapeHTML(photo.title || "美好片刻")}${photo.photoId && hasRolePermission(SPORTS_PHOTO_REVIEW_ROLES) ? `<button class="danger-button" type="button" data-action="sports-photo-delete" data-id="${escapeHTML(photo.photoId)}">${icon("trash-2")} 删掉这张</button>` : ""}</figcaption>
     </figure>
   `;
   box.addEventListener("click", (event) => {
@@ -8288,6 +8458,16 @@ function handleClick(event) {
 
   if (action === "sports-photo-approve") {
     reviewSportsPhoto(actionElement.dataset.id || "", true);
+    return;
+  }
+
+  if (action === "sports-photo-approve-all") {
+    approveAllSportsPhotos();
+    return;
+  }
+
+  if (action === "sports-photo-delete") {
+    removeSportsPhoto(actionElement.dataset.id || "");
     return;
   }
 

@@ -3786,6 +3786,23 @@ body.is-auth-required .app-shell {
   gap: 10px;
 }
 
+.sports-review-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.sports-review-bulk span {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.sports-lightbox figcaption .danger-button {
+  margin: 12px auto 0;
+}
+
 .sports-photo-notice {
   margin: 12px 0 0;
   padding: 10px 12px;
