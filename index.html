@@ -20,7 +20,7 @@
     <meta name="apple-mobile-web-app-title" content="班集" />
     <meta name="application-name" content="班集" />
 
-    <link rel="stylesheet" href="styles.css?v=20261016g-die-name-fit" />
+    <link rel="stylesheet" href="styles.css?v=20261016h-die-name-fit" />
   </head>
   <body>
     <div class="app-shell">
@@ -219,10 +219,14 @@
     <div class="modal-root" id="modal-root"></div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-    <script src="config.js?v=20261016g-shards" defer></script>
-    <script src="assets/icons.js?v=20261016g" defer></script>
+    <!-- 运动会「赛场原声」：特意放在 #app 外面。收在 #app 里的话，每次重渲染都会被
+         重建，歌就断了；preload="none" 保证没人点之前一个字节都不下载。 -->
+    <audio id="sports-bgm" preload="none" playsinline></audio>
+
+    <script src="config.js?v=20261016h-shards" defer></script>
+    <script src="assets/icons.js?v=20261016h" defer></script>
     <!-- Supabase 适配器：只在 config.js 把 provider 改成 "supabase" 后才被调用，见 README「迁移到 Supabase」 -->
-    <script src="backend-supabase.js?v=20261016g-supabase" defer></script>
-    <script src="app.js?v=20261016g-die-name-fit" defer></script>
+    <script src="backend-supabase.js?v=20261016h-supabase" defer></script>
+    <script src="app.js?v=20261016h-die-name-fit" defer></script>
   </body>
 </html>

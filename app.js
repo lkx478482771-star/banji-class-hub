@@ -7079,6 +7079,14 @@ const sportsUi = {
   filter: "all"
 };
 
+// 运动会「赛场原声」：[歌名, 文件, 时长]，文件放 assets/music/。
+const SPORTS_BGM_TRACKS = [
+  ["那些无人看见的时光", "assets/music/01-unseen-days.mp3", "4:23"],
+  ["那天的风", "assets/music/02-wind-of-that-day.mp3", "3:28"],
+  ["发令枪响之前", "assets/music/03-before-the-gun.mp3", "3:29"]
+];
+const sportsBgm = { index: -1, playing: false, bound: false };
+
 // 径赛 / 田赛分组：按项目名里的关键词判断，用来给名单做筛选。
 const SPORTS_FILTERS = [["all", "全部"], ["track", "径赛"], ["field", "田赛"]];
 // 芯片顶上那道颜色：径赛青、田赛橙、两项都上的紫，一眼能看出谁跑谁投。
@@ -7868,6 +7876,28 @@ function renderSports() {
               </div>
             </div>
           </article>
+
+          <article class="panel sports-bgm-card">
+            <header class="panel-header">
+              <div>
+                <h3>赛场原声 · 3 首</h3>
+                <p>想听哪首点哪首，不会自己响</p>
+              </div>
+              <span class="badge">3 首</span>
+            </header>
+            <div class="panel-body">
+              <div class="sports-bgm-list">
+                ${SPORTS_BGM_TRACKS.map((track, index) => {
+                  const on = sportsBgm.index === index;
+                  return `<button class="sports-bgm-track${on ? " is-active" : ""}${on && sportsBgm.playing ? " is-playing" : ""}" type="button" data-action="sports-bgm" data-index="${index}" aria-pressed="${on && sportsBgm.playing}">
+                    <span class="sports-bgm-glyph" aria-hidden="true"></span>
+                    <span class="sports-bgm-title">${escapeHTML(track[0])}</span>
+                    <span class="sports-bgm-time">${track[2]}</span>
+                  </button>`;
+                }).join("")}
+              </div>
+            </div>
+          </article>
         </div>
 
         <aside class="stack">
@@ -8330,6 +8360,43 @@ function closeSportsPhoto() {
   sportsUi.lightbox = -1;
 }
 
+// 「赛场原声」只认用户的手：绑一次事件、切 class 反馈，不重新 render（重渲染会断歌）。
+function sportsBgmAudio() {
+  return document.getElementById("sports-bgm");
+}
+
+function bindSportsBgm() {
+  const audio = sportsBgmAudio();
+  if (!audio || sportsBgm.bound) return;
+  sportsBgm.bound = true;
+  const sync = () => {
+    sportsBgm.playing = sportsBgm.index >= 0 && !audio.paused;
+    document.querySelectorAll("#app .sports-bgm-track").forEach((node) => {
+      const on = Number(node.dataset.index) === sportsBgm.index;
+      node.classList.toggle("is-active", on);
+      node.classList.toggle("is-playing", on && sportsBgm.playing);
+      node.setAttribute("aria-pressed", String(on && sportsBgm.playing));
+    });
+  };
+  ["play", "pause", "ended"].forEach((name) => audio.addEventListener(name, sync));
+}
+
+function toggleSportsBgm(index) {
+  const audio = sportsBgmAudio();
+  const track = SPORTS_BGM_TRACKS[index];
+  if (!audio || !track) return;
+  if (sportsBgm.index === index && !audio.paused) {
+    audio.pause();
+    return;
+  }
+  if (sportsBgm.index !== index) {
+    audio.src = track[1];
+    sportsBgm.index = index;
+  }
+  const started = audio.play();
+  if (started && started.catch) started.catch(() => showToast("播放失败", "浏览器拦下了这次播放，再点一次试试。"));
+}
+
 function mountSports() {
   sizeSportsWafer();
   if (sportsUi.onResize) window.removeEventListener("resize", sportsUi.onResize);
@@ -8337,6 +8404,7 @@ function mountSports() {
   window.addEventListener("resize", sportsUi.onResize);
   startSportsCountdown();
   loadSportsMoments();
+  bindSportsBgm();
 }
 
 function unmountSports() {
@@ -8350,6 +8418,9 @@ function unmountSports() {
   }
   closeSportsPhoto();
   closeSportsDialog();
+  // 歌跟着运动会页走：离开这一页就停。
+  const audio = sportsBgmAudio();
+  if (audio && !audio.paused) audio.pause();
 }
 
 function handleClick(event) {
@@ -8445,6 +8516,11 @@ function handleClick(event) {
 
   if (action === "sports-select") {
     selectSportsAthlete(Number(actionElement.dataset.index) || 0);
+    return;
+  }
+
+  if (action === "sports-bgm") {
+    toggleSportsBgm(Number(actionElement.dataset.index) || 0);
     return;
   }
 

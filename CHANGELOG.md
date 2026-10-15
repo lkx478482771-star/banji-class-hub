@@ -1,5 +1,25 @@
 # 变更记录
 
+## 2026-10-16 — 运动会页加「赛场原声」：三首歌，点了才响
+
+班级宣传这边给了三首 MP3，希望在运动会页能选择性播放。做法刻意保守，不为播放器牺牲首屏：
+
+- 音源放 `assets/music/`：`01-unseen-days.mp3`（那些无人看见的时光，4:23）、
+  `02-wind-of-that-day.mp3`（那天的风，3:28）、`03-before-the-gun.mp3`（发令枪响之前，3:29），
+  合计 17.2 MB，192–256 kbps VBR，**未转码**（本机没有 ffmpeg，也不值得为省几 MB 拿音质换）。
+- `<audio id="sports-bgm" preload="none">` 特意放在 **`#app` 外面**：`render()` 每次都
+  `app.innerHTML = ...` 重建整页，audio 收在里面的话「点一下芯片歌就断了」。
+  `preload="none"` 保证没人点之前一个字节都不下载，首屏体积因此一点没涨。
+- 播放器卡片挂在晶圆图下面（`renderSports()` 左栏 `stack` 内）：三行曲目，点一行播放、
+  再点同一行暂停、点另一行切歌。`bindSportsBgm()` 只绑一次事件，之后靠切
+  `is-active` / `is-playing` class 反馈，**不重新 render**（重渲染会打断正在放的那首）。
+- `unmountSports()` 里暂停：歌跟着运动会页走，切到别的页面就停，不会在别处突然响。
+- `sw.js` 不用动：`<audio>` 发的是带 `Range` 的请求、响应是 206，`cachePut()` 里
+  `response.status !== 200` 那道判断会直接跳过，不会把半截音频缓存下来。
+- 体积：app.js **346.9 KB / 上限 347 KB（只剩 138 字节）**、styles.css 99.4 KB / 100 KB、
+  首屏 558.4 KB / 566.4 KB。**app.js 这次是真的贴到顶了，下一轮加功能前必须先瘦身**
+  （把同步层挪进 `backend-*.js` 或做一次真正的减重）。
+
 ## 2026-10-16 — 迁移第一步：把「换后端」这条接缝铺好（Supabase，线上仍跑 MantleDB）
 
 上一轮把 MantleDB 的 100 条硬顶用分片绕开了，但绕不过两件事：两天花板的算法本身很脆

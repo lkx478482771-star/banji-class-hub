@@ -5341,3 +5341,14 @@ body.is-admin {
 .sports-look-field { display:grid; gap:5px; color:var(--ink-faint); font-size:11px; }
 .sports-look-field select { width:100%; min-height:38px; padding:7px 9px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:var(--surface); font:inherit; }
 @media (max-width:480px) { .sports-look-grid { grid-template-columns:1fr; } }
+
+/* 运动会「赛场原声」：三个曲目行。播放 / 暂停图标用纯 CSS 画，不再引一套图标。 */
+.sports-bgm-list { display:grid; gap:8px; }
+.sports-bgm-track { display:flex; align-items:center; gap:10px; width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--surface-soft); color:var(--ink); font:inherit; text-align:left; cursor:pointer; }
+.sports-bgm-track:hover { border-color:var(--primary); }
+.sports-bgm-track.is-active { border-color:var(--primary); background:var(--primary-soft); }
+.sports-bgm-glyph { flex:0 0 auto; display:grid; place-items:center; width:28px; height:28px; border-radius:50%; background:var(--primary); }
+.sports-bgm-glyph::before { content:""; width:0; height:0; margin-left:3px; border-left:9px solid #fff; border-top:6px solid transparent; border-bottom:6px solid transparent; }
+.sports-bgm-track.is-playing .sports-bgm-glyph::before { width:3px; height:11px; margin-left:-3px; border:0; background:#fff; box-shadow:6px 0 0 #fff; }
+.sports-bgm-title { flex:1 1 auto; font-size:14px; font-weight:600; }
+.sports-bgm-time { flex:0 0 auto; color:var(--ink-faint); font-size:12px; font-variant-numeric:tabular-nums; }
