@@ -5790,7 +5790,10 @@ async function archiveAndDeleteExpiredRecord(record) {
 
 // 归档只留最近 N 条：history 是第二个「只增不减」的无底洞
 // （界面上只能管理员一条条删），40 个人用一学期轻松破百。
-const HISTORY_KEEP_MAX = 40;
+// history 和在架 records 共用同一个命名空间（各 100 条上限），
+// 所以这里必须给 records 留位：30（历史）+ 60（在架）= 90 < 100，余 10 条缓冲。
+// 改这个数要同步改 scripts/check-budget.cjs 里的模型，CI 会拦。
+const HISTORY_KEEP_MAX = 30;
 
 async function pruneSharedHistory() {
   const archived = await readIncrementalEntries("history/", 500, true);
@@ -7949,6 +7952,35 @@ function startSportsCountdown() {
   sportsUi.timer = window.setInterval(tick, 1000);
 }
 
+/* 光靠 CSS 的 text-size-adjust 挡不住所有手机内核，而且换个字体名字的实际
+   宽度也会变。所以这里再逐个量一次真实宽度：谁比芯片内宽还宽，就给谁按比例
+   缩字号（芯片内的字"一一调整"），这样任何机型、任何名字都不会被切。 */
+function fitSportsDieText() {
+  const wafer = document.getElementById("sports-wafer");
+  if (!wafer) return;
+  const items = [];
+  wafer.querySelectorAll(".sports-die").forEach((die) => {
+    [".sports-die-name", ".sports-die-id"].forEach((selector) => {
+      const node = die.querySelector(selector);
+      if (!node) return;
+      node.style.fontSize = "";
+      items.push({ die, node });
+    });
+  });
+  if (!items.length) return;
+  const plan = items.map(({ die, node }) => {
+    const available = die.clientWidth - 8;
+    if (available <= 0) return null;
+    const need = node.getBoundingClientRect().width;
+    const base = Number.parseFloat(window.getComputedStyle(node).fontSize);
+    if (!Number.isFinite(base) || base <= 0 || need <= available) return null;
+    return { node, size: Math.max(5, base * (available / need)) };
+  });
+  plan.forEach((item) => {
+    if (item) item.node.style.fontSize = item.size.toFixed(2) + "px";
+  });
+}
+
 function sizeSportsWafer() {
   const wafer = document.getElementById("sports-wafer");
   if (!wafer) return;
@@ -7957,6 +7989,7 @@ function sizeSportsWafer() {
   const layout = sportsWaferLayout(SPORTS_ATHLETES.length);
   const die = Math.max(30, Math.min(layout.spacing * side * 0.82, side * 0.3));
   wafer.style.setProperty("--die-size", die.toFixed(2) + "px");
+  fitSportsDieText();
 }
 
 function loadSportsMoments() {
@@ -8101,6 +8134,15 @@ function openSportsUploadDialog() {
 async function submitSportsPhoto() {
   const draft = sportsUi.photoDraft;
   if (!draft || !authState.session || sportsUi.photoBusy) return;
+  // 照片和账号共用「每个命名空间 100 条」的免费额度，满了再写只会拿到 403。
+  // 留 5 条余量，提前把话说清楚，而不是让同学看到「提交失败：Shared storage request failed: 403」。
+  const usedPhotoSlots = sportsPhotos.approved.length + sportsPhotos.pending.length;
+  if (usedPhotoSlots >= MANTLE_ENTRY_LIMIT - 5) {
+    sportsUi.photoNotice = `共享库照片位快满了（${usedPhotoSlots}/${MANTLE_ENTRY_LIMIT}），请管理员先删掉几张旧照片再传。`;
+    closeSportsDialog();
+    refreshSportsMoments();
+    return;
+  }
   const record = {
     photo_id: sportsPhotoId(),
     class_id: currentClassId(),

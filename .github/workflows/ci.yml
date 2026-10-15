@@ -30,12 +30,16 @@ jobs:
           node --check scripts/verify-icons.mjs
           node --check scripts/check-cjk.cjs
           node --check scripts/check-sync.cjs
+          node --check scripts/check-budget.cjs
 
       - name: 中文标识符（防止字符串漏引号）
         run: node scripts/check-cjk.cjs
 
       - name: 同步逻辑
         run: node scripts/check-sync.cjs
+
+      - name: 存储容量预算（免费档每命名空间 100 条）
+        run: node scripts/check-budget.cjs
 
       - name: 图标名一致性
         run: node scripts/check-icons.mjs

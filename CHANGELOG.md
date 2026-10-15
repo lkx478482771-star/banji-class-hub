@@ -1,5 +1,49 @@
 # 变更记录
 
+## 2026-10-16 — 存储分片：全班一起登录不再撞「每命名空间 100 条」的墙
+
+起因是「人一多站点就炸」的体检。实测出免费档真正的硬顶（之前只写在 README 的推测里）：
+
+- 一个临时命名空间连写 105 条：第 1~100 条全部 2xx，**第 101 条新路径返回
+  `403 {"error":"Entry limit reached","limit":100}`**；覆盖已有路径不受限。
+- 于是算了一笔账：40 人 = 40 条账号 + 40 条课表 + 每天 1 条额度（永不清理）
+  = 第 1 天就 120 条 > 100。**新同学注册会在写账号那一步 403 卡死**，
+  而当时的报错是「账号暂时无法保存到共享数据库，请稍后重试」——重试一百次也没用。
+- 请求侧同样危险：40 个在线客户端每 60 秒 1 次列表 ≈ 4800 次/2 小时，
+  再叠加每次写入扇出的 GET，很容易吃满 10000 次/24 小时 → 全员 429 → 静默 10 分钟。
+
+改法（**保持零后端、零构建**，只改数据放哪 + 增长怎么封顶）：
+
+- **按用途分片**：`config.js` 新增 `mantleNamespaceMap`（路径前缀 → 命名空间），
+  路由是 app.js 的 `mantleNamespaceForPath`（最长前缀优先）。5 个片各自拥有独立的
+  100 条与 10000 次额度：主片 `accounts/ classes/ meta/`、`schedules/`、`usage/`、
+  `records/ history/`、`photos/`。40 人时主片 44/100，最先到顶，约 91 人时满。
+- **堵住两个无底洞**：`dailyUsagePath()` 从 `usage/<id>/<日期>` 改成 `usage/<id>`
+  （日期写进内容里，跨天直接覆盖，条目数与用了多少天无关）；
+  `history/` 新增 `HISTORY_KEEP_MAX = 30` 与 `pruneSharedHistory()`（同步时按
+  `archived_at` 删最旧的，history 与在架 records 同片，所以必须给 records 留位）。
+- **限流不再锁步**：`scheduleSharedSync` / `scheduleSyncTick` 的延迟加 ±15% 抖动
+  （`jitterMs`），避免全班客户端踩在同一个 60 秒节拍上；
+  同步失败改成指数退避（12s→24s→…→5min 封顶），429 仍走原来的 10 分钟冷却。
+- **把「满了」说成人话**：`MANTLE_ENTRY_LIMIT = 100` + `mantleNamespaceLoad`
+  记录每片用量；注册遇到 `Entry limit reached` 时提示「共享库已满（同班上限 100 条），
+  请联系管理员清理后再注册」，上传照片只剩 5 个位置就提前拒绝，而不是丢一个 403 给同学。
+- **老数据搬家**：`scripts/migrate-shards.mjs`（先 dry-run，`--apply` 才写；
+  先写新片 → 读回校验 → 再删老片，可安全重跑）。线上 3 条老数据已搬完，主片从 13 条降到 10 条。
+- **新门禁**：`scripts/check-budget.cjs` 把分片表和真实代码对一遍——新增没有分片归属的
+  写入路径、把日期写回 usage 路径、拿掉归档上限，CI 直接失败。
+- **备份跟上分片**：`scripts/backup-mantle.py` 无参数运行改为从 config.js 读出
+  **全部 5 个命名空间**各导出一份（原来只备份主片，等于丢掉 4/5 的数据）。
+
+踩过的坑（都已写进 README）：
+
+- **写 MantleDB 的 POST 必须带 `Content-Type: application/json`**，少了它服务端直接回
+  500 Internal Server Error（HTML 错误页，不是 JSON），迁移脚本第一次就这么挂的。
+- 本机到 mantledb.sh（Cloudflare）的 **IPv6 不通**（`UND_ERR_CONNECT_TIMEOUT`），
+  直连脚本都要加 `--node-options` 里的 `--dns-result-order=ipv4first`。
+- 首屏体积只剩 **2.2 KB** 余量（544.7 / 546.9 KB），app.js 334.4 / 344 KB：
+  后面再加功能得先还体积债。
+
 ## 2026-10-13 — 修复：多处按钮点了没反应（渲染期 ReferenceError）
 
 用户反馈「好多按钮按了都没有反应」。根因是上一轮瘦身引入的**静默故障**：

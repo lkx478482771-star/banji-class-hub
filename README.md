@@ -89,6 +89,9 @@ python -m http.server 4173
 ```powershell
 node scripts/check-icons.mjs    # 源码里用到的每个图标都必须已打包进 assets/icons.js
 node scripts/check-size.mjs     # 体积预算（首屏 ≤ 400 KB，单文件各有上限）
+node scripts/check-cjk.cjs      # 中文标识符（防止字符串漏引号）
+node scripts/check-sync.cjs     # 增量同步 / 限流冷却 / 轮询节奏的回归测试
+node scripts/check-budget.cjs   # 「每个命名空间 100 条」的容量预算（按 40 人规模推算）
 node scripts/verify-icons.mjs   # 用最小 DOM 桩验证图标垫片真能渲染出 SVG
 node scripts/build-icons.mjs    # 新增图标后重新生成 assets/icons.js（需联网下载 lucide）
 python scripts/optimize-hero-image.py .   # 首图重新缩放 + 重压（跳过已压缩过的版本）
@@ -112,13 +115,47 @@ python scripts/optimize-hero-image.py .   # 首图重新缩放 + 重压（跳过
 - 长期稳定运营或要处理班级隐私数据时，请迁移到自建后端
   （`legacy/supabase/` 里的建表语句、RLS 策略和限流触发器可以直接复用）。
 
+### 存储分片（免费档 100 条 / 10000 次请求的硬顶）
+
+MantleDB 免费命名空间有三条硬限制（2026-10 实测）：每个命名空间**最多 100 条** entry
+（第 101 条**新路径**返回 `403 {"error":"Entry limit reached"}`，覆盖已有路径不受限）、
+每条最大 64 KB、每 24 小时最多 10000 次请求（超出返回 429，客户端会静默 10 分钟）。
+一个班 40 个人，光「40 个账号 + 40 份课表 + 每天一份额度」就轻松破百，所以数据按前缀分到
+5 个命名空间（分片表在 `config.js` 的 `mantleNamespaceMap`，路由见 app.js 的 `mantleNamespaceForPath`）：
+
+| 命名空间后缀 | 装的路径 | 40 人时占用 | 说明 |
+| --- | --- | --- | --- |
+| `ic-…`（主片） | `accounts/` `classes/` `meta/` | 44 / 100 | 最先到顶，约 91 人时满 |
+| `user-…` | `schedules/` | 40 / 100 | 每人 1 条 |
+| `usage-…` | `usage/` | 40 / 100 | 每人 1 条（日期写在内容里，不再进路径） |
+| `live-…` | `records/` `history/` | 90 / 100 | 归档只留最近 30 条，由 `pruneSharedHistory()` 自动清理 |
+| `photos-…` | `photos/` | ≤ 95 | 只剩 5 个位置时提前拒绝上传，并给出中文提示 |
+
+`node scripts/check-budget.cjs` 会把这张表和真实代码对一遍：新增一条没有分片归属的写入路径、
+把日期写回 `usage` 路径、拿掉归档上限，CI 都会直接失败。
+
+分片后老数据搬过一次家（脚本保留备查，可安全重跑）：
+
+```powershell
+node --dns-result-order=ipv4first scripts/migrate-shards.mjs           # 预演，不写
+node --dns-result-order=ipv4first scripts/migrate-shards.mjs --apply   # 执行
+```
+
+⚠️ 两个实测踩过的坑：写 MantleDB 时 POST **必须带** `Content-Type: application/json`，
+少了它会拿到 500 Internal Server Error；本机到 mantledb.sh（Cloudflare）的 IPv6 不通，
+所有直连脚本都建议加 `--dns-result-order=ipv4first`。
+
 ### 备份
 
 MantleDB 不会替你备份，请定期自己导出一份：
 
 ```powershell
-python scripts/backup-mantle.py banji-ahu-ic-33cf9d5cd38f93f5 mantle-backup.json
+python scripts/backup-mantle.py
 ```
+
+不带参数运行会从 `config.js` 读出**全部 5 个命名空间**，各导出一份
+`backups/banji-backup-<命名空间>-<时间戳>.json`（数据是分片存放的，只备份主片等于丢掉 4/5）。
+只想导其中一个时用老写法：`python scripts/backup-mantle.py <namespace> <输出文件>`。
 
 导出文件里含同学的真实信息和口令摘要，**不要提交进 git，也不要外传**。
 
@@ -135,6 +172,9 @@ python scripts/backup-mantle.py banji-ahu-ic-33cf9d5cd38f93f5 mantle-backup.json
   这一条正在改，改完之前请把它当作"署名但不对全班公示"来理解。
 - **课表与个人数据是公开可读的**：知道 `schedules/<userId>` 就能读到对应课表。
 - 因此现阶段的定位是**班级内部的小规模试用**，不要放敏感信息，也不要指望防得住有心人。
+- **免费档有硬顶**：每个命名空间最多 100 条 entry、每 24 小时最多 10000 次请求
+  （详见「存储分片」）。满了以后**新同学注册、发布事项、传照片都会失败**；
+  客户端会提前提示「共享库已满」或「照片位快满了」，但真正解决要靠清理或迁移。
 - 迁移到自建后端（Supabase / 腾讯云 / 阿里云）是解决上述问题的正路，
   触发条件大致是：出现一次数据丢失、同学数超过 60、开始存任何敏感字段、需要审计或删除请求。
 

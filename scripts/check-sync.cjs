@@ -50,13 +50,23 @@ function pick(marker) {
   return sliceFrom(at);
 }
 
+// 分片表来自仓库里真正的 config.js：在测试里另抄一份映射，
+// 等于放过「改了配置没改代码」这类回归。
+const configWindow = {};
+new Function("window", fs.readFileSync(path.join(__dirname, "..", "config.js"), "utf8"))(
+  configWindow
+);
+const CONFIG_JSON = JSON.stringify(configWindow.BANJI_CONFIG);
+
 const harness = `
 const MANTLE_MAX_CONCURRENCY = 6;
+const MANTLE_ENTRY_LIMIT = 100;
 const RATE_LIMIT_PAUSE_MS = 600000;
 const SYNC_ACTIVE_MS = 60000;
 const SYNC_IDLE_MS = 300000;
 const SYNC_IDLE_AFTER_MS = 180000;
 const mantleEntryCache = new Map();
+const mantleNamespaceLoad = new Map();
 const syncState = { inFlight: false, retryTimer: null, available: null,
   accountChecked: false, localImported: false, usageFailed: false,
   tickTimer: null, lastActiveAt: Date.now(), rateLimitedUntil: 0 };
@@ -76,6 +86,11 @@ const window = {
   clearTimeout() {}
 };
 ${pick("function pruneMantleEntryCache(")}
+${pick("function mantleNamespaceMap(")}
+${pick("function mantleNamespaceForPath(")}
+${pick("function mantleKnownNamespaces(")}
+${pick("function noteMantleNamespaceLoad(")}
+${pick("function jitterMs(")}
 ${pick("async function readIncrementalEntries(")}
 ${pick("function isRateLimited(")}
 ${pick("function noteRateLimit(")}
@@ -106,8 +121,13 @@ let entryValues = new Map();
 let listCount = 0;
 let getCount = 0;
 let failPaths = new Set();
-const sharedConfig = { mantleApiBase: "https://db", mantleNamespace: "ns" };
-const ENTRY_PREFIX = "https://db/ns/";
+let lastListNamespace = "";
+const sharedConfig = Object.assign({}, ${CONFIG_JSON}, { mantleApiBase: "https://db" });
+const BASE = sharedConfig.mantleApiBase;
+const pathOfUrl = (url) => {
+  const rest = String(url).slice(BASE.length + 1);
+  return rest.slice(rest.indexOf("/") + 1);
+};
 const MANTLE_CACHE_TTL_MS = 5000;
 const mantleValueCache = new Map();
 const mantleInFlight = new Map();
@@ -116,14 +136,17 @@ function fetchMantle(url) { return Promise.resolve({ ok: true, url }); }
 ${pick("function mantleEntryUrl(")}
 ${pick("function mantlePathFromUrl(")}
 ${pick("async function mantleRequest(").replace("async function mantleRequest(", "async function realMantleRequest(")}
-function mantleListUrl() { return "list"; }
+function mantleListUrl(namespace) {
+  return BASE + "/list/" + encodeURIComponent(namespace || sharedConfig.mantleNamespace);
+}
 async function mantleRequest(url) {
-  if (url === "list") {
+  if (url.indexOf("/list/") === BASE.length) {
     listCount += 1;
+    lastListNamespace = url.slice(BASE.length + "/list/".length);
     return { entries: serverEntries.map((e) => ({ ...e })) };
   }
   getCount += 1;
-  const key = url.slice(ENTRY_PREFIX.length);
+  const key = pathOfUrl(url);
   if (failPaths.has(key)) throw new Error("boom");
   const value = entryValues.get(key);
   return value === undefined ? null : value;
@@ -219,15 +242,26 @@ const assertions = `
   scheduleSharedSync();
   check("H 解除后恢复重试", timers.length === timerBefore + 1);
 
-  // I 自适应节奏：活跃 60s / 闲置 5min
+  // I 自适应节奏：活跃 60s / 闲置 5min。排期带 ±15% 抖动（防全班锁步），
+  // 所以只断言落在区间内，另配一条单独守「抖动确实在起作用」。
   timers = [];
   syncState.lastActiveAt = Date.now();
   scheduleSyncTick();
-  check("I 活跃 60s", timers[timers.length - 1] === 60000, String(timers[timers.length - 1]));
+  const activeTick = timers[timers.length - 1];
+  check("I 活跃 60s(±15%)", activeTick >= 51000 && activeTick <= 69000, String(activeTick));
   timers = [];
   syncState.lastActiveAt = Date.now() - 200000;
   scheduleSyncTick();
-  check("I 闲置 5min", timers[timers.length - 1] === 300000, String(timers[timers.length - 1]));
+  const idleTick = timers[timers.length - 1];
+  check("I 闲置 5min(±15%)", idleTick >= 255000 && idleTick <= 345000, String(idleTick));
+  const spread = new Set();
+  for (let i = 0; i < 25; i += 1) {
+    timers = [];
+    syncState.lastActiveAt = Date.now();
+    scheduleSyncTick();
+    spread.add(timers[0]);
+  }
+  check("I 排期有抖动（否则全班会锁步）", spread.size > 1, "distinct=" + spread.size);
 
   // J tick 行为：限流期间不刷，正常时刷一次并续排
   authState.session = { username: "x" };
@@ -280,6 +314,34 @@ const assertions = `
   const afterWrite = await readIncrementalEntries("records/");
   check("L 写入后只重取 1 条", getCount === 1, "get=" + getCount);
   check("L 写后读到的是新内容", afterWrite.find((v) => v.record_key === "b3") !== undefined);
+
+  // M 存储分片：每条写路径都必须落在配置好的命名空间里。
+  // 免费档每片只有 100 条，全班 40 人挤一片时「账号 + 课表」就 80 条，
+  // 第 101 条会被 403 打回、新同学注册直接卡死，所以这里守住分片表与写路径不许漂移。
+  const nsOf = (p) => mantleNamespaceForPath(p);
+  const main = sharedConfig.mantleNamespace;
+  check("M accounts 在主片", nsOf("accounts/abc") === main);
+  check("M classes 在主片", nsOf("classes/x") === main);
+  check("M meta 在主片", nsOf("meta/x") === main);
+  check("M schedules 在个人片", nsOf("schedules/u1") !== main);
+  check("M usage 在额度片", nsOf("usage/u1") !== main && nsOf("usage/u1") !== nsOf("schedules/u1"));
+  check("M records 与 history 同片", nsOf("records/r1") === nsOf("history/h1") && nsOf("records/r1") !== main);
+  check("M photos 独立成片", nsOf("photos/p1") !== main && nsOf("photos/p1") !== nsOf("records/r1"));
+  check("M 未知前缀回落主片", nsOf("whatever/x") === main);
+  check(
+    "M 五个片互不重叠",
+    new Set([main, nsOf("schedules/u1"), nsOf("usage/u1"), nsOf("records/r1"), nsOf("photos/p1")]).size === 5
+  );
+  // 增量同步必须去「这个前缀所在的片」列清单，查错片等于白拿一份别人的列表。
+  mantleEntryCache.clear();
+  getCount = 0;
+  listCount = 0;
+  serverEntries = [{ path: "records/a", updated_at: 1 }];
+  entryValues.set("records/a", rec("a"));
+  await readIncrementalEntries("records/");
+  check("M records 列的是 live 片", lastListNamespace === nsOf("records/"), lastListNamespace);
+  await readIncrementalEntries("accounts/");
+  check("M accounts 列的是主片", lastListNamespace === main, lastListNamespace);
 
   const failed = results.filter((r) => !r.ok);
   for (const row of results) {
