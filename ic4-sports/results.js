@@ -58,6 +58,7 @@
     el.__key = KEY(name, event);
     el.__name = name;
     el.__event = event;
+    el.__mates = el.getAttribute("data-mates") || "";
     el.__res = el.querySelector(".rs-result");
     el.__rank = el.querySelector(".rs-rank");
     el.__state = el.querySelector(".rs-state");
@@ -134,7 +135,7 @@
     const hitNames = {};
     let shown = 0;
     rows.forEach((el) => {
-      const okName = !kw || el.__name.indexOf(kw) >= 0 || el.__event.indexOf(kw) >= 0;
+      const okName = !kw || el.__name.indexOf(kw) >= 0 || el.__event.indexOf(kw) >= 0 || el.__mates.indexOf(kw) >= 0;
       const okFill = !onlyEmpty || el.getAttribute("data-filled") !== "1";
       const ok = okName && okFill;
       el.hidden = !ok;
