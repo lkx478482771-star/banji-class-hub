@@ -1,10 +1,10 @@
 # IC-4 运动会页（不用登录）
 
-集成电路 4 班运动会页：出战名单 + 晶圆图 + 倒计时 + **匿名加油墙**。
+集成电路 4 班运动会页：出战名单 + 晶圆图 + 倒计时 + **匿名加油墙** + **赛场原声**。
 **打开就能看，不用登录、不用注册**；加油想写就写，但要经过负责人审核才会显示。
 
 线上地址：https://lkx478482771-star.github.io/banji-class-hub/ic4-sports/
-审核页（只有负责人用）：同目录下的 `admin.html`
+审核页（只有负责人用）：同目录下的 `admin.html`，默认口令 `ic4-2026`
 
 ## 页面上有什么
 
@@ -12,29 +12,38 @@
 - 径赛 / 田赛筛选、出战名单、应援语
 - 距开赛倒计时、一键通电 / 复位动画
 - 加油墙：写完先进入「待审核」，负责人在 `admin.html` 里点「通过」才会上墙
+- 赛场原声：直接播旧站 `assets/music/` 里那三首（不复制第二份）
 
-**没有**：登录、账号、密码、照片上传、成绩录入、背景音乐。
+**没有**：登录、账号、密码、照片上传、成绩录入。
 
-## 加油墙是怎么保护的
+## 加油墙是怎么放数据的
 
-- 数据放在 Supabase 的两张小表里，**匿名用户没有直接读写权**（表上开了 RLS 且收回了权限）
-- 页面只能调两个函数：`ic4_cheer_submit`（提交，限频：同一网络 10 秒一条、1 小时 20 条）、`ic4_cheer_list`（只读已通过的）
-- 审核函数 `ic4_cheer_review` 需要口令，口令只以打码值存在数据库里
-- 也就是说：**别人删不掉、改不了墙上的内容**，最多只能提交待审的留言
+- 复用旧站同一个 Supabase 项目，但写在**两个专用分区**里：
+  `banji-ic4-cheer-pending`（待审）、`banji-ic4-cheer-live`（已上墙）
+- 旧站的代码只认它自己那批 `banji-ahu-*` 分区，所以这些留言不会跑到旧网站上
+- **不需要跑任何 SQL**，也不需要新建表
+- 代价要讲清楚：审核是「防君子」级别——口令页能挡住随手点进来的人，
+  但理论上知道接口地址的人能把这两个分区里的留言删掉。想加固就跑可选的
+  `supabase/ic4-cheers.sql`（把读写搬到服务端函数里），不跑也能正常用。
 
-数据库脚本：`supabase/ic4-cheers.sql`（在 Supabase 的 SQL Editor 里跑一次即可，可重复运行）。
+## 怎么换审核口令
 
-## 怎么更新名单
+`admin.js` 顶部有一行 `SECRET_HASH`。新口令的算法是
+`sha256("ic4-cheer-admin|" + 新口令)`，在浏览器控制台里算出来替换那一行即可。
 
-名单唯一真源是工作区里的 `运动会宣传/运动员名单.csv`。改完 CSV 后，在本地工作区执行：
+## 怎么更新名单 / 音乐
+
+名单唯一真源是工作区里的 `运动会宣传/运动员名单.csv`；三首歌来自旧站 `banji-class-hub/assets/music/`
+（歌名与时长从旧站 `app.js` 的 `SPORTS_BGM_TRACKS` 里读）。改完在本地工作区执行：
 
 ```
 cd ic4-sports
-node tools/build.mjs     # 重新生成 data.js / config.js / styles.css / assets/icons.js
-node tools/smoke.mjs     # 自检：文件齐全、不用登录、只连自己的 Supabase、名单 31 人
+node tools/build.mjs     # 重新生成 data.js / config.js / styles.css / assets/icons.js / sql.html
+node tools/smoke.mjs     # 自检：文件齐全、不用登录、只连自己的 Supabase、名单 31 人、三首歌都在
 ```
 
 再把 `index.html`、`app.js`、`data.js`、`config.js`、`cheer-api.js`、`styles.css`、
-`assets/icons.js`、`admin.html`、`admin.js` 复制到 `banji-class-hub/ic4-sports/`，提交并推送。
+`assets/icons.js`、`admin.html`、`admin.js`、`sql.html`、`supabase/ic4-cheers.sql`
+复制到 `banji-class-hub/ic4-sports/`，提交并推送。
 
 `tools/` 里的脚本要在本地工作区（`banji-class-hub` 的旁边）运行，**只读旧站，不会改它**。

@@ -1,10 +1,13 @@
-/* 集成电路 4 班 · 运动会出战名单（独立只读页 + 匿名加油墙）
+/* 集成电路 4 班 · 运动会出战名单（独立页：不用登录 + 匿名加油墙 + 赛场原声）
  *
- * 这份脚本由 ic4-sports/app.js 维护，是班集「IC-4 运动会」栏目的精简复刻：
- *   有：晶圆图点人、出战参数面板、径赛/田赛筛选、开赛倒计时、一键通电、匿名加油墙
- *   没有：登录、账号、照片上传、成绩录入、海报、背景音乐
- * 加油墙只能通过 Supabase 里的两个安全函数提交/读取（见 cheer-api.js），
- * 页面拿不到、也不需要数据库表的直接读写权，所以墙上的内容别人删不掉。
+ * 这份脚本是班集「IC-4 运动会」栏目的精简复刻：
+ *   有：晶圆图点人、出战参数面板、径赛/田赛筛选、开赛倒计时、一键通电、匿名加油墙、赛场原声
+ *   没有：登录、账号、照片上传、成绩录入、海报
+ * 加油墙的数据放在**旧站同一个数据库**里的两个独立分区（见 cheer-api.js）：
+ *   banji-ic4-cheer-pending 待审核 / banji-ic4-cheer-live 已上墙
+ * 旧站的代码只认它自己那几个分区，所以这些留言不会跑到旧网站上；
+ * 代价是这套审核没有服务端把关，属于「防君子」级别。
+ * 音乐不复制第二份，直接播旧站 assets/music 里的那三首。
  */
 (function () {
   "use strict";
@@ -23,6 +26,21 @@
   // 加油墙状态：loading 加载中 / ready 拿到数据 / error 连不上
   const cheer = { status: "loading", error: "", items: [], modal: null };
   const CHEER_MAX = 40;
+
+  // 赛场原声：三首歌不复制第二份，直接用旧站 assets/music 里的文件。
+  // 线上页面在 /banji-class-hub/ic4-sports/，音乐在同仓库的 /banji-class-hub/assets/music/；
+  // 本地用 file:// 调试时，源码在工作区里是并列的两个目录。
+  const BGM =
+    Array.isArray(window.IC4_BGM) && window.IC4_BGM.length
+      ? window.IC4_BGM
+      : [
+          ["那些无人看见的时光", "01-unseen-days.mp3", "4:23"],
+          ["那天的风", "02-wind-of-that-day.mp3", "3:28"],
+          ["发令枪响之前", "03-before-the-gun.mp3", "3:29"]
+        ];
+  const MUSIC_BASE =
+    window.location.protocol === "file:" ? "../banji-class-hub/assets/music/" : "../assets/music/";
+  const bgm = { index: -1, playing: false, bound: false };
 
   const escapeHTML = (value) =>
     String(value == null ? "" : value).replace(
@@ -410,6 +428,86 @@
     if (cheer.modal && cheer.modal.kind === "wall") openCheerWall();
   }
 
+  /* ---------------- 赛场原声（三首歌） ---------------- */
+
+  function bgmHTML() {
+    const tracks = BGM.map((track, index) => {
+      const on = bgm.index === index;
+      const playing = on && bgm.playing;
+      const cls = on ? (playing ? " is-active is-playing" : " is-active") : "";
+      return `
+        <button class="bgm-track${cls}" type="button"
+          data-action="bgm-toggle" data-index="${index}" aria-pressed="${playing ? "true" : "false"}">
+          <span class="bgm-glyph" aria-hidden="true"></span>
+          <span class="bgm-title">${escapeHTML(track[0])}</span>
+          <span class="bgm-time">${escapeHTML(track[2] || "")}</span>
+        </button>
+      `;
+    }).join("");
+    return `
+      <header class="panel-header">
+        <div>
+          <h3>赛场原声</h3>
+          <p>点一首当背景音，不想听就不点</p>
+        </div>
+        <span class="badge blue">${BGM.length} 首</span>
+      </header>
+      <div class="panel-body">
+        <div class="bgm-list">${tracks}</div>
+        <p class="bgm-status" id="bgm-status"></p>
+        <audio id="ic4-bgm" preload="none"></audio>
+      </div>
+    `;
+  }
+
+  const bgmAudio = () => document.getElementById("ic4-bgm");
+
+  function syncBgm() {
+    const audio = bgmAudio();
+    bgm.playing = Boolean(audio) && !audio.paused && bgm.index >= 0;
+    document.querySelectorAll("#app .bgm-track").forEach((node) => {
+      const on = Number(node.dataset.index) === bgm.index;
+      node.classList.toggle("is-active", on);
+      node.classList.toggle("is-playing", on && bgm.playing);
+      node.setAttribute("aria-pressed", String(on && bgm.playing));
+    });
+  }
+
+  function bindBgm() {
+    const audio = bgmAudio();
+    if (!audio || bgm.bound) return;
+    bgm.bound = true;
+    ["play", "pause", "ended"].forEach((name) => audio.addEventListener(name, syncBgm));
+    audio.addEventListener("error", () => {
+      const status = document.getElementById("bgm-status");
+      if (status) status.textContent = "音乐加载失败（本地调试正常，线上才有这几个文件）。";
+    });
+  }
+
+  function toggleBgm(index) {
+    const audio = bgmAudio();
+    const track = BGM[index];
+    if (!audio || !track) return;
+    const status = document.getElementById("bgm-status");
+    if (bgm.index === index && !audio.paused) {
+      audio.pause();
+      syncBgm();
+      return;
+    }
+    if (bgm.index !== index) {
+      audio.src = MUSIC_BASE + track[1];
+      bgm.index = index;
+    }
+    if (status) status.textContent = "";
+    const started = audio.play();
+    if (started && typeof started.catch === "function") {
+      started.catch(() => {
+        if (status) status.textContent = "浏览器不让自动播，再点一下这首歌。";
+      });
+    }
+    syncBgm();
+  }
+
   function view() {
     const total = ATHLETES.length;
     const layout = waferLayout(total);
@@ -506,6 +604,8 @@
                 </div>
               </div>
             </article>
+
+            <section class="panel" id="bgm-panel">${bgmHTML()}</section>
           </div>
 
           <aside class="stack">
@@ -614,6 +714,7 @@
     else if (action === "cheer-wall") openCheerWall();
     else if (action === "cheer-submit") submitCheer();
     else if (action === "cheer-close") closeModal();
+    else if (action === "bgm-toggle") toggleBgm(Number(node.dataset.index));
   }
 
   function onInput(event) {
@@ -704,6 +805,7 @@
     app.innerHTML = view();
     refreshIcons(app);
     sizeWafer();
+    bindBgm();
     startCountdown();
     // 事件挂在 document 上：加油墙的弹层在 body 下，不在 #app 里。
     document.addEventListener("click", onClick);

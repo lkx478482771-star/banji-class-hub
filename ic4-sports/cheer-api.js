@@ -1,42 +1,55 @@
-/* 加油墙的后端接口（Supabase）
+/* 加油墙的后端接口
  *
  * 这里**没有登录**：同学打开页面就能写。
- * 能做什么完全由数据库那边决定 —— 公共页只能调 submit（提交）和 list（看已通过的），
- * review（审核）只有 admin.html 用得上，而且要口令。
+ * 数据放在旧站同一个数据库里，但属于两个独立分区（旧站的代码根本不认识它们）：
+ *   banji-ic4-cheer-pending  刚提交、还没审核
+ *   banji-ic4-cheer-live     审核通过、会上墙
  *
- * 三个函数都在 Supabase 里用 security definer 定义，直接读写小表是被数据库拒绝的，
- * 所以就算有人拿到这份代码，也删不掉墙上的内容。
+ * 公开页只做两件事：往 pending 写一条、从 live 读回来。
+ * 「通过 / 删除」只有 admin.html 用，而且要先过口令。
+ *
+ * 代价要说清楚：这套流程没有服务端把关（要服务端把关就得跑那段 SQL），
+ * 所以审核口令只是「防君子」——同班同学不会去翻代码就够用了。
  */
 (function () {
   "use strict";
 
   const CLOUD = window.IC4_CLOUD || {};
-  const CHEER = CLOUD.cheer || {};
   const TIMEOUT = 12000;
+  const TABLE = "/rest/v1/class_hub_entries";
+  const NS = {
+    pending: "banji-ic4-cheer-pending",
+    live: "banji-ic4-cheer-live"
+  };
+  const TEXT_MIN = 2;
+  const TEXT_MAX = 40;
+  const TARGET_OK = /^(ALL|IC4-\d{3})$/;
 
-  function endpoint(name) {
-    if (!CLOUD.url || !CLOUD.anonKey) throw new Error("no-cloud");
-    return String(CLOUD.url).replace(/\/+$/, "") + "/rest/v1/rpc/" + encodeURIComponent(name);
+  let lastSubmitAt = 0;
+
+  function base() {
+    return String(CLOUD.url || "").replace(/\/+$/, "");
   }
 
-  function headers() {
-    return {
+  function headers(extra) {
+    const head = {
       apikey: CLOUD.anonKey,
       Authorization: "Bearer " + CLOUD.anonKey,
       "Content-Type": "application/json",
       Accept: "application/json"
     };
+    return Object.assign(head, extra || {});
   }
 
-  async function call(name, payload) {
+  async function call(method, url, body, extra) {
     if (!CLOUD.url || !CLOUD.anonKey) return { ok: false, error: "no-cloud" };
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), TIMEOUT);
     try {
-      const response = await fetch(endpoint(name), {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify(payload || {}),
+      const response = await fetch(url, {
+        method: method,
+        headers: headers(extra),
+        body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal
       });
       const text = await response.text();
@@ -47,11 +60,13 @@
         data = null;
       }
       if (!response.ok) {
-        // 数据表还没建好时 PostgREST 会回 404/400，这里翻译成一句人话。
-        const missing = response.status === 404 || response.status === 400;
-        return { ok: false, error: missing ? "not-ready" : "http-" + response.status, data };
+        let code = "http-" + response.status;
+        if (response.status === 401 || response.status === 403) code = "denied";
+        else if (response.status === 404) code = "not-ready";
+        else if (response.status === 400 || response.status === 409) code = "rejected";
+        return { ok: false, error: code, data: data };
       }
-      return { ok: true, data };
+      return { ok: true, data: data };
     } catch (error) {
       return { ok: false, error: error && error.name === "AbortError" ? "timeout" : "offline" };
     } finally {
@@ -59,46 +74,114 @@
     }
   }
 
-  function pickList(result) {
+  function pickRows(result) {
     if (!result.ok) return result;
     const rows = Array.isArray(result.data) ? result.data : [];
-    return {
-      ok: true,
-      items: rows
-        .filter((row) => row && typeof row.body === "string" && row.body.trim())
-        .map((row) => ({
-          id: String(row.id || ""),
-          target: String(row.target || "ALL"),
-          body: String(row.body).trim(),
-          at: row.created_at ? Date.parse(row.created_at) || 0 : 0
-        }))
-    };
+    const items = rows
+      .map((row) => {
+        const value = (row && row.value) || {};
+        const text = typeof value.text === "string" ? value.text.trim() : "";
+        if (!text) return null;
+        return {
+          id: String((row && row.path) || ""),
+          target: String(value.target || "ALL"),
+          body: text,
+          at: value.at ? Date.parse(value.at) || 0 : Date.parse((row && row.updated_at) || "") || 0
+        };
+      })
+      .filter(Boolean);
+    return { ok: true, items: items };
+  }
+
+  function listUrl(ns, limit) {
+    return (
+      base() +
+      TABLE +
+      "?namespace=eq." +
+      encodeURIComponent(ns) +
+      "&select=path,value,updated_at&order=updated_at.desc&limit=" +
+      Math.max(1, Math.min(500, Number(limit) || 200))
+    );
+  }
+
+  function rowUrl(ns, path) {
+    return (
+      base() +
+      TABLE +
+      "?namespace=eq." +
+      encodeURIComponent(ns) +
+      "&path=eq." +
+      encodeURIComponent(path)
+    );
+  }
+
+  function putRow(ns, path, value) {
+    return call("POST", base() + TABLE + "?on_conflict=namespace,path", [{ namespace: ns, path: path, value: value }], {
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    });
+  }
+
+  function delRow(ns, path) {
+    return call("DELETE", rowUrl(ns, path), undefined, { Prefer: "return=minimal" });
+  }
+
+  function newPath() {
+    const stamp = Date.now().toString(36);
+    const rand = Math.random().toString(36).slice(2, 7);
+    return "c-" + stamp + "-" + rand;
   }
 
   window.IC4_CHEER = {
+    namespaces: NS,
+
     ready: () => Boolean(CLOUD.url && CLOUD.anonKey),
 
-    /** 提交一句加油：先落库为「待审核」，审核通过后才会出现在墙上。 */
+    /** 提交一句加油：先落进「待审核」，负责人点了「通过」才会上墙。 */
     submit(target, body) {
-      return call(CHEER.submit || "ic4_cheer_submit", {
-        p_target: String(target || "ALL"),
-        p_body: String(body || "")
+      const text = String(body || "").trim();
+      const who = String(target || "ALL").trim() || "ALL";
+      if (text.length < TEXT_MIN || text.length > TEXT_MAX) {
+        return Promise.resolve({ ok: false, error: "length" });
+      }
+      if (!TARGET_OK.test(who)) return Promise.resolve({ ok: false, error: "target" });
+      if (Date.now() - lastSubmitAt < 10000) {
+        return Promise.resolve({ ok: false, error: "too_fast" });
+      }
+      lastSubmitAt = Date.now();
+      return putRow(NS.pending, newPath(), {
+        v: 1,
+        target: who,
+        text: text,
+        at: new Date().toISOString()
       });
     },
 
-    /** 已通过审核的加油（公开可读，最多 500 条）。 */
-    async list(limit) {
-      const result = await call(CHEER.list || "ic4_cheer_list", { p_limit: limit || 300 });
-      return pickList(result);
+    /** 已经上墙的加油（公开可读）。 */
+    list(limit) {
+      return call("GET", listUrl(NS.live, limit)).then(pickRows);
     },
 
-    /** 审核接口，只有 admin.html 用：action = list / approve / delete。 */
-    review(secret, action, id) {
-      return call(CHEER.review || "ic4_cheer_review", {
-        p_secret: String(secret || ""),
-        p_action: String(action || "list"),
-        p_id: id || null
-      });
+    /** 还在等审核的加油（只有 admin.html 用）。 */
+    pending(limit) {
+      return call("GET", listUrl(NS.pending, limit)).then(pickRows);
+    },
+
+    /** 通过审核：搬进 live，再把待审那条删掉。 */
+    async approve(path) {
+      const id = String(path || "");
+      if (!id) return { ok: false, error: "rejected" };
+      const listResult = await call("GET", rowUrl(NS.pending, id) + "&select=path,value&limit=1");
+      const row = listResult.ok && Array.isArray(listResult.data) ? listResult.data[0] : null;
+      if (!row) return { ok: false, error: "not-ready" };
+      const value = Object.assign({}, row.value || {}, { approvedAt: new Date().toISOString() });
+      const moved = await putRow(NS.live, id, value);
+      if (!moved.ok) return moved;
+      return delRow(NS.pending, id);
+    },
+
+    /** 删掉一条：stage = "pending"（丢弃）或 "live"（下架）。 */
+    discard(path, stage) {
+      return delRow(stage === "live" ? NS.live : NS.pending, String(path || ""));
     },
 
     /** 把接口返回的错误码翻译成给同学看的话。 */
@@ -107,13 +190,13 @@
         length: "留言要 2 到 40 个字。",
         target: "加油对象不对。",
         too_fast: "刚发过一条，等 10 秒再发。",
-        too_many: "这个网络一小时发的有点多，歇一会儿再来。",
+        rejected: "服务器把这条退回来了，换个说法再试。",
+        denied: "这个网络发不出去，换个网试试。",
         "not-ready": "加油墙还没开通（负责人正在配置）。",
         offline: "连不上加油墙，检查一下网络。",
         timeout: "网络有点慢，稍后再试。",
         "no-cloud": "这个页面没有配置加油墙。",
-        bad_action: "操作不对。",
-        "bad_secret": "口令不对。"
+        bad_secret: "口令不对。"
       };
       if (table[error]) return table[error];
       if (String(error || "").indexOf("http-") === 0) return "服务器返回 " + error.slice(5) + "，稍后再试。";

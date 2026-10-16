@@ -5,25 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="theme-color" content="#0f1720" />
-    <title>复制加油墙 SQL · 集成电路 4 班</title>
-    <meta name="description" content="把这段 SQL 复制到 Supabase 的 SQL Editor 里运行一次。" />
+    <title>加油墙 SQL（可选升级） · 集成电路 4 班</title>
+    <meta name="description" content="可选：把加油墙的审核搬到 Supabase 服务端。不跑也能用。" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body class="standalone-page">
     <div class="admin-shell">
       <div class="standalone-bar">
         <p class="eyebrow">安徽大学 · 集成电路学院 · 集成电路 4 班</p>
-        <p class="standalone-note">这个页面只负责复制那段 SQL，跑完就可以关掉。</p>
+        <p class="standalone-note">这是可选升级页：现在不跑 SQL，加油墙也能正常用。</p>
       </div>
 
       <main class="page-content">
         <section class="panel">
           <header class="panel-header">
             <div>
-              <h3>复制这段 SQL</h3>
-              <p>点下面的按钮，然后去 Supabase 的 SQL Editor 里粘贴</p>
+              <h3>复制这段 SQL（可选）</h3>
+              <p>只有想把审核搬到服务端时才需要；平时不用管</p>
             </div>
-            <span class="badge">SQL</span>
+            <span class="badge">可选</span>
           </header>
           <div class="panel-body">
             <div class="cheer-actions">
@@ -32,7 +32,10 @@
             </div>
             <p class="cheer-note">粘贴之后，先把那处 CHANGE-ME-ic4 改成你自己的口令，再点 Run。</p>
             <pre class="sql-block" id="sql-text">-- ============================================================================
--- IC-4 运动会 · 匿名加油墙（不用登录 + 先审后显）
+-- 【可选升级】IC-4 运动会 · 匿名加油墙（服务端审核版）
+--
+-- 现在**不需要**跑这份 SQL：加油墙已经能用（数据放在新分区里，靠口令页审核）。
+-- 只有当你想要「服务端把关 + 页面拿不到表权限」时，才跑这份。
 --
 -- 怎么用：
 --   1. 打开你的 Supabase 项目 → 左侧 SQL Editor → New query
@@ -208,7 +211,7 @@ grant execute on function public.ic4_cheer_review(text, text, uuid) to anon, aut
         </section>
       </main>
 
-      <p class="standalone-footer">只读页 · 请勿把审核口令发给同学</p>
+      <p class="standalone-footer">可选升级页 · 不跑也不影响同学看名单、写加油</p>
     </div>
 
     <noscript>
