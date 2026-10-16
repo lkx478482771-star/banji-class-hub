@@ -1,5 +1,21 @@
 # 变更记录
 
+## 2026-10-16 — 免费档没有自动备份：补上导出脚本与恢复步骤
+
+安全评审之后先做三件不影响现有功能的事：
+
+- 新增 `scripts/backup-supabase.mjs`：用 `config.js` 里的公开 anon key **只读**拉取
+  `class_hub_entries` 全表（PostgREST 分页，不会被 1000 行静默截断），并列出 `sports-photos`
+  桶里的文件，写出 `backups/supabase-backup-<时间戳>.json` 和照片地址清单
+  `backups/supabase-photos-<时间戳>.txt`。密钥只从 `config.js` 读，不打印、不写进备份文件。
+- `README.md` 的「备份」一节改成「备份与恢复」，并**纠正上一版写错的那句**：Supabase 只为
+  Pro 及以上做每日自动备份，**免费档没有自动备份**（官方建议自己定期 `db dump`），而且
+  **数据库备份不包含 Storage 里的照片文件**。补上「数据被删/被改乱了怎么恢复」的五步。
+- `guide.html`：密码要求从「至少 6 位」改成「**8 个字符以上（最多 72 个）**」，与
+  `app.js` 的 `PASSWORD_MIN_LENGTH = 8` 和 8~72 的注册校验一致。
+
+没有改 `index.html` / `app.js`，`?v=` 资源版本号与首屏体积都不变，线上不需要重新发版。
+
 ## 2026-10-16 — `guide.html`：已注册的设备不再重复显示注册引导
 
 同一个说明链接会被反复点开，注册过的人不该再看一遍「先注册」。`guide.html` 现在在渲染前（内联在

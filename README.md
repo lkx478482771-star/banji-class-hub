@@ -200,10 +200,39 @@ MantleDB 的两条硬顶（100 条 / 10000 次请求）和「口令摘要在公�
 换来的只是「更可靠的数据库 + 没有 100 条/10000 次的天花板」。真正的权限边界要等第二阶段接入
 Supabase Auth（用 `auth.uid()` 收紧 RLS、把口令校验搬进 `security definer` 函数）之后才立得起来。
 
-### 备份
+### 备份与恢复
 
-线上数据现在在 Supabase：日常备份用 Supabase Dashboard 的 **Database → Backups**（项目自带每日备份）。
-下面这个脚本备份的是**旧后端 MantleDB 里的那一份**，留底或准备回退时用：
+> ⚠️ **免费档没有自动备份。** Supabase 只为 Pro 及以上做每日自动备份（官方原话：免费档请自己定期
+> 用 CLI `db dump` 导出）。所以线上这份数据，**只有你自己导过的那一份才算备份**。
+> 另一个坑：**数据库备份不包含 Storage 里的照片文件**，库里存的只是照片路径。
+
+导出（挑一种就行）：
+
+```powershell
+node scripts/backup-supabase.mjs
+```
+
+从 `config.js` 读出项目地址与 anon key（只读、不打印），把 `class_hub_entries` 全表分页导出成
+`backups/supabase-backup-<时间戳>.json`，同时把 `sports-photos` 桶里的文件列成
+`backups/supabase-photos-<时间戳>.txt`（照片的公开地址清单）。照片文件本身要留底，就照这份清单逐张另存。
+
+不想用脚本也行：Dashboard → **Table Editor** → `class_hub_entries` → 右上角导出 CSV；
+或 **SQL Editor** 里跑
+`select namespace, path, value, updated_at from public.class_hub_entries order by namespace, path;`
+再把结果导出。官方还有 `supabase db dump`（要登录 CLI，最全）。
+
+**数据被删了 / 被改乱了怎么恢复：**
+
+1. **先别再动前端**（每次操作都会把改动同步回线上）。
+2. Dashboard → Table Editor 看一眼现在还剩什么，确认丢的是哪几条。
+3. 用最近的备份补回来：备份 JSON 里每条都带 `namespace` / `path` / `value`。条数少就在
+   Table Editor 里 **Insert row** 手动填回去；条数多在 **SQL Editor** 里执行
+   `insert into public.class_hub_entries (namespace, path, value) values (...) on conflict (namespace, path) do update set value = excluded.value;`
+   （`value` 直接粘备份里的 JSON）。
+4. 照片：按地址清单把文件下载回来，在 Dashboard → Storage → `sports-photos` 里传到**同名路径**即可复原。
+5. **免费档没有一键回滚**，只能靠备份——所以导出要定期做，发照片、运动会这类高峰前后各做一次。
+
+旧后端 MantleDB 那一份（迁移当天的 6 个文件已经在 `backups/` 里）继续用这个脚本留底或准备回退：
 
 ```powershell
 python scripts/backup-mantle.py
@@ -213,7 +242,7 @@ python scripts/backup-mantle.py
 `backups/banji-backup-<命名空间>-<时间戳>.json`（数据是分片存放的，只备份主片等于丢掉 4/5）。
 只想导其中一个时用老写法：`python scripts/backup-mantle.py <namespace> <输出文件>`。
 
-导出文件里含同学的真实信息和口令摘要，**不要提交进 git，也不要外传**。
+导出文件里含同学的真实信息和口令摘要，**不要提交进 git，也不要外传**（`backups/` 已在 `.gitignore` 里）。
 
 ## 安全边界与已知限制
 
