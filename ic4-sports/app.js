@@ -23,9 +23,45 @@
 
   const ui = { selected: 0, lit: false, filter: "all", timer: 0, onResize: null };
 
-  // 加油墙状态：loading 加载中 / ready 拿到数据 / error 连不上
-  const cheer = { status: "loading", error: "", items: [], modal: null };
+  // 加油墙状态：loading 加载中 / ready 拿到线上数据 / offline 连不上（先用本机数据顶着）
+  // 设计照抄「中秋节」那页的思路：连不上网络不算失败——显示上次同步到的内容、
+  // 写不上去就先存在这台设备上、过几秒自动重试，别让同学看到一句冷冰冰的错误。
+  const CHEER_SEED = Array.isArray(window.IC4_CHEERS) ? window.IC4_CHEERS : [];
+  const CHEER_CACHE_KEY = "ic4-cheer-cache-v1";
+  const CHEER_QUEUE_KEY = "ic4-cheer-queue-v1";
+  const cheer = { status: "loading", error: "", items: CHEER_SEED.slice(), queued: [], modal: null, retry: 0 };
   const CHEER_MAX = 40;
+
+  function storeGet(key, fallback) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return parsed == null ? fallback : parsed;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function storeSet(key, value) {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      /* 无痕模式等禁用存储时忽略：不影响页面其他功能 */
+    }
+  }
+
+  function mergeCheers() {
+    const seen = new Map();
+    Array.prototype.slice.call(arguments).forEach((list) => {
+      (Array.isArray(list) ? list : []).forEach((item) => {
+        if (!item || !item.body) return;
+        const key = String(item.id || item.target + "|" + item.at + "|" + item.body);
+        seen.set(key, item);
+      });
+    });
+    return Array.from(seen.values()).sort((a, b) => (a.at || 0) - (b.at || 0));
+  }
 
   // 赛场原声：三首歌不复制第二份，直接用旧站 assets/music 里的文件。
   // 线上页面在 /banji-class-hub/ic4-sports/，音乐在同仓库的 /banji-class-hub/assets/music/；
@@ -245,7 +281,7 @@
         <li class="cheer-item">
           <div class="cheer-item-head">
             <span class="cheer-item-target">给 ${escapeHTML(nameOfTarget(item.target))}</span>
-            <span class="cheer-item-time">${escapeHTML(formatTime(item.at))}</span>
+            <span class="cheer-item-time">${escapeHTML((opts.tag ? opts.tag + " · " : "") + formatTime(item.at))}</span>
           </div>
           <p class="cheer-item-body">${escapeHTML(item.body)}</p>
         </li>`
@@ -257,9 +293,20 @@
 
   function cheerStatusHTML() {
     if (cheer.status === "loading") return `<p class="empty-state">正在加载加油墙…</p>`;
+    // 网络是通的、只是还没人写：这是好消息，别写成错误提示。
+    if (cheer.status === "ready") return `<p class="empty-state">还没有人写加油，第一句可以是你写的。</p>`;
     return (
-      `<p class="empty-state">${escapeHTML(cheer.error || "加油墙暂时连不上。")}</p>` +
+      `<p class="empty-state">${escapeHTML(cheer.error || "网络有点慢，先显示上次同步到的加油。")}</p>` +
       `<div class="cheer-actions"><button class="secondary-button" type="button" data-action="cheer-retry">${icon("refresh-cw")} 再试一次</button></div>`
+    );
+  }
+
+  // 存在本机、还没传上去的句子：写的人自己能看到，别人看不到（还没过审）。
+  function cheerQueueHTML() {
+    if (!cheer.queued.length) return "";
+    return (
+      `<p class="cheer-note">还有 ${cheer.queued.length} 句存在这台设备上，网络一通就会自动传上去。</p>` +
+      cheerListHTML(cheer.queued, { tag: "待上传" })
     );
   }
 
@@ -268,12 +315,14 @@
     const current = total ? ((ui.selected % total) + total) % total : 0;
     const target = total ? athleteId(current) : "ALL";
     const mine = cheerFor(target);
-    const badge = cheer.status === "ready" ? cheer.items.length + " 条" : "…";
+    const badge = cheer.status === "ready" ? cheer.items.length + " 条" : cheer.status === "loading" ? "…" : "离线";
     const tone = cheer.status === "ready" ? "green" : "yellow";
-    const list =
-      cheer.status === "ready"
-        ? cheerListHTML(mine, { empty: "还没有人给这位同学写加油，你可以写第一句。", limit: 6 })
-        : cheerStatusHTML();
+    const list = cheer.items.length
+      ? cheerListHTML(mine, { empty: "还没有人给这位同学写加油，你可以写第一句。", limit: 6 }) +
+        (cheer.status === "ready"
+          ? ""
+          : `<p class="cheer-note">${escapeHTML(cheer.status === "loading" ? "正在刷新…" : cheer.error || "网络有点慢，先显示上次同步到的加油。")}</p>`)
+      : cheerStatusHTML();
 
     return `
       <header class="panel-header">
@@ -290,6 +339,7 @@
         </div>
         <p class="cheer-note">写的话会先进待审核，负责人通过后才出现在墙上。别写脏话、别写别人的隐私。</p>
         ${list}
+        ${cheerQueueHTML()}
       </div>
     `;
   }
@@ -349,10 +399,9 @@
   }
 
   function openCheerWall() {
-    const list =
-      cheer.status === "ready"
-        ? cheerListHTML(cheer.items, { empty: "还没有人写加油，你是第一个。" })
-        : cheerStatusHTML();
+    const list = cheer.items.length
+      ? cheerListHTML(cheer.items, { empty: "还没有人写加油，你是第一个。" })
+      : cheerStatusHTML();
     openModal(`
       <div class="ic4-modal-head">
         <div>
@@ -362,6 +411,7 @@
         <button class="ic4-modal-close" type="button" data-action="cheer-close" aria-label="关闭">×</button>
       </div>
       ${list}
+      ${cheerQueueHTML()}
     `);
     cheer.modal = { kind: "wall" };
   }
@@ -384,13 +434,31 @@
     if (button) button.disabled = true;
     say("正在提交…");
     const result = await window.IC4_CHEER.submit(target, body);
-    if (!result.ok) {
+    const soft = !result.ok && (result.error === "offline" || result.error === "timeout");
+    if (!result.ok && !soft) {
       if (button) button.disabled = false;
       return say(window.IC4_CHEER.explain(result.error), "error");
     }
+    if (soft) {
+      // 网络没通：先存在这台设备上，等网络好了自动重传。别让同学白写一遍。
+      queueCheer(target, body);
+      cheer.status = cheer.status === "ready" ? "ready" : "offline";
+      renderCheerPanel();
+      scheduleCheerRetry();
+    }
     const modal = document.querySelector("#ic4-modal .ic4-modal");
     if (modal) {
-      modal.innerHTML = `
+      modal.innerHTML = soft
+        ? `
+        <div class="cheer-done">
+          <strong>先记下来了 📝</strong>
+          <p>这台设备暂时连不上加油墙，这句话先存在本机。<br />网络一通就会自动传上去，到时候再等负责人审核。</p>
+          <div class="ic4-modal-actions">
+            <button class="primary-button" type="button" data-action="cheer-close">好</button>
+          </div>
+        </div>
+      `
+        : `
         <div class="cheer-done">
           <strong>已提交 ✅</strong>
           <p>等负责人审核通过后，就会出现在加油墙上。<br />现在可以关掉这个窗口了。</p>
@@ -411,27 +479,79 @@
     refreshIcons(panel);
   }
 
+  function loadQueue() {
+    const raw = storeGet(CHEER_QUEUE_KEY, []);
+    cheer.queued = (Array.isArray(raw) ? raw : []).filter((item) => item && item.target && item.body);
+  }
+
+  function queueCheer(target, body) {
+    cheer.queued.push({ id: "q-" + Date.now().toString(36), target: target, body: body, at: Date.now() });
+    storeSet(CHEER_QUEUE_KEY, cheer.queued);
+  }
+
+  // 把本机存着的句子传上去：网络还是不行就留着，内容本身不合规（太长等）就丢掉，不无限重试。
+  async function flushCheerQueue() {
+    if (!cheer.queued.length) return;
+    const api = window.IC4_CHEER;
+    const rest = [];
+    let softStop = false;
+    for (let i = 0; i < cheer.queued.length; i++) {
+      const item = cheer.queued[i];
+      if (softStop) {
+        rest.push(item);
+        continue;
+      }
+      const result = await api.submit(item.target, item.body, { force: true });
+      if (result.ok) continue;
+      if (result.error === "offline" || result.error === "timeout") {
+        softStop = true;
+        rest.push(item);
+      }
+    }
+    cheer.queued = rest;
+    storeSet(CHEER_QUEUE_KEY, rest);
+    renderCheerPanel();
+  }
+
+  function scheduleCheerRetry() {
+    if (cheer.retry) return;
+    cheer.retry = window.setTimeout(() => {
+      cheer.retry = 0;
+      loadCheers();
+    }, 8000);
+  }
+
   async function loadCheers() {
     const api = window.IC4_CHEER;
     if (!api || !api.ready()) {
-      cheer.status = "error";
+      cheer.status = "offline";
       cheer.error = "加油墙还没有配置好（负责人正在弄）。";
       renderCheerPanel();
       return;
     }
-    cheer.status = "loading";
-    cheer.error = "";
-    renderCheerPanel();
+    if (!cheer.items.length) {
+      cheer.status = "loading";
+      renderCheerPanel();
+    }
     const result = await api.list(300);
     if (result.ok) {
       cheer.status = "ready";
+      cheer.error = "";
       cheer.items = result.items;
-    } else {
-      cheer.status = "error";
-      cheer.error = api.explain(result.error);
+      storeSet(CHEER_CACHE_KEY, cheer.items.slice(-200));
+      renderCheerPanel();
+      if (cheer.modal && cheer.modal.kind === "wall") openCheerWall();
+      await flushCheerQueue();
+      return;
     }
+    // 连不上：用上次同步到的 + 构建时打进页面的快照顶着，并安排自动重试。
+    const cached = storeGet(CHEER_CACHE_KEY, []);
+    cheer.items = mergeCheers(cached, CHEER_SEED);
+    cheer.status = "offline";
+    cheer.error = api.explain(result.error);
     renderCheerPanel();
     if (cheer.modal && cheer.modal.kind === "wall") openCheerWall();
+    scheduleCheerRetry();
   }
 
   /* ---------------- 赛场原声（三首歌） ---------------- */
@@ -819,6 +939,9 @@
     document.addEventListener("input", onInput);
     ui.onResize = () => sizeWafer();
     window.addEventListener("resize", ui.onResize);
+    // 走到有网的地方（或者刚才只是抖了一下）就自动再试一次。
+    window.addEventListener("online", () => loadCheers());
+    loadQueue();
     loadCheers();
   }
 

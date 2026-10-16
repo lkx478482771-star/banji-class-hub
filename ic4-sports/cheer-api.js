@@ -15,7 +15,9 @@
   "use strict";
 
   const CLOUD = window.IC4_CLOUD || {};
-  const TIMEOUT = 12000;
+  const TIMEOUT_READ = 18000;
+  const TIMEOUT_WRITE = 22000;
+  const ATTEMPTS = 3;
   const TABLE = "/rest/v1/class_hub_entries";
   const NS = {
     pending: "banji-ic4-cheer-pending",
@@ -41,15 +43,16 @@
     return Object.assign(head, extra || {});
   }
 
-  async function call(method, url, body, extra) {
+  async function call(method, url, body, extra, timeout) {
     if (!CLOUD.url || !CLOUD.anonKey) return { ok: false, error: "no-cloud" };
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), TIMEOUT);
+    const timer = window.setTimeout(() => controller.abort(), timeout || TIMEOUT_READ);
     try {
       const response = await fetch(url, {
         method: method,
         headers: headers(extra),
         body: body === undefined ? undefined : JSON.stringify(body),
+        credentials: "omit",
         signal: controller.signal
       });
       const text = await response.text();
@@ -72,6 +75,20 @@
     } finally {
       window.clearTimeout(timer);
     }
+  }
+
+  // 网络抖动是常态（尤其是手机网络），读不到就自己重试几次再放弃，
+  // 别让同学一眼看到「连不上」——这也正是中秋节那页的做法。
+  async function withRetry(run) {
+    let last = null;
+    for (let i = 1; i <= ATTEMPTS; i++) {
+      last = await run();
+      if (last && last.ok) return last;
+      const soft = last && (last.error === "offline" || last.error === "timeout");
+      if (!soft || i === ATTEMPTS) return last;
+      await new Promise((resolve) => window.setTimeout(resolve, 650 * i));
+    }
+    return last;
   }
 
   function pickRows(result) {
@@ -136,29 +153,31 @@
 
     ready: () => Boolean(CLOUD.url && CLOUD.anonKey),
 
-    /** 提交一句加油：先落进「待审核」，负责人点了「通过」才会上墙。 */
-    submit(target, body) {
+    /** 提交一句加油：先落进「待审核」，负责人点了「通过」才会上墙。
+     *  options.force = true 时跳过「10 秒一条」的本机节流（本机队列重传时用）。 */
+    submit(target, body, options) {
       const text = String(body || "").trim();
       const who = String(target || "ALL").trim() || "ALL";
       if (text.length < TEXT_MIN || text.length > TEXT_MAX) {
         return Promise.resolve({ ok: false, error: "length" });
       }
       if (!TARGET_OK.test(who)) return Promise.resolve({ ok: false, error: "target" });
-      if (Date.now() - lastSubmitAt < 10000) {
+      if (!(options && options.force) && Date.now() - lastSubmitAt < 10000) {
         return Promise.resolve({ ok: false, error: "too_fast" });
       }
       lastSubmitAt = Date.now();
-      return putRow(NS.pending, newPath(), {
-        v: 1,
-        target: who,
-        text: text,
-        at: new Date().toISOString()
-      });
+      return call(
+        "POST",
+        base() + TABLE + "?on_conflict=namespace,path",
+        [{ namespace: NS.pending, path: newPath(), value: { v: 1, target: who, text: text, at: new Date().toISOString() } }],
+        { Prefer: "resolution=merge-duplicates,return=minimal" },
+        TIMEOUT_WRITE
+      );
     },
 
-    /** 已经上墙的加油（公开可读）。 */
+    /** 已经上墙的加油（公开可读）。读不到会自动重试几次。 */
     list(limit) {
-      return call("GET", listUrl(NS.live, limit)).then(pickRows);
+      return withRetry(() => call("GET", listUrl(NS.live, limit), undefined, undefined, TIMEOUT_READ).then(pickRows));
     },
 
     /** 还在等审核的加油（只有 admin.html 用）。 */
@@ -193,8 +212,8 @@
         rejected: "服务器把这条退回来了，换个说法再试。",
         denied: "这个网络发不出去，换个网试试。",
         "not-ready": "加油墙还没开通（负责人正在配置）。",
-        offline: "连不上加油墙，检查一下网络。",
-        timeout: "网络有点慢，稍后再试。",
+        offline: "网络有点慢，先显示上次同步到的加油。",
+        timeout: "网络有点慢，正在自动重试…",
         "no-cloud": "这个页面没有配置加油墙。",
         bad_secret: "口令不对。"
       };

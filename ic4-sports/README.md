@@ -26,6 +26,26 @@
   但理论上知道接口地址的人能把这两个分区里的留言删掉。想加固就跑可选的
   `supabase/ic4-cheers.sql`（把读写搬到服务端函数里），不跑也能正常用。
 
+## 连不上网也不会「报错」
+
+同学的网络（尤其手机）经常连不上 Supabase —— 本机实测就是**直连该域名 TLS 一握手就被掐断**
+（TCP 能连上、证书阶段就断，curl 直连 `http=000`，走代理 `http=401` 正常）。
+所以这一页照抄「中秋节」那页的思路，把「连不上」做成可以接受的状态：
+
+- 读不到线上数据 → **不显示错误**，用上次同步到的（浏览器缓存）+ 页面里带的静态快照顶着，
+  再配一句「网络有点慢，先显示上次同步到的加油。」和一个「再试一次」按钮，每 8 秒自动重试一次
+- 写加油时网络不通 → **不丢内容**：先存在这台设备的 `localStorage`（键名以 `ic4-cheer-` 开头），
+  页面上显示「还有 N 句存在这台设备上」，网络一通就自动传上去
+- 静态快照 = `cheers-seed.json`，构建时由 `tools/build.mjs` 打进 `data.js` 的 `window.IC4_CHEERS`。
+  更新快照（需要走本机代理）：
+
+```
+cd ic4-sports
+$env:NODE_USE_ENV_PROXY="1"; $env:HTTPS_PROXY="http://127.0.0.1:7897"
+node tools/sync-cheers.mjs --show   # 把线上「已上墙」的留言抓下来，写进 cheers-seed.json
+node tools/build.mjs                # 把快照打进 data.js
+```
+
 ## 怎么换审核口令
 
 `admin.js` 顶部有一行 `SECRET_HASH`。新口令的算法是
