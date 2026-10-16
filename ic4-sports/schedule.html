@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>集电4班 · 运动会赛程（2026-10-17）</title>
+<meta name="description" content="集成电路 4 班运动会参赛时间与全天安排，按时间顺序整理，供本班同学查看。">
+<style>
+:root{
+  --bg:#f6f5f2; --card:#ffffff; --ink:#1b1a17; --muted:#6f6a63; --line:#e6e2da;
+  --accent:#c2410c; --accent-soft:#fff1e7; --blue:#1d4ed8; --blue-soft:#eef2ff;
+  --green:#15803d; --green-soft:#ecfdf3; --shadow:0 1px 2px rgba(27,26,23,.06),0 8px 24px -12px rgba(27,26,23,.18);
+  --radius:16px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#14140f; --card:#1d1c18; --ink:#f2efe9; --muted:#a7a196; --line:#302e28;
+    --accent:#fb923c; --accent-soft:#3a2415; --blue:#93b4fd; --blue-soft:#1c2440;
+    --green:#6ee7a8; --green-soft:#17301f; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -14px rgba(0,0,0,.7);
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;}
+a{color:inherit}
+.wrap{max-width:960px;margin:0 auto;padding:0 16px 64px}
+/* 头部 */
+.hero{padding:34px 0 22px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.kicker{margin:0 0 6px;font-size:12px;letter-spacing:.18em;color:var(--accent);font-weight:700}
+h1{margin:0;font-size:clamp(24px,6.2vw,38px);line-height:1.18;letter-spacing:-.01em;font-weight:800}
+h1 small{display:block;font-size:clamp(13px,3.4vw,16px);font-weight:600;color:var(--muted);letter-spacing:.02em;margin-top:8px}
+.hero .meta{margin:12px 0 0;color:var(--muted);font-size:14px}
+.pill{display:inline-block;margin:14px 8px 0 0;padding:6px 12px;border-radius:999px;
+  background:var(--accent-soft);color:var(--accent);font-size:13px;font-weight:700}
+/* 导航 */
+.tabs{position:sticky;top:0;z-index:5;display:flex;gap:6px;overflow-x:auto;padding:10px 0;
+  background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs a{flex:0 0 auto;padding:7px 13px;border-radius:999px;border:1px solid var(--line);
+  background:var(--card);font-size:14px;font-weight:600;text-decoration:none;color:var(--muted)}
+.tabs a.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+h2{font-size:19px;margin:34px 0 4px;letter-spacing:-.01em}
+h2 .sub{display:block;font-size:13px;color:var(--muted);font-weight:500;margin-top:4px;letter-spacing:0}
+/* 全天时间轴 */
+.tl{margin:16px 0 0;padding:0;list-style:none;position:relative}
+.tl li{position:relative;padding:0 0 18px 90px}
+.tl li:before{content:"";position:absolute;left:74px;top:6px;bottom:-6px;width:2px;background:var(--line)}
+.tl li:last-child:before{display:none}
+.tl li:after{content:"";position:absolute;left:69px;top:8px;width:12px;height:12px;border-radius:50%;
+  background:var(--card);border:2px solid var(--accent)}
+.tl .t{position:absolute;left:0;top:2px;width:64px;text-align:right;font-weight:800;font-size:14px;
+  font-variant-numeric:tabular-nums;line-height:1.3}
+.tl .n{font-weight:700}
+.tl .d{color:var(--muted);font-size:14px;margin-top:2px}
+/* 时段卡片 */
+.slot{display:flex;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 16px;margin:10px 0;box-shadow:var(--shadow)}
+.slot .time{flex:0 0 76px;font-variant-numeric:tabular-nums}
+.slot .time b{display:block;font-size:20px;line-height:1.1;letter-spacing:-.02em}
+.slot .time span{font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.slot .body{flex:1;min-width:0}
+.slot .ev{font-weight:800;font-size:16px}
+.slot .ev em{font-style:normal;color:var(--muted);font-weight:500;font-size:13px;margin-left:6px}
+.slot .people{margin:6px 0 0;font-size:15px;line-height:1.9}
+.slot .who{display:inline-block;margin:2px 8px 0 0;padding:2px 9px;border-radius:8px;background:var(--blue-soft);
+  color:var(--blue);font-weight:700;font-size:14px;white-space:nowrap}
+.slot .who i{font-style:normal;font-weight:500;opacity:.85;font-size:12px;margin-left:5px}
+.slot .who.f{background:var(--accent-soft);color:var(--accent)}
+.slot .note{margin:8px 0 0;font-size:13px;color:var(--muted)}
+.slot.next{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft),var(--shadow)}
+.halfday{margin:22px 0 6px;font-size:13px;font-weight:800;letter-spacing:.14em;color:var(--muted)}
+/* 人卡片 */
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0 4px}
+.tools input{flex:1 1 190px;padding:9px 12px;border-radius:10px;border:1px solid var(--line);
+  background:var(--card);color:var(--ink);font-size:15px}
+.tools label{font-size:14px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.person{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:12px 14px;margin:10px 0;box-shadow:var(--shadow)}
+.person .hd{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.person .nm{font-weight:800;font-size:17px}
+.person .tag{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 8px}
+.it{display:flex;gap:10px;padding:7px 0;border-top:1px dashed var(--line);font-size:14px}
+.it:first-of-type{border-top:0}
+.it .tm{flex:0 0 78px;font-variant-numeric:tabular-nums;font-weight:700}
+.it .ev{flex:1;min-width:0}
+.it .ev small{display:block;color:var(--muted);font-size:12.5px;margin-top:1px}
+.it.final .ev small{color:var(--accent)}
+/* 表格 */
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--radius);overflow:hidden;font-size:14px}
+th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:color-mix(in srgb,var(--card) 70%,var(--bg));font-size:12px;letter-spacing:.06em;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:700}
+.two{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.box{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+.box h3{margin:0 0 8px;font-size:15px}
+.box ul{margin:0;padding-left:0;list-style:none}
+.box li{padding:4px 0;font-size:14px;border-bottom:1px dashed var(--line)}
+.box li:last-child{border-bottom:0}
+.badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;background:var(--green-soft);
+  color:var(--green);font-weight:700;margin-left:6px}
+.notes{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:6px 18px;box-shadow:var(--shadow)}
+.notes li{padding:10px 0;border-bottom:1px dashed var(--line);font-size:14.5px;color:var(--ink)}
+.notes li:last-child{border-bottom:0}
+footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+.empty{color:var(--muted);font-size:14px;padding:10px 0}
+@media print{
+  .tabs,.tools{display:none} body{background:#fff} .slot,.person,.box,table{box-shadow:none}
+  .slot{break-inside:avoid} h2{break-after:avoid}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <p class="kicker">安徽大学 · 集成电路学院</p>
+  <h1>集成电路 4 班 · 运动会赛程<small>2026 年 10 月 17 日（周六） · 安徽大学龙河校区体育场</small></h1>
+  <p class="meta">2026 年秋季新生运动会 · 按检录时间排序，只保留本班相关与当天安排</p>
+  <p class="pill" id="live">加载中…</p>
+</header>
+
+<nav class="tabs">
+  <a href="#day" class="on">全天安排</a>
+  <a href="#time">按时间看</a>
+  <a href="#people">按人看</a>
+  <a href="#team">接力 · 拔河</a>
+  <a href="#notes">注意事项</a>
+</nav>
+
+<h2 id="day">全天安排<span class="sub">开幕式与比赛时段</span></h2>
+<ul class="tl" id="tl"></ul>
+
+<h2 id="time">按时间看<span class="sub">先检录，再比赛；检录时间到了就到检录处报到</span></h2>
+<div id="slots"></div>
+
+<h2 id="people">按人看<span class="sub">本班 41 名参赛同学（班级报名表 33 人 ＋ 秩序册接力／拔河名单里另 8 人），按首项检录时间排序</span></h2>
+<div class="tools">
+  <input id="q" type="search" placeholder="搜名字，比如：吕道韫" autocomplete="off">
+  <span class="empty" id="hint">输入名字可只看自己</span>
+</div>
+<div id="people-list"></div>
+
+<h2 id="team">接力 · 拔河<span class="sub">名单来自秩序册班级名单</span></h2>
+<div class="two" id="team-boxes"></div>
+
+<h2 id="notes">注意事项<span class="sub">照秩序册摘录，只留和参赛有关的</span></h2>
+<ul class="notes"><li>时间以秩序册为准；册中原话：「因实际情况有所不同，时间可能依据实际情况发生改动，一切具体时间以现场指令为准」。</li><li>田赛如果与径赛冲突：优先径赛，田赛资格保留，径赛结束后立即到田赛场地比赛。</li><li>参赛运动员必须携带本人学生证或校园卡，检录核验后方可参赛；比赛期间不许穿钉鞋，不准横穿跑道。</li><li>册中印刷的小错已在页面就地更正：男子铅球「吴道韫」应为「吕道韫」；男子 200 米「陆家宸」应为「陆家辰」；拔河名单「崔姝雯」应为「崔姝斐」；男子 200 米把李明哲的号码印成 W2001（与曹家豪重号），本页按 W2002 显示。号码簿最终以现场发放的号码布为准。</li></ul>
+
+<footer>
+  数据来自班级运动会秩序册 PDF（27 页）逐页提取，生成时间 2026-10-17 00:30。<br>
+  时间与分组如有临时调整，以现场裁判与广播为准。
+</footer>
+</div>
+<script>window.__DATA__ = {"meet": "2026 年秋季新生运动会", "class": "集成电路 4 班", "roster_n": 33, "date": "2026 年 10 月 17 日（周六）", "venue": "安徽大学龙河校区体育场", "day": [["6:30–8:00", "赛前准备", "所有器材搬运至体育场，工作人员全部到位；7:30–8:00 音响调试完毕进入播音状态，各班方阵、领队、擎旗手到达指定位置，主席台准备。"], ["8:30–9:00", "开幕式", "播放《欢迎进行曲》开始；主持人宣布入场，奏《运动员进行曲》，擎旗手带各班方阵进场（队伍间隔约 8 米）；介绍莅临领导；院党委副书记李庆、教练李丰荣讲话；裁判员、运动员宣誓；宣布开幕式结束。注：册中径赛检录从 8:35 起，与开幕式重叠，实际上以现场指令为准。"], ["9:00–12:00", "上午比赛", "径赛 9:00 起（女子 100 米预赛），田赛 9:10 起（女子铅球）；上午最后一项男子 200 米决赛 12:00 结束。"], ["12:00–13:35", "午间休整", "上午比赛结束到下午第一项检录之间。"], ["13:35–14:40", "下午班级赛", "女子 4×100 米接力（检录 13:35／比赛 14:00）→ 男子 4×100 米接力（13:55／14:20）→ 拔河（14:20／14:40）。"]], "notes": ["时间以秩序册为准；册中原话：「因实际情况有所不同，时间可能依据实际情况发生改动，一切具体时间以现场指令为准」。", "田赛如果与径赛冲突：优先径赛，田赛资格保留，径赛结束后立即到田赛场地比赛。", "参赛运动员必须携带本人学生证或校园卡，检录核验后方可参赛；比赛期间不许穿钉鞋，不准横穿跑道。", "册中印刷的小错已在页面就地更正：男子铅球「吴道韫」应为「吕道韫」；男子 200 米「陆家宸」应为「陆家辰」；拔河名单「崔姝雯」应为「崔姝斐」；男子 200 米把李明哲的号码印成 W2001（与曹家豪重号），本页按 W2002 显示。号码簿最终以现场发放的号码布为准。"], "events": {"女子100米": ["8:35", "9:00", "11:00", "11:25", 13], "男子100米": ["8:45", "9:10", "11:00", "11:28", 31], "女子铅球": ["8:50", "9:10", "", "", 12], "女子跳高": ["9:00", "9:25", "", "", 3], "男子跳高": ["9:00", "9:35", "", "", 11], "女子400米": ["9:05", "9:30", "", "", 2], "男子400米": ["9:15", "9:40", "", "", 14], "女子跳远": ["9:18", "9:20", "", "", 10], "男子铅球": ["9:25", "9:40", "", "", 26], "男子1500米": ["9:35", "10:05", "", "", 30], "女子200米": ["10:15", "10:40", "", "", 7], "男子200米": ["10:20", "10:45", "11:35", "12:00", 25], "男子跳远": ["10:25", "10:50", "", "", 24], "女子800米": ["11:10", "11:35", "", "", 2], "男子800米": ["11:20", "11:45", "", "", 14], "女子4×100米": ["13:35", "14:00", "", "", 32], "男子4×100米": ["13:55", "14:20", "", "", 32], "拔河": ["14:20", "14:40", "", "", 120]}, "slots": [{"checkin": "8:35", "event": "女子100米", "start": "9:00", "count": 13, "final_checkin": "11:00", "final_start": "11:25", "people": ["汪瑾", "陈殿露"]}, {"checkin": "8:45", "event": "男子100米", "start": "9:10", "count": 31, "final_checkin": "11:00", "final_start": "11:28", "people": ["李明哲", "胡梦宇"]}, {"checkin": "8:50", "event": "女子铅球", "start": "9:10", "count": 12, "final_checkin": "", "final_start": "", "people": ["刘松岩", "杨娜", "计楚韵"]}, {"checkin": "9:00", "event": "男子跳高", "start": "9:35", "count": 11, "final_checkin": "", "final_start": "", "people": ["孟永奇", "黄林锴"]}, {"checkin": "9:15", "event": "男子400米", "start": "9:40", "count": 14, "final_checkin": "", "final_start": "", "people": ["郑子涵"]}, {"checkin": "9:18", "event": "女子跳远", "start": "9:20", "count": 10, "final_checkin": "", "final_start": "", "people": ["倪欣悦", "刘春妍", "崔姝斐", "覃奥粤"]}, {"checkin": "9:25", "event": "男子铅球", "start": "9:40", "count": 26, "final_checkin": "", "final_start": "", "people": ["刘佳豪", "吕道韫", "张子瑞", "彭斐博", "甄明宇", "聂连灿", "胡林鑫", "马飞扬"]}, {"checkin": "9:35", "event": "男子1500米", "start": "10:05", "count": 30, "final_checkin": "", "final_start": "", "people": ["孟永奇", "聂连灿", "邹梓博"]}, {"checkin": "10:15", "event": "女子200米", "start": "10:40", "count": 7, "final_checkin": "", "final_start": "", "people": ["曹可瑞"]}, {"checkin": "10:20", "event": "男子200米", "start": "10:45", "count": 25, "final_checkin": "11:35", "final_start": "12:00", "people": ["李明哲", "郑子涵", "邹梓博", "陆家辰"]}, {"checkin": "10:25", "event": "男子跳远", "start": "10:50", "count": 24, "final_checkin": "", "final_start": "", "people": ["郑子涵", "方奥林", "李知远", "沙嘉豪", "胡瀚波", "鲁宇乐"]}, {"checkin": "11:10", "event": "女子800米", "start": "11:35", "count": 2, "final_checkin": "", "final_start": "", "people": ["计楚韵", "梅利"]}, {"checkin": "11:20", "event": "男子800米", "start": "11:45", "count": 14, "final_checkin": "", "final_start": "", "people": ["孟永奇"]}, {"checkin": "13:35", "event": "女子4×100米", "start": "14:00", "count": 32, "final_checkin": "", "final_start": "", "people": ["刘春妍", "覃奥粤", "曹文萱", "王思语"]}, {"checkin": "13:55", "event": "男子4×100米", "start": "14:20", "count": 32, "final_checkin": "", "final_start": "", "people": ["李明哲", "邹梓博", "戴东升", "李创华"]}, {"checkin": "14:20", "event": "拔河", "start": "14:40", "count": 120, "final_checkin": "", "final_start": "", "people": ["刘松岩", "计楚韵", "郑子涵", "倪欣悦", "崔姝斐", "张子瑞", "聂连灿", "方奥林", "梅利", "刘铮阳", "卢子安", "吴昌豪", "宋子乐", "李禹昂", "柳黄征"]}], "teams": {"女子4×100米": ["王思语", "覃奥粤", "曹文萱", "刘春妍"], "男子4×100米": ["李明哲", "邹梓博", "李创华", "戴东升"], "拔河男": ["方奥林", "卢子安", "柳黄征", "张子瑞", "宋子乐", "聂连灿", "郑子涵", "吴昌豪", "李禹昂", "刘铮阳"], "拔河女": ["计楚韵", "刘松岩", "崔姝斐", "倪欣悦", "梅利"]}, "people": [{"name": "汪瑾", "sex": "女", "cheer": "枪响就绪，终点见。", "events": ["女子100米"], "items": [{"event": "女子100米", "checkin": "8:35", "start": "9:00", "final_checkin": "11:00", "final_start": "11:25", "count": 13, "lane": "8", "bib": "W2127", "seq": "", "group": "第一组", "field": false, "in_doc": true}]}, {"name": "陈殿露", "sex": "女", "cheer": "零延迟启动，满带宽冲刺。", "events": ["女子100米"], "items": [{"event": "女子100米", "checkin": "8:35", "start": "9:00", "final_checkin": "11:00", "final_start": "11:25", "count": 13, "lane": "5", "bib": "W2124", "seq": "", "group": "第一组", "field": false, "in_doc": true}]}, {"name": "李明哲", "sex": "男", "cheer": "发令枪响，直接满频运行。", "events": ["男子100米", "男子200米", "男子4×100米"], "items": [{"event": "男子100米", "checkin": "8:45", "start": "9:10", "final_checkin": "11:00", "final_start": "11:28", "count": 31, "lane": "3", "bib": "W2002", "seq": "", "group": "第一组", "field": false, "in_doc": true}, {"event": "男子200米", "checkin": "10:20", "start": "10:45", "final_checkin": "11:35", "final_start": "12:00", "count": 25, "lane": "3", "bib": "W2002", "seq": "", "group": "第一组", "field": false, "in_doc": true, "bib_doc": "W2001"}, {"event": "男子4×100米", "checkin": "13:55", "start": "14:20", "final_checkin": "", "final_start": "", "count": 32, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "胡梦宇", "sex": "男", "cheer": "起跑即满速，冲线才断电。", "events": ["男子100米"], "items": [{"event": "男子100米", "checkin": "8:45", "start": "9:10", "final_checkin": "11:00", "final_start": "11:28", "count": 31, "lane": "6", "bib": "W2005", "seq": "", "group": "第一组", "field": false, "in_doc": true}]}, {"name": "刘松岩", "sex": "女", "cheer": "这一掷，突破封装极限。", "events": ["女子铅球", "拔河"], "items": [{"event": "女子铅球", "checkin": "8:50", "start": "9:10", "final_checkin": "", "final_start": "", "count": 12, "lane": "", "bib": "W2161", "seq": "11号", "group": "", "field": true, "in_doc": true}, {"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "杨娜", "sex": "女", "cheer": "力量已经预加载完毕。", "events": ["女子铅球"], "items": [{"event": "女子铅球", "checkin": "8:50", "start": "9:10", "final_checkin": "", "final_start": "", "count": 12, "lane": "", "bib": "W2160", "seq": "10号", "group": "", "field": true, "in_doc": true}]}, {"name": "计楚韵", "sex": "女", "cheer": "最后 100 米，交给后援团。", "events": ["女子800米", "女子铅球", "拔河"], "items": [{"event": "女子铅球", "checkin": "8:50", "start": "9:10", "final_checkin": "", "final_start": "", "count": 12, "lane": "", "bib": "W2152", "seq": "6号", "group": "", "field": true, "in_doc": true}, {"event": "女子800米", "checkin": "11:10", "start": "11:35", "final_checkin": "", "final_start": "", "count": 2, "lane": "", "bib": "W2152", "seq": "", "group": "", "field": false, "in_doc": true}, {"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "孟永奇", "sex": "男", "cheer": "配速稳住，终点见。", "events": ["男子800米", "男子1500米", "男子跳高"], "items": [{"event": "男子跳高", "checkin": "9:00", "start": "9:35", "final_checkin": "", "final_start": "", "count": 11, "lane": "", "bib": "W2064", "seq": "7号", "group": "", "field": true, "in_doc": true}, {"event": "男子1500米", "checkin": "9:35", "start": "10:05", "final_checkin": "", "final_start": "", "count": 30, "lane": "", "bib": "W2064", "seq": "", "group": "第二组", "field": false, "in_doc": true}, {"event": "男子800米", "checkin": "11:20", "start": "11:45", "final_checkin": "", "final_start": "", "count": 14, "lane": "", "bib": "W2064", "seq": "", "group": "", "field": false, "in_doc": true}]}, {"name": "黄林锴", "sex": "男", "cheer": "横杆之上，还有余量。", "events": ["男子跳高"], "items": [{"event": "男子跳高", "checkin": "9:00", "start": "9:35", "final_checkin": "", "final_start": "", "count": 11, "lane": "", "bib": "W2144", "seq": "9号", "group": "", "field": true, "in_doc": true}]}, {"name": "郑子涵", "sex": "男", "cheer": "弯道超频，直道收敛。", "events": ["男子200米", "男子跳远", "男子400米", "拔河"], "items": [{"event": "男子400米", "checkin": "9:15", "start": "9:40", "final_checkin": "", "final_start": "", "count": 14, "lane": "1", "bib": "W2031", "seq": "", "group": "第一组", "field": false, "in_doc": true}, {"event": "男子200米", "checkin": "10:20", "start": "10:45", "final_checkin": "11:35", "final_start": "12:00", "count": 25, "lane": "4", "bib": "W2031", "seq": "", "group": "第一组", "field": false, "in_doc": true}, {"event": "男子跳远", "checkin": "10:25", "start": "10:50", "final_checkin": "", "final_start": "", "count": 24, "lane": "", "bib": "W2031", "seq": "1号", "group": "", "field": true, "in_doc": true}, {"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "倪欣悦", "sex": "女", "cheer": "助跑起跳，落点写进纪录里。", "events": ["女子跳远", "拔河"], "items": [{"event": "女子跳远", "checkin": "9:18", "start": "9:20", "final_checkin": "", "final_start": "", "count": 10, "lane": "", "bib": "W2168", "seq": "7号", "group": "", "field": true, "in_doc": true}, {"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "刘春妍", "sex": "女", "cheer": "三步起飞，落点见真章。", "events": ["女子跳远", "女子4×100米"], "items": [{"event": "女子跳远", "checkin": "9:18", "start": "9:20", "final_checkin": "", "final_start": "", "count": 10, "lane": "", "bib": "W2167", "seq": "9号", "group": "", "field": true, "in_doc": true}, {"event": "女子4×100米", "checkin": "13:35", "start": "14:00", "final_checkin": "", "final_start": "", "count": 32, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "崔姝斐", "sex": "女", "cheer": "沙坑那边，等你签名。", "events": ["女子跳远", "拔河"], "items": [{"event": "女子跳远", "checkin": "9:18", "start": "9:20", "final_checkin": "", "final_start": "", "count": 10, "lane": "", "bib": "W2166", "seq": "8号", "group": "", "field": true, "in_doc": true}, {"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "覃奥粤", "sex": "女", "cheer": "助跑起跳，落点写进纪录里。", "events": ["女子跳远", "女子4×100米"], "items": [{"event": "女子跳远", "checkin": "9:18", "start": "9:20", "final_checkin": "", "final_start": "", "count": 10, "lane": "", "bib": "W2165", "seq": "6号", "group": "", "field": true, "in_doc": true}, {"event": "女子4×100米", "checkin": "13:35", "start": "14:00", "final_checkin": "", "final_start": "", "count": 32, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "刘佳豪", "sex": "男", "cheer": "蓄力满格，一掷到底。", "events": ["男子铅球"], "items": [{"event": "男子铅球", "checkin": "9:25", "start": "9:40", "final_checkin": "", "final_start": "", "count": 26, "lane": "", "bib": "W2102", "seq": "15号", "group": "", "field": true, "in_doc": true}]}, {"name": "吕道韫", "sex": "男", "cheer": "这一掷，突破封装极限。", "events": ["男子铅球"], "items": [{"event": "男子铅球", "checkin": "9:25", "start": "9:40", "final_checkin": "", "final_start": "", "count": 26, "lane": "", "bib": "W2106", "seq": "18号", "group": "", "field": true, "in_doc": true}]}, {"name": "张子瑞", "sex": "男", "cheer": "一掷定音，全场静默。", "events": ["男子铅球", "拔河"], "items": [{"event": "男子铅球", "checkin": "9:25", "start": "9:40", "final_checkin": "", "final_start": "", "count": 26, "lane": "", "bib": "W2107", "seq": "19号", "group": "", "field": true, "in_doc": true}, {"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "彭斐博", "sex": "男", "cheer": "力量已经预加载完毕。", "events": ["男子铅球"], "items": [{"event": "男子铅球", "checkin": "9:25", "start": "9:40", "final_checkin": "", "final_start": "", "count": 26, "lane": "", "bib": "W2105", "seq": "17号", "group": "", "field": true, "in_doc": true}]}, {"name": "甄明宇", "sex": "男", "cheer": "一掷定音，全场静默。", "events": ["男子铅球"], "items": [{"event": "男子铅球", "checkin": "9:25", "start": "9:40", "final_checkin": "", "final_start": "", "count": 26, "lane": "", "bib": "W2104", "seq": "16号", "group": "", "field": true, "in_doc": true}]}, {"name": "聂连灿", "sex": "男", "cheer": "这一掷，突破封装极限。", "events": ["男子铅球", "男子1500米", "拔河"], "items": [{"event": "男子铅球", "checkin": "9:25", "start": "9:40", "final_checkin": "", "final_start": "", "count": 26, "lane": "", "bib": "W2076", "seq": "7号", "group": "", "field": true, "in_doc": true}, {"event": "男子1500米", "checkin": "9:35", "start": "10:05", "final_checkin": "", "final_start": "", "count": 30, "lane": "", "bib": "W2076", "seq": "", "group": "第一组", "field": false, "in_doc": true}, {"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "胡林鑫", "sex": "男", "cheer": "力量已经预加载完毕。", "events": ["男子铅球"], "items": [{"event": "男子铅球", "checkin": "9:25", "start": "9:40", "final_checkin": "", "final_start": "", "count": 26, "lane": "", "bib": "W2110", "seq": "22号", "group": "", "field": true, "in_doc": true}]}, {"name": "马飞扬", "sex": "男", "cheer": "一掷定音，全场静默。", "events": ["男子铅球"], "items": [{"event": "男子铅球", "checkin": "9:25", "start": "9:40", "final_checkin": "", "final_start": "", "count": 26, "lane": "", "bib": "W2115", "seq": "26号", "group": "", "field": true, "in_doc": true}]}, {"name": "邹梓博", "sex": "男", "cheer": "两个弯道，一路满速。", "events": ["男子200米", "男子4×100米", "男子1500米"], "items": [{"event": "男子1500米", "checkin": "9:35", "start": "10:05", "final_checkin": "", "final_start": "", "count": 30, "lane": "", "bib": "W2035", "seq": "", "group": "第二组", "field": false, "in_doc": true}, {"event": "男子200米", "checkin": "10:20", "start": "10:45", "final_checkin": "11:35", "final_start": "12:00", "count": 25, "lane": "2", "bib": "W2035", "seq": "", "group": "第三组", "field": false, "in_doc": true}, {"event": "男子4×100米", "checkin": "13:55", "start": "14:20", "final_checkin": "", "final_start": "", "count": 32, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "曹可瑞", "sex": "女", "cheer": "女子 200 米，一路通电到底。", "events": ["女子200米"], "items": [{"event": "女子200米", "checkin": "10:15", "start": "10:40", "final_checkin": "", "final_start": "", "count": 7, "lane": "7", "bib": "W2148", "seq": "", "group": "第一组", "field": false, "in_doc": true}]}, {"name": "陆家辰", "sex": "男", "cheer": "起跑就位，等你超频。", "events": ["男子200米"], "items": [{"event": "男子200米", "checkin": "10:20", "start": "10:45", "final_checkin": "11:35", "final_start": "12:00", "count": 25, "lane": "7", "bib": "W2037", "seq": "", "group": "第二组", "field": false, "in_doc": true}]}, {"name": "方奥林", "sex": "男", "cheer": "三步起飞，落点见真章。", "events": ["男子跳远", "拔河"], "items": [{"event": "男子跳远", "checkin": "10:25", "start": "10:50", "final_checkin": "", "final_start": "", "count": 24, "lane": "", "bib": "W2121", "seq": "9号", "group": "", "field": true, "in_doc": true}, {"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "李知远", "sex": "男", "cheer": "沙坑那边，等你签名。", "events": ["男子跳远"], "items": [{"event": "男子跳远", "checkin": "10:25", "start": "10:50", "final_checkin": "", "final_start": "", "count": 24, "lane": "", "bib": "W2140", "seq": "22号", "group": "", "field": true, "in_doc": true}]}, {"name": "沙嘉豪", "sex": "男", "cheer": "助跑起跳，落点写进纪录里。", "events": ["男子跳远"], "items": [{"event": "男子跳远", "checkin": "10:25", "start": "10:50", "final_checkin": "", "final_start": "", "count": 24, "lane": "", "bib": "W2135", "seq": "17号", "group": "", "field": true, "in_doc": true}]}, {"name": "胡瀚波", "sex": "男", "cheer": "沙坑那边，等你签名。", "events": ["男子跳远"], "items": [{"event": "男子跳远", "checkin": "10:25", "start": "10:50", "final_checkin": "", "final_start": "", "count": 24, "lane": "", "bib": "W2137", "seq": "19号", "group": "", "field": true, "in_doc": true}]}, {"name": "鲁宇乐", "sex": "男", "cheer": "三步起飞，落点见真章。", "events": ["男子跳远"], "items": [{"event": "男子跳远", "checkin": "10:25", "start": "10:50", "final_checkin": "", "final_start": "", "count": 24, "lane": "", "bib": "W2139", "seq": "21号", "group": "", "field": true, "in_doc": true}]}, {"name": "梅利", "sex": "女", "cheer": "两圈不长，我们全程给你供电。", "events": ["女子800米", "拔河"], "items": [{"event": "女子800米", "checkin": "11:10", "start": "11:35", "final_checkin": "", "final_start": "", "count": 2, "lane": "", "bib": "W2151", "seq": "", "group": "", "field": false, "in_doc": true}, {"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "曹文萱", "sex": "女", "cheer": "", "events": ["女子4×100米"], "items": [{"event": "女子4×100米", "checkin": "13:35", "start": "14:00", "final_checkin": "", "final_start": "", "count": 32, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "王思语", "sex": "女", "cheer": "", "events": ["女子4×100米"], "items": [{"event": "女子4×100米", "checkin": "13:35", "start": "14:00", "final_checkin": "", "final_start": "", "count": 32, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "戴东升", "sex": "男", "cheer": "四棒接力，一根线也不能断。", "events": ["男子4×100米"], "items": [{"event": "男子4×100米", "checkin": "13:55", "start": "14:20", "final_checkin": "", "final_start": "", "count": 32, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "李创华", "sex": "男", "cheer": "交棒快过信号传输。", "events": ["男子4×100米"], "items": [{"event": "男子4×100米", "checkin": "13:55", "start": "14:20", "final_checkin": "", "final_start": "", "count": 32, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "刘铮阳", "sex": "男", "cheer": "", "events": ["拔河"], "items": [{"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "卢子安", "sex": "男", "cheer": "", "events": ["拔河"], "items": [{"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "吴昌豪", "sex": "男", "cheer": "", "events": ["拔河"], "items": [{"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "宋子乐", "sex": "男", "cheer": "", "events": ["拔河"], "items": [{"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "李禹昂", "sex": "男", "cheer": "", "events": ["拔河"], "items": [{"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}, {"name": "柳黄征", "sex": "男", "cheer": "", "events": ["拔河"], "items": [{"event": "拔河", "checkin": "14:20", "start": "14:40", "final_checkin": "", "final_start": "", "count": 120, "lane": "", "bib": "", "seq": "", "group": "", "field": false, "in_doc": false}]}], "iso": "2026-10-17"};</script>
+<script>
+const D = window.__DATA__;
+const byName = Object.fromEntries(D.people.map(p => [p.name, p]));
+const SEX = Object.fromEntries(D.people.map(p => [p.name, p.sex]));
+
+// 全天时间轴
+const tl = document.getElementById('tl');
+D.day.forEach(([t, n, d]) => {
+  const li = document.createElement('li');
+  li.innerHTML = `<span class="t">${t.replace('-', '–')}</span><div class="n">${n}</div><div class="d">${d}</div>`;
+  tl.appendChild(li);
+});
+
+// 时段卡片：按“上午 / 下午”分组
+const M = s => { const [h, m] = s.split(':'); return (+h) * 60 + (+m); };
+function whoChip(name, it) {
+  const det = [it.bib, it.lane ? it.lane + '道' : '', it.seq, it.group].filter(Boolean);
+  const cls = SEX[name] === '女' ? 'who f' : 'who';
+  return `<span class="${cls}">${name}${det.length ? `<i>${det.join(' · ')}</i>` : ''}</span>`;
+}
+const host = document.getElementById('slots');
+[['上午', '12:00'], ['下午', '24:00']].reduce((from, [label, to]) => {
+  const list = D.slots.filter(s => M(s.checkin) >= M(from) && M(s.checkin) < M(to));
+  if (!list.length) return from;
+  const h = document.createElement('div');
+  h.className = 'halfday';
+  h.textContent = label;
+  host.appendChild(h);
+  list.forEach(s => {
+    const el = document.createElement('article');
+    el.className = 'slot';
+    el.dataset.checkin = s.checkin;
+    const extra = [];
+    if (s.event === '拔河') extra.push('每班 10 男 5 女上场');
+    if (s.event.includes('4×100')) extra.push('4 人一队');
+    if (['女子100米', '男子100米', '男子200米'].includes(s.event) && s.final_start)
+      extra.push(`决赛 ${s.final_checkin} 检录 / ${s.final_start} 比赛（若晋级）`);
+    if (['女子铅球', '男子铅球', '女子跳远', '男子跳远', '男子跳高', '女子跳高'].includes(s.event))
+      extra.push('田赛：与径赛冲突时先径赛，田赛资格保留');
+    el.innerHTML = `<div class="time"><b>${s.checkin}</b><span>检录</span></div>
+      <div class="body">
+        <div class="ev">${s.event}<em>${s.start} 开赛 · 全项 ${s.count} 人</em></div>
+        <div class="people">${s.people.map(n => whoChip(n, byName[n].items.find(i => i.event === s.event))).join('')}</div>
+        ${extra.length ? `<p class="note">${extra.join('；')}</p>` : ''}
+      </div>`;
+    host.appendChild(el);
+  });
+  return to;
+}, '00:00');
+
+// 当前/下一项高亮（仅比赛当天）
+(function highlight() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const cards = [...document.querySelectorAll('.slot')];
+  const nowM = now.getHours() * 60 + now.getMinutes();
+  const upcoming = cards.find(c => M(c.dataset.checkin) + 20 >= nowM);
+  if (today === D.iso) {
+    if (upcoming) {
+      upcoming.classList.add('next');
+      const b = document.getElementById('live');
+      b.textContent = `下一项：${upcoming.querySelector('.ev').firstChild.textContent.trim()} · ${upcoming.dataset.checkin} 检录`;
+    }
+  } else {
+    document.getElementById('live').textContent = `共 ${D.slots.length} 个时段 · ${D.people.length} 名同学参赛`;
+  }
+})();
+
+// 按人找
+const list = document.getElementById('people-list');
+const q = document.getElementById('q');
+const onlyTeam = document.getElementById('only-team');
+function render() {
+  const kw = q.value.trim();
+  const want = kw ? D.people.filter(p => p.name.includes(kw)) : D.people;
+  list.innerHTML = '';
+  if (!want.length) { list.innerHTML = '<p class="empty">没有找到这个名字，换个字试试。</p>'; return; }
+  want.forEach(p => {
+    const box = document.createElement('div');
+    box.className = 'person';
+    const rows = p.items.map(it => {
+      const det = [it.bib ? '号码簿 ' + it.bib : '', it.lane ? it.lane + ' 道' : '',
+                   it.seq, it.group, it.field ? '田赛' : ''].filter(Boolean).join(' · ')
+                  + (it.bib_doc ? `（册中印作 ${it.bib_doc}）` : '');
+      const fin = it.final_start ? `<small>若晋级：${it.final_checkin} 检录 / ${it.final_start} 比赛</small>` : '';
+      return `<div class="it"><div class="tm">${it.checkin}</div>
+        <div class="ev">${it.event} <small>${it.start} 开赛${det ? ' · ' + det : ''}</small>${fin}</div></div>`;
+    }).join('');
+    box.innerHTML = `<div class="hd"><span class="nm">${p.name}</span>
+      <span class="tag">${p.sex}</span><span class="tag">${p.items.length} 项</span>
+      ${p.cheer ? `<span class="tag">${p.cheer}</span>` : ''}</div>${rows}`;
+    list.appendChild(box);
+  });
+}
+q.addEventListener('input', render);
+render();
+</script>
+<script>
+// 接力 / 拔河名单
+(function () {
+  const T = window.__DATA__.teams;
+  const box = document.getElementById('team-boxes');
+  const cards = [
+    ['女子 4×100 米', '13:35 检录 / 14:00 比赛', T['女子4×100米'], '女'],
+    ['男子 4×100 米', '13:55 检录 / 14:20 比赛', T['男子4×100米'], '男'],
+    ['拔河 · 男生', '14:20 检录 / 14:40 比赛', T['拔河男'], '男'],
+    ['拔河 · 女生', '14:20 检录 / 14:40 比赛', T['拔河女'], '女'],
+  ];
+  box.innerHTML = cards.map(([t, when, names, sex]) =>
+    `<div class="box"><h3>${t}<span class="badge">${names.length} 人</span></h3>
+     <p class="empty" style="padding:0 0 6px">${when}</p>
+     <ul>${names.map(n => `<li>${n}</li>`).join('')}</ul></div>`).join('');
+})();
+</script>
+</body>
+</html>
