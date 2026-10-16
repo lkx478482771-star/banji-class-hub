@@ -29,8 +29,10 @@
   const CHEER_SEED = Array.isArray(window.IC4_CHEERS) ? window.IC4_CHEERS : [];
   const CHEER_CACHE_KEY = "ic4-cheer-cache-v1";
   const CHEER_QUEUE_KEY = "ic4-cheer-queue-v1";
-  const cheer = { status: "loading", error: "", items: CHEER_SEED.slice(), queued: [], modal: null, retry: 0, retryStep: 0 };
+  const cheer = { status: "loading", error: "", items: CHEER_SEED.slice(), queued: [], modal: null, retry: 0, retryStep: 0, pruned: 0 };
   const CHEER_MAX = 40;
+  // 同一位同学，一台设备最多加 2 次油；完全一样的话也不许重复贴（重复的会被自动清掉）。
+  const CHEER_PER_TARGET = 2;
   // 连不上时的自动重试节奏：先勤后疏，试够 8 次就停下来等「再试一次」或网络恢复事件，
   // 免得一直每 8 秒打一次网络（手机上很费电）。
   const CHEER_RETRY_DELAYS = [8000, 20000, 45000, 60000, 60000, 60000, 60000, 60000];
@@ -125,6 +127,35 @@
   }
 
   const cheerFor = (target) => cheer.items.filter((item) => item.target === target);
+
+  // 判重跟 cheer-api.js 的清理规则保持一致：去空白 + 忽略大小写，同对象同文本才算重复。
+  const normCheerText = (text) => String(text || "").replace(/\s+/g, " ").trim().toLowerCase();
+
+  // 这台设备的编号（存在浏览器本地）。数「我给这位同学加过几次油」要靠它，
+  // 换设备/清缓存就重新算——这是防刷屏，不是防作弊。
+  const myDeviceId = () => {
+    const api = window.IC4_CHEER;
+    return api && api.deviceId ? String(api.deviceId() || "") : "";
+  };
+
+  // 我在这位同学这儿已经加过几次油：墙上的（按设备号认）+ 本机还没传上去的。
+  function mineFor(target) {
+    const dev = myDeviceId();
+    const onWall = dev ? cheer.items.filter((item) => item.target === target && item.dev === dev).length : 0;
+    const inQueue = cheer.queued.filter((item) => item.target === target).length;
+    return onWall + inQueue;
+  }
+
+  function sameCheerOnWall(target, body) {
+    const key = normCheerText(body);
+    return cheer.items.some((item) => item.target === target && normCheerText(item.body) === key);
+  }
+
+  // 接口读回来时顺手清掉了重复留言 → 在面板和墙上说一声，别让它悄悄消失。
+  function cheerPruneNoteHTML() {
+    if (!cheer.pruned) return "";
+    return `<p class="cheer-note">已自动清理 ${cheer.pruned} 条完全重复的留言（同一句只留最早的一条）。</p>`;
+  }
 
   /* ---------------- 晶圆排版：同心圆环 ---------------- */
 
@@ -338,6 +369,8 @@
           <button class="secondary-button" type="button" data-action="cheer-wall">${icon("message-circle")} ${wallLabel}</button>
         </div>
         <p class="cheer-note">写完立刻出现在墙上，不用等审核。别写脏话、别写别人的隐私。</p>
+        <p class="cheer-note">同一位同学最多加 ${CHEER_PER_TARGET} 次油；一模一样的话不会重复上墙。</p>
+        ${cheerPruneNoteHTML()}
         ${list}
         ${cheerQueueHTML()}
       </div>
@@ -399,7 +432,7 @@
       <div class="ic4-modal-head">
         <div>
           <h3 class="ic4-modal-title">给 ${escapeHTML(nameOfTarget(target))} 写一句加油</h3>
-          <p class="ic4-modal-sub">匿名 · 不用登录 · 最多 ${CHEER_MAX} 个字</p>
+          <p class="ic4-modal-sub">匿名 · 不用登录 · 最多 ${CHEER_MAX} 个字 · 同一位同学限 ${CHEER_PER_TARGET} 次</p>
         </div>
         <button class="ic4-modal-close" type="button" data-action="cheer-close" aria-label="关闭">×</button>
       </div>
@@ -428,6 +461,7 @@
         </div>
         <button class="ic4-modal-close" type="button" data-action="cheer-close" aria-label="关闭">×</button>
       </div>
+      ${cheerPruneNoteHTML()}
       ${list}
       ${cheerQueueHTML()}
     `);
@@ -447,6 +481,12 @@
     const body = input.value.trim();
     if (body.length < 2) return say("至少写 2 个字。", "error");
     if (body.length > CHEER_MAX) return say("最多 " + CHEER_MAX + " 个字。", "error");
+    // 两条规矩在提交前就拦下来，别让同学写完了才被服务器退回来：
+    // 一模一样的话不再重复贴；同一位同学一台设备最多 2 次。
+    if (sameCheerOnWall(target, body)) return say("这句话墙上已经有了，换一句吧。", "error");
+    if (mineFor(target) >= CHEER_PER_TARGET) {
+      return say("同一位同学最多只能加 " + CHEER_PER_TARGET + " 次油，把机会留给别人吧。", "error");
+    }
 
     const button = document.querySelector('[data-action="cheer-submit"]');
     if (button) button.disabled = true;
@@ -578,6 +618,9 @@
       cheer.error = "";
       cheer.retryStep = 0;
       cheer.items = result.items;
+      // 接口顺手清掉的重复留言条数；读第二次时接口不会再报（限流），
+      // 这里只记住「清过」这件事，别把提示抹掉。
+      if (result.pruned) cheer.pruned = result.pruned;
       // items 是「新的在前」：缓存留最新的 200 条（不是最早的 200 条）。
       storeSet(CHEER_CACHE_KEY, cheer.items.slice(0, 200));
       renderCheerPanel();

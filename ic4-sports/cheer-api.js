@@ -7,6 +7,11 @@
  * 公开页只做两件事：往 live 写一条、从 live 读回来。
  * 「下架某一条」只有 admin.html 用（事后删帖），而且要过口令。
  *
+ * 唯一的例外是**完全重复的留言**：每次读回来的时候顺手把一模一样的话清掉
+ * （同一个对象、同一段文字，只留最早的那条），免得有人连点几下刷屏。
+ * 规则写死在下面的 pruneDuplicates() 里：只删「同对象 + 同文本」的重复项，
+ * 不会碰任何一条措辞不同的留言。
+ *
  * 代价要说清楚：没有服务端把关，谁都能写、也能删自己分区里的东西（「防君子」级别）。
  * 想加固就跑可选的 supabase/ic4-cheers.sql，把读写收进服务端函数里。
  */
@@ -26,6 +31,36 @@
   const TARGET_OK = /^(ALL|IC4-\d{3})$/;
 
   let lastSubmitAt = 0;
+  let lastPruneAt = 0;
+  let cachedDev = "";
+
+  // 这台设备的编号：只存在浏览器本地，用来数「这位同学我已经加过几次油」。
+  // 不是账号、不收集个人信息；清掉浏览器数据或换台设备就重新算
+  // （用来防刷屏够了，不防存心作弊的人）。
+  const DEV_KEY = "ic4-cheer-dev-v1";
+  const DEV_OK = /^d-[a-z0-9]{4,20}$/;
+
+  function deviceId() {
+    if (cachedDev) return cachedDev;
+    let saved = "";
+    try {
+      saved = window.localStorage.getItem(DEV_KEY) || "";
+    } catch (error) {
+      saved = "";
+    }
+    if (DEV_OK.test(saved)) {
+      cachedDev = saved;
+      return cachedDev;
+    }
+    const made = "d-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    try {
+      window.localStorage.setItem(DEV_KEY, made);
+    } catch (error) {
+      /* 无痕模式等禁用存储时忽略：这一次页面打开期间仍然算得对 */
+    }
+    cachedDev = made;
+    return cachedDev;
+  }
 
   function base() {
     return String(CLOUD.url || "").replace(/\/+$/, "");
@@ -101,6 +136,8 @@
           id: String((row && row.path) || ""),
           target: String(value.target || "ALL"),
           body: text,
+          // 写这句话的设备编号（老数据没有这个字段，就是空字符串）。
+          dev: String(value.dev || ""),
           at: value.at ? Date.parse(value.at) || 0 : Date.parse((row && row.updated_at) || "") || 0
         };
       })
@@ -144,10 +181,76 @@
   const PATH_OK = /^c-[a-z0-9]+-[a-z0-9]{1,10}$/;
   const AT_OK = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/;
 
+  /* ---------------- 重复留言自动清理 ----------------
+   * 判重只看两件事：送给谁（target）+ 文字本身（去空白、忽略大小写）。
+   * 同一组只留最早的一条，其余删掉；措辞不同的留言一律不动。
+   * 限流两条：每次读回来最多删 30 条、两次清理之间至少隔 20 秒
+   * （页面开着一整天也不会反复打网络）。
+   */
+  const PRUNE_MAX = 30;
+  const PRUNE_GAP = 20000;
+
+  function normText(text) {
+    return String(text || "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function duplicateIds(items) {
+    const groups = new Map();
+    (items || []).forEach((item) => {
+      const key = item.target + "\u0001" + normText(item.body);
+      const list = groups.get(key);
+      if (list) list.push(item);
+      else groups.set(key, [item]);
+    });
+    const drop = [];
+    groups.forEach((list) => {
+      if (list.length < 2) return;
+      // items 是「新的在前」；留下时间最早的那条（时间缺失时按它在列表里的先后判断）。
+      const keep = list.reduce((a, b) => ((a.at || 0) <= (b.at || 0) ? a : b));
+      list.forEach((item) => {
+        if (item !== keep) drop.push(item);
+      });
+    });
+    return drop.slice(0, PRUNE_MAX);
+  }
+
+  async function pruneDuplicates(items) {
+    const drop = duplicateIds(items);
+    const gone = [];
+    for (let i = 0; i < drop.length; i++) {
+      // 删不掉（权限/网络）就不删，当次照常显示：清理失败绝不影响读留言。
+      const result = await delRow(NS.live, drop[i].id);
+      if (result.ok) gone.push(drop[i].id);
+    }
+    return gone;
+  }
+
+  function pruneOnce(result) {
+    if (!result.ok || result.items.length < 2) return Promise.resolve(result);
+    const now = Date.now();
+    if (now - lastPruneAt < PRUNE_GAP) return Promise.resolve(result);
+    lastPruneAt = now;
+    return pruneDuplicates(result.items).then((gone) => {
+      if (!gone.length) return result;
+      const dropped = {};
+      gone.forEach((id) => {
+        dropped[id] = true;
+      });
+      return {
+        ok: true,
+        items: result.items.filter((item) => !dropped[item.id]),
+        pruned: gone.length
+      };
+    });
+  }
+
   window.IC4_CHEER = {
     namespaces: NS,
 
     ready: () => Boolean(CLOUD.url && CLOUD.anonKey),
+
+    /** 这台设备的编号（见上面 deviceId()）：页面上「你已经加过几次油」就按它数。 */
+    deviceId: deviceId,
 
     /** 提交一句加油：直接进「已上墙」分区，不用审核，写完大家就能看到。
      *  options.force = true 时跳过「10 秒一条」的本机节流（本机队列重传时用）。
@@ -171,15 +274,18 @@
       return call(
         "POST",
         base() + TABLE + "?on_conflict=namespace,path",
-        [{ namespace: NS.live, path: path, value: { v: 1, target: who, text: text, at: at } }],
+        [{ namespace: NS.live, path: path, value: { v: 1, target: who, text: text, at: at, dev: deviceId() } }],
         { Prefer: "resolution=merge-duplicates,return=minimal" },
         TIMEOUT_WRITE
       ).then((result) => (result.ok ? result : Object.assign({}, result, { path: path, at: at })));
     },
 
-    /** 已经上墙的加油（公开可读）。读不到会自动重试几次。 */
+    /** 已经上墙的加油（公开可读）。读不到会自动重试几次。
+     *  读成功时顺手清掉完全重复的留言，返回值里 pruned = 这次清掉了几条。 */
     list(limit) {
-      return withRetry(() => call("GET", listUrl(NS.live, limit), undefined, undefined, TIMEOUT_READ).then(pickRows));
+      return withRetry(() =>
+        call("GET", listUrl(NS.live, limit), undefined, undefined, TIMEOUT_READ).then(pickRows).then(pruneOnce)
+      );
     },
 
     /** 下架一条（只有 admin.html 用）：把这条从墙上删掉。 */
@@ -193,6 +299,8 @@
         length: "留言要 2 到 40 个字。",
         target: "加油对象不对。",
         too_fast: "刚发过一条，等 10 秒再发。",
+        duplicate: "这句话墙上已经有了，换一句吧。",
+        limited: "同一位同学最多只能加 2 次油，把机会留给别人吧。",
         rejected: "服务器把这条退回来了，换个说法再试。",
         denied: "这个网络发不出去，换个网试试。",
         "not-ready": "加油墙还没开通（负责人正在配置）。",
