@@ -32,7 +32,9 @@
     loading: false,
     items: [],
     timer: 0,
-    lastAt: 0
+    lastAt: 0,
+    filled: 0,
+    newest: 0
   };
 
   const KEY = (name, event) => name + "\u0001" + event;
@@ -122,35 +124,71 @@
       el.setAttribute("data-filled", hasValue ? "1" : "0");
     });
     state.lastAt = newest;
-    if (statEl) {
-      statEl.textContent =
-        "已填 " + filled + " / 共 " + rows.length + " 格" + (newest ? " · 最近更新 " + clockOf(newest) : "");
-    }
+    state.filled = filled;
+    state.newest = newest;
     applyFilter();
+  }
+
+  // 状态行：没筛选时报总账；筛了之后把「现在显示几格」也说清楚，
+  // 不然行被藏起来的时候看不出是筛选生效了还是没反应。
+  function updateStat(shown) {
+    if (!statEl) return;
+    const kw = (qEl && qEl.value.trim()) || "";
+    const onlyEmpty = Boolean(unfilledEl && unfilledEl.checked);
+    let text =
+      "已填 " + state.filled + " / 共 " + rows.length + " 格" +
+      (state.newest ? " · 最近更新 " + clockOf(state.newest) : "");
+    if (kw || onlyEmpty) {
+      if (shown === 0) {
+        text = kw ? "没找到「" + kw + "」，换个名字或项目试试" : "都填完了，没有还没填的";
+      } else {
+        text += " · 现在显示 " + shown + " 格";
+      }
+    }
+    statEl.textContent = text;
   }
 
   function applyFilter() {
     const kw = (qEl && qEl.value.trim()) || "";
     const onlyEmpty = Boolean(unfilledEl && unfilledEl.checked);
-    const hitNames = {};
     let shown = 0;
+    let shownEmpty = 0;
     rows.forEach((el) => {
-      const okName = !kw || el.__name.indexOf(kw) >= 0 || el.__event.indexOf(kw) >= 0 || el.__mates.indexOf(kw) >= 0;
+      const slot = el.getAttribute("data-slot") || "";
+      const okName =
+        !kw ||
+        el.__name.indexOf(kw) >= 0 ||
+        el.__event.indexOf(kw) >= 0 ||
+        el.__mates.indexOf(kw) >= 0 ||
+        slot.indexOf(kw) >= 0;
       const okFill = !onlyEmpty || el.getAttribute("data-filled") !== "1";
       const ok = okName && okFill;
       el.hidden = !ok;
       if (ok) {
         shown += 1;
-        hitNames[el.__event] = true;
+        if (el.getAttribute("data-filled") !== "1") shownEmpty += 1;
       }
     });
+    // 一张项目卡：只要里面还有一行是显示的就留着，全被筛掉了才收起来
     cards.forEach((card) => {
-      const event = card.getAttribute("data-event");
       const any = [].slice.call(card.querySelectorAll(".rs-row")).some((el) => !el.hidden);
       card.hidden = !any;
-      if (any) hitNames[event] = true;
     });
-    if (listEl) listEl.setAttribute("data-shown", String(shown));
+    // 「上午」「下午」这种半日小标题：它下面一张卡都不剩了就一起收起来
+    [].slice.call(root.querySelectorAll(".rs-half")).forEach((h) => {
+      let n = h.nextElementSibling;
+      let any = false;
+      while (n && n.classList && n.classList.contains("rs-ev")) {
+        if (!n.hidden) any = true;
+        n = n.nextElementSibling;
+      }
+      h.hidden = !any;
+    });
+    if (listEl) {
+      listEl.setAttribute("data-shown", String(shown));
+      listEl.setAttribute("data-shown-empty", String(shownEmpty));
+    }
+    updateStat(shown);
   }
 
   async function save(el) {
@@ -207,10 +245,9 @@
       if (item && (item.result || item.rank)) filled += 1;
       if (item && item.at > newest) newest = item.at;
     });
-    if (statEl) {
-      statEl.textContent =
-        "已填 " + filled + " / 共 " + rows.length + " 格" + (newest ? " · 最近更新 " + clockOf(newest) : "");
-    }
+    state.filled = filled;
+    state.newest = newest;
+    // 刚填完这一格可能正好被「只看还没填的」筛掉，交给 applyFilter 重新算一遍并刷新状态行
     applyFilter();
   }
 
