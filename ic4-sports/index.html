@@ -26,6 +26,12 @@
 .module-switch .ms-btn span{font-size:12px;font-weight:500;color:var(--ink-soft)}
 .module-switch .ms-btn[aria-selected="true"]{border-color:var(--primary);background:var(--primary-soft);color:var(--primary-strong)}
 .module-switch .ms-btn[aria-selected="true"] span{color:var(--primary-strong);opacity:.9}
+.standalone-jump{flex-basis:100%;margin:10px 0 0}
+.ms-jump{display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border:0;border-radius:var(--radius);
+  background:var(--primary);color:var(--page);font-family:inherit;font-size:15px;font-weight:800;line-height:1.2;
+  cursor:pointer;box-shadow:var(--shadow-md);transition:background .15s}
+.ms-jump:hover{background:var(--primary-strong)}
+.standalone-shell.mod-schedule .standalone-jump{display:none}
 .standalone-shell.mod-roster #schedule{display:none}
 .standalone-shell.mod-schedule #app{display:none}
 .standalone-shell.mod-schedule .standalone-footer{display:none}
@@ -103,7 +109,8 @@
     <div class="standalone-shell mod-roster">
       <div class="standalone-bar">
         <p class="eyebrow">安徽大学 · 集成电路学院 · 集成电路 4 班</p>
-        <p class="standalone-note">不用登录：名单随便看，加油直接写、写完就上墙。下面的按钮切换「出战名单」和「赛程与检录时间」。</p>
+        <p class="standalone-note">不用登录：名单随便看，加油直接写、写完就上墙。</p>
+        <p class="standalone-jump"><button type="button" class="ms-jump" data-tab="schedule">赛程与检录时间 · 直接打开 →</button></p>
       </div>
 
       <!--SC:SWITCH:START-->
@@ -468,7 +475,7 @@
   </div>
   <h3 id="sc-notes">注意事项<span>照秩序册摘录，只留和参赛有关的</span></h3>
   <ul class="sc-notes"><li>时间以秩序册为准；册中原话：「因实际情况有所不同，时间可能依据实际情况发生改动，一切具体时间以现场指令为准」。</li><li>田赛如果与径赛冲突：优先径赛，田赛资格保留，径赛结束后立即到田赛场地比赛。</li><li>参赛运动员必须携带本人学生证或校园卡，检录核验后方可参赛；比赛期间不许穿钉鞋，不准横穿跑道。</li><li>册中印刷的小错已在页面就地更正：男子铅球「吴道韫」应为「吕道韫」；男子 200 米「陆家宸」应为「陆家辰」；拔河名单「崔姝雯」应为「崔姝斐」；男子 200 米把李明哲的号码印成 W2001（与曹家豪重号），本页按 W2002 显示。号码簿最终以现场发放的号码布为准。</li></ul>
-  <p class="sc-foot">数据来自班级运动会秩序册 PDF（27 页）逐页提取，生成时间 2026-10-17 00:50。时间与分组如有临时调整，以现场裁判与广播为准。<br>也可以单独打开这一页：<a href="schedule.html">赛程单页版</a></p>
+  <p class="sc-foot">数据来自班级运动会秩序册 PDF（27 页）逐页提取，生成时间 2026-10-17 00:56。时间与分组如有临时调整，以现场裁判与广播为准。<br>也可以单独打开这一页：<a href="schedule.html">赛程单页版</a></p>
 </section>
 
 <script>
@@ -533,8 +540,15 @@
   modBtns.forEach(function (b) {
     b.addEventListener('click', function () { showModule(b.getAttribute('data-tab'), true); });
   });
-  var jump = document.querySelector('.standalone-note a[data-tab="schedule"]');
-  if (jump) jump.addEventListener('click', function (ev) { ev.preventDefault(); showModule('schedule', true); });
+  // 顶部那颗绿色大按钮、以及提示里的直通车链接，都走同一套切换（只在页头范围内找，别碰站内其它按钮）
+  var jumpers = [].slice.call(document.querySelectorAll('.standalone-bar [data-tab], .module-switch [data-tab]'));
+  jumpers.forEach(function (el) {
+    if (el.className && String(el.className).indexOf('ms-btn') >= 0) return;
+    el.addEventListener('click', function (ev) {
+      if (el.tagName === 'A') ev.preventDefault();
+      showModule(el.getAttribute('data-tab'), true);
+    });
+  });
   var hash = location.hash.replace('#', '');
   var want = (hash === 'schedule' || hash === 'roster') ? hash : null;
   if (!want) { try { want = sessionStorage.getItem('ic4-module'); } catch (e) {} }
