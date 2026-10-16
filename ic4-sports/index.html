@@ -12,7 +12,7 @@
     <meta property="og:description" content="出战名单、赛程与检录时间、开赛倒计时、匿名加油墙、赛场原声。" />
     <meta property="og:locale" content="zh_CN" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1720'/%3E%3Ccircle cx='32' cy='32' r='21' fill='none' stroke='%2338d39a' stroke-width='4'/%3E%3Ctext x='32' y='41' font-size='24' font-weight='700' font-family='system-ui,sans-serif' fill='%2338d39a' text-anchor='middle'%3E4%3C/text%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="styles.css?v=05598f3f" />
+    <link rel="stylesheet" href="styles.css?v=933452ce" />
     <!--SC:STYLE:START-->
 <style id="sc-style">
 .module-switch{position:sticky;top:0;z-index:20;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
@@ -147,6 +147,8 @@
       <div class="standalone-bar">
         <p class="eyebrow">安徽大学 · 集成电路学院 · 集成电路 4 班</p>
         <p class="standalone-note">不用登录：名单随便看，加油直接写、写完就上墙；比完了顺手在「成绩收集」里填个成绩。上面的按钮切换三个模块。</p>
+        <p class="standalone-jump"><button type="button" class="ms-jump" data-tab="schedule">赛程与检录时间 · 直接打开 →</button></p>
+        <p class="standalone-jump"><button type="button" class="ms-jump" data-tab="schedule">赛程与检录时间 · 直接打开 →</button></p>
         <p class="standalone-jump"><button type="button" class="ms-jump" data-tab="schedule">赛程与检录时间 · 直接打开 →</button></p>
         <p class="standalone-jump"><button type="button" class="ms-jump" data-tab="schedule">赛程与检录时间 · 直接打开 →</button></p>
         <p class="standalone-jump"><button type="button" class="ms-jump" data-tab="schedule">赛程与检录时间 · 直接打开 →</button></p>
@@ -516,7 +518,7 @@
   </div>
   <h3 id="sc-notes">注意事项<span>照秩序册摘录，只留和参赛有关的</span></h3>
   <ul class="sc-notes"><li>时间以秩序册为准；册中原话：「因实际情况有所不同，时间可能依据实际情况发生改动，一切具体时间以现场指令为准」。</li><li>田赛如果与径赛冲突：优先径赛，田赛资格保留，径赛结束后立即到田赛场地比赛。</li><li>参赛运动员必须携带本人学生证或校园卡，检录核验后方可参赛；比赛期间不许穿钉鞋，不准横穿跑道。</li><li>册中印刷的小错已在页面就地更正：男子铅球「吴道韫」应为「吕道韫」；男子 200 米「陆家宸」应为「陆家辰」；拔河名单「崔姝雯」应为「崔姝斐」；男子 200 米把李明哲的号码印成 W2001（与曹家豪重号），本页按 W2002 显示。号码簿最终以现场发放的号码布为准。</li></ul>
-  <p class="sc-foot">数据来自班级运动会秩序册 PDF（27 页）逐页提取，生成时间 2026-10-17 01:47。时间与分组如有临时调整，以现场裁判与广播为准。<br>也可以单独打开这一页：<a href="schedule.html">赛程单页版</a></p>
+  <p class="sc-foot">数据来自班级运动会秩序册 PDF（27 页）逐页提取，生成时间 2026-10-17 01:54。时间与分组如有临时调整，以现场裁判与广播为准。<br>也可以单独打开这一页：<a href="schedule.html">赛程单页版</a></p>
 </section>
 
 <script>
@@ -600,6 +602,17 @@
   var want = TABS.indexOf(hash) >= 0 ? hash : null;
   if (!want) { try { want = sessionStorage.getItem('ic4-module'); } catch (e) {} }
   showModule(TABS.indexOf(want) >= 0 ? want : 'roster', false);
+  // 成绩模块的脚本是 defer 的，上面这一句跑的时候它多半还没执行（window.IC4_RESULTS_UI 还不存在），
+  // 懒加载就不会触发。等 DOM 就绪后再切一次，这次就能读到数据。
+  // 注意要按「当前实际显示的是哪一格」再切，不能拿解析期的 want 覆盖（万一同一个 tick 里有人点过按钮）。
+  document.addEventListener('DOMContentLoaded', function () {
+    var cur = 'roster';
+    if (shell) {
+      if (shell.classList.contains('mod-schedule')) cur = 'schedule';
+      else if (shell.classList.contains('mod-results')) cur = 'results';
+    }
+    showModule(cur, false);
+  });
 })();
 </script>
 
@@ -1162,7 +1175,7 @@
       <span class="rs-state">还没填</span>
     </div>
   </article>
-  <p class="rs-foot">一共 62 格（每人每项一格）。成绩存在班级站自己的数据库里（和加油墙同一套，独立分区），本页只收成绩与名次；填错就直接改，只有最新的那条会显示。数据生成时间 2026-10-17 01:47。</p>
+  <p class="rs-foot">一共 62 格（每人每项一格）。成绩存在班级站自己的数据库里（和加油墙同一套，独立分区），本页只收成绩与名次；填错就直接改，只有最新的那条会显示。数据生成时间 2026-10-17 01:54。</p>
 </section>
 <!--SC:RESULTS:END-->
 
@@ -1175,14 +1188,14 @@
       </div>
     </noscript>
 
-    <script src="assets/icons.js?v=05598f3f"></script>
-    <script src="config.js?v=05598f3f"></script>
-    <script src="data.js?v=05598f3f"></script>
-    <script src="cheer-api.js?v=05598f3f"></script>
-    <script src="app.js?v=05598f3f" defer></script>
+    <script src="assets/icons.js?v=933452ce"></script>
+    <script src="config.js?v=933452ce"></script>
+    <script src="data.js?v=933452ce"></script>
+    <script src="cheer-api.js?v=933452ce"></script>
+    <script src="app.js?v=933452ce" defer></script>
   <!--SC:SCRIPTS:START-->
-<script src="results-api.js?v=05598f3f"></script>
-<script src="results.js?v=05598f3f" defer></script>
+<script src="results-api.js?v=933452ce"></script>
+<script src="results.js?v=933452ce" defer></script>
 <!--SC:SCRIPTS:END-->
   </body>
 </html>

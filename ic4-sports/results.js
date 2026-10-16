@@ -259,11 +259,18 @@
   window.IC4_RESULTS_UI = {
     show() {
       state.shown = true;
-      if (!state.loaded) load();
-      else load();
+      load();
     },
     hide() {
       state.shown = false;
     }
   };
+
+  // 兜底：打开页面时就已经停在成绩这一格（比如 #results 直达），立刻读一次。
+  // 模块切换器的初始化脚本跑在 results.js 之前，那一次调用还看不到上面这个入口，
+  // 不兜底的话页面会一直停在「正在读取…」。
+  if (document.querySelector(".standalone-shell.mod-results")) {
+    state.shown = true;
+    load();
+  }
 })();
