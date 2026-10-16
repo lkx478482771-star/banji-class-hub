@@ -1,15 +1,14 @@
 /* 加油墙的后端接口
  *
- * 这里**没有登录**：同学打开页面就能写。
- * 数据放在旧站同一个数据库里，但属于两个独立分区（旧站的代码根本不认识它们）：
- *   banji-ic4-cheer-pending  刚提交、还没审核
- *   banji-ic4-cheer-live     审核通过、会上墙
+ * 这里**没有登录、也没有审核**：同学打开页面就能写，写完立刻上墙。
+ * 数据放在旧站同一个数据库里，但属于一个独立分区（旧站的代码根本不认识它）：
+ *   banji-ic4-cheer-live     写完就在这儿，页面上立刻能看到
  *
- * 公开页只做两件事：往 pending 写一条、从 live 读回来。
- * 「通过 / 删除」只有 admin.html 用，而且要先过口令。
+ * 公开页只做两件事：往 live 写一条、从 live 读回来。
+ * 「下架某一条」只有 admin.html 用（事后删帖），而且要过口令。
  *
- * 代价要说清楚：这套流程没有服务端把关（要服务端把关就得跑那段 SQL），
- * 所以审核口令只是「防君子」——同班同学不会去翻代码就够用了。
+ * 代价要说清楚：没有服务端把关，谁都能写、也能删自己分区里的东西（「防君子」级别）。
+ * 想加固就跑可选的 supabase/ic4-cheers.sql，把读写收进服务端函数里。
  */
 (function () {
   "use strict";
@@ -20,7 +19,6 @@
   const ATTEMPTS = 3;
   const TABLE = "/rest/v1/class_hub_entries";
   const NS = {
-    pending: "banji-ic4-cheer-pending",
     live: "banji-ic4-cheer-live"
   };
   const TEXT_MIN = 2;
@@ -132,12 +130,6 @@
     );
   }
 
-  function putRow(ns, path, value) {
-    return call("POST", base() + TABLE + "?on_conflict=namespace,path", [{ namespace: ns, path: path, value: value }], {
-      Prefer: "resolution=merge-duplicates,return=minimal"
-    });
-  }
-
   function delRow(ns, path) {
     return call("DELETE", rowUrl(ns, path), undefined, { Prefer: "return=minimal" });
   }
@@ -153,7 +145,7 @@
 
     ready: () => Boolean(CLOUD.url && CLOUD.anonKey),
 
-    /** 提交一句加油：先落进「待审核」，负责人点了「通过」才会上墙。
+    /** 提交一句加油：直接进「已上墙」分区，不用审核，写完大家就能看到。
      *  options.force = true 时跳过「10 秒一条」的本机节流（本机队列重传时用）。 */
     submit(target, body, options) {
       const text = String(body || "").trim();
@@ -169,7 +161,7 @@
       return call(
         "POST",
         base() + TABLE + "?on_conflict=namespace,path",
-        [{ namespace: NS.pending, path: newPath(), value: { v: 1, target: who, text: text, at: new Date().toISOString() } }],
+        [{ namespace: NS.live, path: newPath(), value: { v: 1, target: who, text: text, at: new Date().toISOString() } }],
         { Prefer: "resolution=merge-duplicates,return=minimal" },
         TIMEOUT_WRITE
       );
@@ -180,27 +172,9 @@
       return withRetry(() => call("GET", listUrl(NS.live, limit), undefined, undefined, TIMEOUT_READ).then(pickRows));
     },
 
-    /** 还在等审核的加油（只有 admin.html 用）。 */
-    pending(limit) {
-      return call("GET", listUrl(NS.pending, limit)).then(pickRows);
-    },
-
-    /** 通过审核：搬进 live，再把待审那条删掉。 */
-    async approve(path) {
-      const id = String(path || "");
-      if (!id) return { ok: false, error: "rejected" };
-      const listResult = await call("GET", rowUrl(NS.pending, id) + "&select=path,value&limit=1");
-      const row = listResult.ok && Array.isArray(listResult.data) ? listResult.data[0] : null;
-      if (!row) return { ok: false, error: "not-ready" };
-      const value = Object.assign({}, row.value || {}, { approvedAt: new Date().toISOString() });
-      const moved = await putRow(NS.live, id, value);
-      if (!moved.ok) return moved;
-      return delRow(NS.pending, id);
-    },
-
-    /** 删掉一条：stage = "pending"（丢弃）或 "live"（下架）。 */
-    discard(path, stage) {
-      return delRow(stage === "live" ? NS.live : NS.pending, String(path || ""));
+    /** 下架一条（只有 admin.html 用）：把这条从墙上删掉。 */
+    discard(path) {
+      return delRow(NS.live, String(path || ""));
     },
 
     /** 把接口返回的错误码翻译成给同学看的话。 */

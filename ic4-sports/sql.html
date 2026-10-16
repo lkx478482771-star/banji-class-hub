@@ -5,15 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="theme-color" content="#0f1720" />
-    <title>加油墙 SQL（可选升级） · 集成电路 4 班</title>
-    <meta name="description" content="可选：把加油墙的审核搬到 Supabase 服务端。不跑也能用。" />
-    <link rel="stylesheet" href="styles.css?v=64f408c4" />
+    <title>加油墙 SQL（可选加固） · 集成电路 4 班</title>
+    <meta name="description" content="可选：把加油墙的读写收进 Supabase 服务端函数并限频。不跑也能用。" />
+    <link rel="stylesheet" href="styles.css?v=42a204aa" />
   </head>
   <body class="standalone-page">
     <div class="admin-shell">
       <div class="standalone-bar">
         <p class="eyebrow">安徽大学 · 集成电路学院 · 集成电路 4 班</p>
-        <p class="standalone-note">这是可选升级页：现在不跑 SQL，加油墙也能正常用。</p>
+        <p class="standalone-note">这是可选加固页：现在不跑 SQL，加油墙也能正常用（写完直接上墙）。</p>
       </div>
 
       <main class="page-content">
@@ -21,7 +21,7 @@
           <header class="panel-header">
             <div>
               <h3>复制这段 SQL（可选）</h3>
-              <p>只有想把审核搬到服务端时才需要；平时不用管</p>
+              <p>只想加固服务端（限频、别让人直接改表）时才需要；平时不用管</p>
             </div>
             <span class="badge">可选</span>
           </header>
@@ -32,15 +32,16 @@
             </div>
             <p class="cheer-note">粘贴之后，先把那处 CHANGE-ME-ic4 改成你自己的口令，再点 Run。</p>
             <pre class="sql-block" id="sql-text">-- ============================================================================
--- 【可选升级】IC-4 运动会 · 匿名加油墙（服务端审核版）
+-- 【可选加固】IC-4 运动会 · 匿名加油墙（服务端函数 + 限频）
 --
--- 现在**不需要**跑这份 SQL：加油墙已经能用（数据放在新分区里，靠口令页审核）。
--- 只有当你想要「服务端把关 + 页面拿不到表权限」时，才跑这份。
+-- 现在**不需要**跑这份 SQL：加油墙已经能用（写完直接上墙，存在两个专用分区里）。
+-- 只有当你想要「服务端限频 + 页面拿不到表的直接读写权限」时，才跑这份。
+-- 里面那个 ic4_cheer_review（先审后显）是早期版本留下的，现在不用也无妨。
 --
 -- 怎么用：
 --   1. 打开你的 Supabase 项目 → 左侧 SQL Editor → New query
 --   2. 把这一整份文件的内容粘进去
---   3. 找到下面那处 CHANGE-ME-ic4，把它换成你想要的审核口令（别告诉同学）
+--   3. 找到下面那处 CHANGE-ME-ic4，把它换成你想要的口令（别告诉同学）
 --   4. 点 Run（右上角），看到 Success 就成了
 --
 -- 这份 SQL 只新建 2 张小表和 3 个函数，**不会碰旧站用的 class_hub_entries 表**，

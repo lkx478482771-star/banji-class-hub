@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="theme-color" content="#0f1720" />
-    <title>加油墙审核 · 集成电路 4 班</title>
-    <meta name="description" content="IC-4 运动会加油墙的负责人审核页。" />
-    <link rel="stylesheet" href="styles.css?v=64f408c4" />
+    <title>加油墙管理 · 集成电路 4 班</title>
+    <meta name="description" content="IC-4 运动会加油墙的负责人管理页：看墙上的内容，把不合适的下架。" />
+    <link rel="stylesheet" href="styles.css?v=42a204aa" />
   </head>
   <body class="standalone-page">
     <div class="admin-shell">
@@ -20,25 +20,25 @@
         <section class="panel">
           <header class="panel-header">
             <div>
-              <h3>加油墙审核</h3>
-              <p>输入审核口令，看待审留言，通过或删掉</p>
+              <h3>加油墙管理</h3>
+              <p>同学写完就上墙，这里只用来看和下架</p>
             </div>
-            <span class="badge yellow">待审核</span>
+            <span class="badge green">已上墙</span>
           </header>
           <div class="panel-body">
             <div class="cheer-actions">
-              <input class="admin-input" id="admin-secret" type="password" autocomplete="off" placeholder="审核口令" />
-              <button class="primary-button" type="button" data-action="admin-load">查看待审</button>
+              <input class="admin-input" id="admin-secret" type="password" autocomplete="off" placeholder="口令" />
+              <button class="primary-button" type="button" data-action="admin-load">看一下墙</button>
             </div>
             <p class="admin-msg" id="admin-msg"></p>
             <p class="admin-stats" id="admin-stats"></p>
             <div id="admin-list"></div>
-            <p class="cheer-note">口令只存在你自己的浏览器里，关掉页面就忘了；通过后刷新同学那边的页面就能看到。</p>
+            <p class="cheer-note">口令只在你自己的浏览器里用一次，关掉页面就忘了；看到不合适的点「下架」即可，同学刷新就看不到。</p>
           </div>
         </section>
       </main>
 
-      <p class="standalone-footer">审核页 · 请勿把网址发给同学</p>
+      <p class="standalone-footer">管理页 · 请勿把网址发给同学</p>
     </div>
 
     <noscript>
@@ -47,9 +47,9 @@
       </div>
     </noscript>
 
-    <script src="assets/icons.js?v=64f408c4"></script>
-    <script src="config.js?v=64f408c4"></script>
-    <script src="cheer-api.js?v=64f408c4"></script>
-    <script src="admin.js?v=64f408c4" defer></script>
+    <script src="assets/icons.js?v=42a204aa"></script>
+    <script src="config.js?v=42a204aa"></script>
+    <script src="cheer-api.js?v=42a204aa"></script>
+    <script src="admin.js?v=42a204aa" defer></script>
   </body>
 </html>

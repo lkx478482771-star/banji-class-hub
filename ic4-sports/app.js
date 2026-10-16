@@ -3,10 +3,10 @@
  * 这份脚本是班集「IC-4 运动会」栏目的精简复刻：
  *   有：晶圆图点人、出战参数面板、径赛/田赛筛选、开赛倒计时、一键通电、匿名加油墙、赛场原声
  *   没有：登录、账号、照片上传、成绩录入、海报
- * 加油墙的数据放在**旧站同一个数据库**里的两个独立分区（见 cheer-api.js）：
- *   banji-ic4-cheer-pending 待审核 / banji-ic4-cheer-live 已上墙
+ * 加油墙的数据放在**旧站同一个数据库**里的一个独立分区（见 cheer-api.js）：
+ *   banji-ic4-cheer-live 写完就在这儿，页面上立刻能看到（不用审核）
  * 旧站的代码只认它自己那几个分区，所以这些留言不会跑到旧网站上；
- * 代价是这套审核没有服务端把关，属于「防君子」级别。
+ * 代价是没有服务端把关，属于「防君子」级别（admin.html 可以事后下架）。
  * 音乐不复制第二份，直接播旧站 assets/music 里的那三首。
  */
 (function () {
@@ -328,7 +328,7 @@
       <header class="panel-header">
         <div>
           <h3>加油墙</h3>
-          <p>匿名留言 · 不用登录 · 负责人审核后显示</p>
+          <p>匿名留言 · 不用登录 · 写完立刻显示</p>
         </div>
         <span class="badge ${tone}">${escapeHTML(badge)}</span>
       </header>
@@ -337,7 +337,7 @@
           <button class="primary-button" type="button" data-action="cheer-open" data-target="${target}">${icon("megaphone")} 写一句加油</button>
           <button class="secondary-button" type="button" data-action="cheer-wall">${icon("message-circle")} 全班加油墙</button>
         </div>
-        <p class="cheer-note">写的话会先进待审核，负责人通过后才出现在墙上。别写脏话、别写别人的隐私。</p>
+        <p class="cheer-note">写完立刻出现在墙上，不用等审核。别写脏话、别写别人的隐私。</p>
         ${list}
         ${cheerQueueHTML()}
       </div>
@@ -406,7 +406,7 @@
       <div class="ic4-modal-head">
         <div>
           <h3 class="ic4-modal-title">全班加油墙</h3>
-          <p class="ic4-modal-sub">已通过审核的 ${cheer.items.length} 条 · 全部匿名</p>
+          <p class="ic4-modal-sub">墙上的 ${cheer.items.length} 条 · 全部匿名</p>
         </div>
         <button class="ic4-modal-close" type="button" data-action="cheer-close" aria-label="关闭">×</button>
       </div>
@@ -452,7 +452,7 @@
         ? `
         <div class="cheer-done">
           <strong>先记下来了 📝</strong>
-          <p>这台设备暂时连不上加油墙，这句话先存在本机。<br />网络一通就会自动传上去，到时候再等负责人审核。</p>
+          <p>这台设备暂时连不上加油墙，这句话先存在本机。<br />网络一通就会自动传上去，传上去就立刻上墙。</p>
           <div class="ic4-modal-actions">
             <button class="primary-button" type="button" data-action="cheer-close">好</button>
           </div>
@@ -460,8 +460,8 @@
       `
         : `
         <div class="cheer-done">
-          <strong>已提交 ✅</strong>
-          <p>等负责人审核通过后，就会出现在加油墙上。<br />现在可以关掉这个窗口了。</p>
+          <strong>已上墙 ✅</strong>
+          <p>这句话已经出现在加油墙上了。<br />现在可以关掉这个窗口，或者再写一句。</p>
           <div class="ic4-modal-actions">
             <button class="primary-button" type="button" data-action="cheer-close">好</button>
           </div>
@@ -470,6 +470,8 @@
       refreshIcons(modal);
     }
     cheer.modal = null;
+    // 写完立刻刷新一遍墙，让自己的这句话马上出现。
+    if (!soft) loadCheers();
   }
 
   function renderCheerPanel() {

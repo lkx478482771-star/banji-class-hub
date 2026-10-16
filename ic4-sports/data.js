@@ -48,4 +48,4 @@ window.IC4_BGM = [["那些无人看见的时光","01-unseen-days.mp3","4:23"],["
 /* 加油墙快照：上次同步到的「已上墙」的句子，网络不通时先用它顶着。 */
 window.IC4_CHEERS = [];
 
-window.IC4_BUILD = { at: "2026-10-16T05:26:38.292Z", count: 31 };
+window.IC4_BUILD = { at: "2026-10-16T05:33:36.249Z", count: 31 };

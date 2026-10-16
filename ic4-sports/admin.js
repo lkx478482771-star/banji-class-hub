@@ -1,11 +1,14 @@
-/* 加油墙审核页（只有负责人用）
+/* 加油墙管理页（只有负责人用）
+ *
+ * 现在加油是「写完就上墙」，不需要审核，所以这里只干一件事：
+ * 看墙上有什么、把不合适的那条下架。
  *
  * 默认口令：ic4-2026
  * 想换口令：把下面 SECRET_HASH 换成 sha256("ic4-cheer-admin|" + 新口令) 的结果。
  *   （在浏览器控制台或本机跑一次就能算，改完重新发布即可。）
  *
  * 口令不会进网址、不会进浏览器本地存储，关掉页面就没了。
- * 提醒：这套审核是「防君子」——没有服务端把关，口令只能挡住随手点进来的人。
+ * 提醒：没有服务端把关，口令只能挡住随手点进来的人（「防君子」级别）。
  */
 (function () {
   "use strict";
@@ -24,7 +27,7 @@
 
   function refreshIcons(root) {
     if (window.lucide && window.lucide.createIcons) {
-      window.lucide.createIcons({ root: root || document, attrs: { "stroke-width": 1.9 } });
+      window.lucide.createIcons({ root: root || document, attrs: { "stroke-width": 1.8 } });
     }
   }
 
@@ -66,28 +69,12 @@
       .join("");
   }
 
-  function pendingHTML(item) {
-    return `
-      <article class="admin-row" data-id="${escapeHTML(item.id)}">
-        <div class="admin-row-head">
-          <span>${escapeHTML(item.target || "ALL")} · ${escapeHTML(formatTime(item.at))}</span>
-          <span class="badge yellow">待审核</span>
-        </div>
-        <p class="admin-row-body">${escapeHTML(item.body || "")}</p>
-        <div class="admin-actions">
-          <button class="primary-button" type="button" data-action="admin-approve" data-id="${escapeHTML(item.id)}">${icon("check")} 通过</button>
-          <button class="secondary-button" type="button" data-action="admin-discard" data-id="${escapeHTML(item.id)}">${icon("trash-2")} 删掉</button>
-        </div>
-      </article>
-    `;
-  }
-
   function liveHTML(item) {
     return `
       <article class="admin-row" data-id="${escapeHTML(item.id)}">
         <div class="admin-row-head">
           <span>${escapeHTML(item.target || "ALL")} · ${escapeHTML(formatTime(item.at))}</span>
-          <span class="badge green">已上墙</span>
+          <span class="badge green">在墙上</span>
         </div>
         <p class="admin-row-body">${escapeHTML(item.body || "")}</p>
         <div class="admin-actions">
@@ -97,23 +84,14 @@
     `;
   }
 
-  function render(pending, live) {
+  function render(live) {
     const node = listNode();
     const stats = statsNode();
-    if (stats) stats.textContent = "待审核 " + pending.length + " 条 · 已上墙 " + live.length + " 条";
+    if (stats) stats.textContent = "墙上现在有 " + live.length + " 条";
     if (!node) return;
-    const parts = [];
-    parts.push(`<h4 class="admin-section">待审核（${pending.length}）</h4>`);
-    parts.push(
-      pending.length
-        ? pending.map(pendingHTML).join("")
-        : `<p class="empty-state">现在没有待审的留言。同学发的新留言会出现在这里。</p>`
-    );
-    parts.push(`<h4 class="admin-section">已上墙（${live.length}）</h4>`);
-    parts.push(
-      live.length ? live.map(liveHTML).join("") : `<p class="empty-state">墙上还是空的。</p>`
-    );
-    node.innerHTML = parts.join("");
+    node.innerHTML = live.length
+      ? live.map(liveHTML).join("")
+      : `<p class="empty-state">墙上还是空的。同学写完就立刻出现在这里。</p>`;
     refreshIcons(node);
   }
 
@@ -121,7 +99,7 @@
     if (state.busy) return;
     const input = document.getElementById("admin-secret");
     const secret = (input && input.value ? input.value : "").trim();
-    if (!secret) return say("先输入审核口令。", "error");
+    if (!secret) return say("先输入口令。", "error");
     if (!api || !api.ready()) return say("这个页面没有配置好（config.js 缺失）。", "error");
 
     state.busy = true;
@@ -139,24 +117,22 @@
       return say("口令不对。", "error");
     }
 
-    const [pendingResult, liveResult] = await Promise.all([api.pending(200), api.list(200)]);
-    state.busy = false;
-    if (!pendingResult.ok) return say(api.explain(pendingResult.error), "error");
-    if (!liveResult.ok) return say(api.explain(liveResult.error), "error");
-    state.unlocked = true;
-    say("读取成功。", "ok");
-    render(pendingResult.items || [], liveResult.items || []);
-  }
-
-  async function act(action, id) {
-    if (state.busy || !id) return;
-    if (!state.unlocked) return say("先输入口令并点「查看待审」。", "error");
-    state.busy = true;
-    const result =
-      action === "approve" ? await api.approve(id) : await api.discard(id, action === "unpublish" ? "live" : "pending");
+    const result = await api.list(300);
     state.busy = false;
     if (!result.ok) return say(api.explain(result.error), "error");
-    say(action === "approve" ? "已通过，同学刷新页面就能看到。" : "已删掉。", "ok");
+    state.unlocked = true;
+    say("读取成功。", "ok");
+    render(result.items || []);
+  }
+
+  async function act(id) {
+    if (state.busy || !id) return;
+    if (!state.unlocked) return say("先输入口令并点「看一下墙」。", "error");
+    state.busy = true;
+    const result = await api.discard(id);
+    state.busy = false;
+    if (!result.ok) return say(api.explain(result.error), "error");
+    say("已下架，同学刷新页面就看不到这条了。", "ok");
     await load();
   }
 
@@ -165,9 +141,7 @@
     if (!node) return;
     const action = node.dataset.action;
     if (action === "admin-load") load();
-    else if (action === "admin-approve") act("approve", node.dataset.id);
-    else if (action === "admin-discard") act("discard", node.dataset.id);
-    else if (action === "admin-unpublish") act("unpublish", node.dataset.id);
+    else if (action === "admin-unpublish") act(node.dataset.id);
   });
 
   document.addEventListener("keydown", (event) => {
