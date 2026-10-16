@@ -4,7 +4,7 @@
 -- 怎么用：
 --   1. 打开你的 Supabase 项目 → 左侧 SQL Editor → New query
 --   2. 把这一整份文件的内容粘进去
---   3. 把下面第 3 步里 '换成你自己的口令' 改成你想要的审核口令（别告诉同学）
+--   3. 找到下面那处 CHANGE-ME-ic4，把它换成你想要的审核口令（别告诉同学）
 --   4. 点 Run（右上角），看到 Success 就成了
 --
 -- 这份 SQL 只新建 2 张小表和 3 个函数，**不会碰旧站用的 class_hub_entries 表**，
@@ -48,10 +48,10 @@ revoke all on table public.ic4_admin from anon, authenticated;
 
 
 -- ---------------------------------------------------------------------------
--- 3) ★ 设置/修改审核口令（把引号里的中文换成你自己的口令，然后运行这一段）★
+-- 3) ★ 设置/修改审核口令（把 CHANGE-ME-ic4 换成你自己的口令，然后运行这一段）★
 -- ---------------------------------------------------------------------------
 insert into public.ic4_admin (id, secret_hash)
-values (1, md5('ic4-cheer-v1|' || '换成你自己的口令'))
+values (1, md5('ic4-cheer-v1|' || 'CHANGE-ME-ic4'))
 on conflict (id) do update set secret_hash = excluded.secret_hash;
 
 

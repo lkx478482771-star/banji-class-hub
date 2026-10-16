@@ -42,4 +42,4 @@ window.IC4_ROSTER = [
   { name: "马飞扬", group: "男子组", kind: "field", events: ["男子铅球"], cheer: "一掷定音，全场静默。" },
 ];
 
-window.IC4_BUILD = { at: "2026-10-16T04:22:56.594Z", count: 31 };
+window.IC4_BUILD = { at: "2026-10-16T04:38:27.879Z", count: 31 };
