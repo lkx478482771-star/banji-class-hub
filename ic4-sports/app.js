@@ -694,7 +694,7 @@
           aria-label="${escapeHTML(athlete.name)} ${escapeHTML(eventText(athlete))}"
         >
           <span class="sports-die-name">${escapeHTML(athlete.name)}</span>
-          <span class="sports-die-id">${athleteId(index)}</span>
+          <span class="sports-die-id"><span class="sports-die-prefix">IC4-</span>${escapeHTML(athleteId(index).slice(4))}</span>
         </button>
       `;
     }).join("");
@@ -969,6 +969,8 @@
     const layout = waferLayout(ATHLETES.length);
     const die = Math.max(22, Math.min(dieSizeOf(layout) * side, side * 0.3));
     wafer.style.setProperty("--die-size", die.toFixed(2) + "px");
+    // 手机上芯片只有 30px 左右，「IC4-」前缀会把编号挤成两行；小芯片只留后三位。
+    wafer.classList.toggle("is-tiny", die < 40);
     // 底纹换成与芯片同心的圆环，免得方格子被看成「空着的芯片位」。
     wafer.style.setProperty("--ring-step", (layout.step * side).toFixed(2) + "px");
     fitDieText();

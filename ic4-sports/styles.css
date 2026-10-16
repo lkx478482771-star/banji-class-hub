@@ -1573,6 +1573,48 @@ body.is-modal-open {
   }
 }
 
+/* 芯片上的字：手机上芯片只有 30px 上下，编号「IC4-033」会在连字符处折成两行、还顶出格子。
+   这里禁止折行、小芯片只留后三位，并给字号一个下限——有些手机浏览器会把过小的字放大，
+   放大后就会挤出格子；留了下限、再配合 fitDieText() 缩字，就不会再出现这种情况。 */
+.sports-die-name {
+  font-size: max(7px, calc(var(--die-size) * var(--die-ratio, 0.215)));
+}
+
+.sports-die-id {
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  font-size: max(6px, calc(var(--die-size) * 0.12));
+}
+
+.sports-wafer.is-tiny .sports-die-prefix {
+  display: none;
+}
+
+/* 手机上面板标题和徽章会互相挤：徽章不折行，一行放不下就整块换到下一行。 */
+.badge {
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .panel-header {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+}
+
+/* 图例 5 项在窄屏上排成一行，别让「田赛」孤零零掉到第二行。 */
+@media (max-width: 480px) {
+  .sports-legend {
+    gap: 10px;
+    font-size: 11px;
+  }
+
+  .sports-legend-item i {
+    width: 10px;
+    height: 10px;
+  }
+}
+
 /* ===================== 加油墙与弹层（独立页自己写的，不来自旧站） ===================== */
 
 .cheer-actions {
