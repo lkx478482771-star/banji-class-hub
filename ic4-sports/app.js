@@ -126,83 +126,72 @@
 
   const cheerFor = (target) => cheer.items.filter((item) => item.target === target);
 
-  /* ---------------- 晶圆排版：与旧站逐行一致 ---------------- */
+  /* ---------------- 晶圆排版：同心圆环 ---------------- */
 
-  // 在直径 1 的圆里铺一层六方网格（间距 = step），返回所有落在圆内的格子中心。
-  function waferPoints(step) {
-    const radius = 0.5;
-    const points = [];
-    const rows = Math.max(1, Math.floor((2 * radius) / step));
-    const startY = -((rows - 1) * step) / 2;
-
-    for (let row = 0; row < rows; row += 1) {
-      const y = startY + row * step;
-      const half = Math.sqrt(Math.max(0, radius * radius - y * y));
-      const cols = Math.max(1, Math.floor((2 * half) / step) + 1);
-      const startX = -((cols - 1) * step) / 2;
-      for (let col = 0; col < cols; col += 1) {
-        const x = startX + col * step;
-        const distance = Math.hypot(x, y);
-        if (distance <= radius) points.push({ x, y, distance });
-      }
+  // 中心 1 颗，第 k 环最多 6k 颗（六方晶格的环容量）。
+  // 最后一环装不满时按「该环实际颗数」均分角度，左右天然对称，
+  // 不会再有旧站那种「多出来的芯片跑到别人位置上」的错位观感。
+  function waferRings(count) {
+    const total = Math.max(1, count);
+    const rings = [];
+    let left = total;
+    for (let k = 0; left > 0; k += 1) {
+      const capacity = k === 0 ? 1 : 6 * k;
+      const take = Math.min(capacity, left);
+      rings.push({ ring: k, capacity, take });
+      left -= take;
     }
-
-    return points;
+    return rings;
   }
 
-  // 二分找出「刚好装得下 count 颗、且间距最大」的步长，再居中、放大到贴住圆边。
+  // 环距 step 由「最外环的芯片边缘刚好贴住晶圆边」定出来；spacing = step，
+  // 也就是任意两颗芯片的最小中心距，芯片宽度由它推算（见 view / sizeWafer）。
   function waferLayout(count) {
-    const total = Math.max(1, count);
-    const radius = 0.5;
-    let tooSmall = 0.005;
-    let tooBig = 1;
+    const rings = waferRings(count);
+    const last = rings.length - 1;
+    let step = 0.5 / Math.max(1, last + 0.5);
 
-    for (let i = 0; i < 48; i += 1) {
-      const mid = (tooSmall + tooBig) / 2;
-      if (waferPoints(mid).length >= total) tooSmall = mid;
-      else tooBig = mid;
-    }
-
-    const step = tooSmall;
-    const points = waferPoints(step);
-    points.sort((a, b) => a.distance - b.distance);
-    const picked = points.slice(0, total);
-    if (!picked.length) return { points: [], spacing: step };
-
-    let centerX = 0;
-    let centerY = 0;
-    picked.forEach((point) => {
-      centerX += point.x;
-      centerY += point.y;
-    });
-    centerX /= picked.length;
-    centerY /= picked.length;
-    picked.forEach((point) => {
-      point.x -= centerX;
-      point.y -= centerY;
-    });
-
-    const used = Math.max(
-      0.000001,
-      picked.reduce((max, point) => Math.max(max, Math.hypot(point.x, point.y)), 0)
-    );
-
-    const maxDie = 0.3;
-    const inner = radius - 0.03;
-    let scale = Math.min((radius * 0.98) / used, 2.2);
     for (let i = 0; i < 24; i += 1) {
-      const die = Math.min(step * scale * 0.82, maxDie);
-      const extent = used * scale + die / 2;
-      if (extent <= inner) break;
-      scale *= inner / extent;
+      const die = step * 0.82;
+      if (last * step + die / 2 <= 0.48) break;
+      step *= 0.97;
     }
 
-    picked.forEach((point) => {
-      point.x *= scale;
-      point.y *= scale;
+    const points = [];
+    rings.forEach((ring) => {
+      const radius = ring.ring * step;
+      const pitch = 360 / ring.take;
+      for (let i = 0; i < ring.take; i += 1) {
+        const angle = ((-90 + i * pitch) * Math.PI) / 180;
+        points.push({
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+          distance: radius,
+          ring: ring.ring
+        });
+      }
     });
 
-    return { points: picked, spacing: step * scale };
+    // 方盒子互不重叠的条件：任意两颗至少在一个坐标轴上错开一个盒子宽。
+    // 取所有组合里 max(|dx|, |dy|) 的最小值再留 6% 余量，这样斜着相邻的
+    // 那几对（正好落在 45° 方向上）也不会压在一起。
+    let minAxis = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < points.length; i += 1) {
+      for (let j = i + 1; j < points.length; j += 1) {
+        minAxis = Math.min(
+          minAxis,
+          Math.max(Math.abs(points[i].x - points[j].x), Math.abs(points[i].y - points[j].y))
+        );
+      }
+    }
+    const dieLimit = Number.isFinite(minAxis) ? minAxis * 0.94 : step * 0.82;
+
+    return { points, spacing: step, step, rings, dieLimit };
+  }
+
+  // 芯片边长（占晶圆宽度的比例）：既不能超过环距的 0.82，也不能压到邻居。
+  function dieSizeOf(layout) {
+    return Math.min(layout.step * 0.82, layout.dieLimit);
   }
 
   /* ---------------- 片段渲染 ---------------- */
@@ -689,7 +678,7 @@
   function view() {
     const total = ATHLETES.length;
     const layout = waferLayout(total);
-    const sizePercent = Math.min(layout.spacing * 0.82 * 100, 30);
+    const sizePercent = Math.min(dieSizeOf(layout) * 100, 30);
     const dice = ATHLETES.map((athlete, index) => {
       const point = layout.points[index];
       if (!point) return "";
@@ -978,8 +967,10 @@
     const side = wafer.clientWidth;
     if (!side) return;
     const layout = waferLayout(ATHLETES.length);
-    const die = Math.max(30, Math.min(layout.spacing * side * 0.82, side * 0.3));
+    const die = Math.max(22, Math.min(dieSizeOf(layout) * side, side * 0.3));
     wafer.style.setProperty("--die-size", die.toFixed(2) + "px");
+    // 底纹换成与芯片同心的圆环，免得方格子被看成「空着的芯片位」。
+    wafer.style.setProperty("--ring-step", (layout.step * side).toFixed(2) + "px");
     fitDieText();
   }
 

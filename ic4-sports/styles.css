@@ -1521,6 +1521,29 @@ body.standalone-page {
   font-size: 13px;
 }
 
+/* 底纹不再是方格网：改成与芯片同心的圆环，免得方格子被看成「空着的芯片位」。
+   --ring-step 由 app.js 的 sizeWafer() 按真实环距写进来（单位 px）。 */
+.sports-wafer-grid {
+  background-image: repeating-radial-gradient(
+    circle closest-side at 50% 50%,
+    rgba(140, 190, 240, 0.13) 0 1px,
+    transparent 1px var(--ring-step, 42px)
+  );
+  -webkit-mask-image: radial-gradient(circle closest-side at 50% 50%, #000 0 93%, transparent 100%);
+  mask-image: radial-gradient(circle closest-side at 50% 50%, #000 0 93%, transparent 100%);
+}
+
+/* 浅色主题下把线色换成绿的，跟在亮背景上的对比度一致。 */
+@media (prefers-color-scheme: light) {
+  .sports-wafer-grid {
+    background-image: repeating-radial-gradient(
+      circle closest-side at 50% 50%,
+      rgba(18, 130, 95, 0.14) 0 1px,
+      transparent 1px var(--ring-step, 42px)
+    );
+  }
+}
+
 /* 弹层打开时别再让后面的页面跟着滚（手机上很容易误滚）。 */
 body.is-modal-open {
   overflow: hidden;
