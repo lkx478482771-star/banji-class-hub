@@ -80,10 +80,29 @@
         if (ev.key === "Enter") {
           ev.preventDefault();
           input.blur();
+          focusNext(input);
         }
       });
     });
   });
+
+  // 手机上一个人常连着填好几格：回车 = 先存这一格，再把手指送到下一格。
+  // 只跳「看得见」的输入框——被搜索或「只看还没填」藏起来的格子不该抢焦点。
+  function focusNext(from) {
+    const all = [].slice
+      .call(root.querySelectorAll(".rs-row input"))
+      .filter((el) => el.offsetParent !== null);
+    const i = all.indexOf(from);
+    if (i < 0) return;
+    const next = all[i + 1];
+    if (!next) return;
+    next.focus();
+    try {
+      next.setSelectionRange(next.value.length, next.value.length);
+    } catch (err) {
+      /* 个别 input 类型不支持 setSelectionRange，忽略即可 */
+    }
+  }
 
   function latestMap(items) {
     const map = {};

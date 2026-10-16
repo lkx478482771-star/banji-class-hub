@@ -961,6 +961,13 @@
       const rest = target - Date.now();
       if (!Number.isFinite(rest) || rest <= 0) {
         node.innerHTML = "<b>GO</b><i>全员通电</i>";
+        // 开赛之后「距开赛」这个说法就不对了：顺手把标签换成进行中的说法。
+        // tick 每秒都跑，所以只在文案真的不同时才写 DOM。
+        const label = node.previousElementSibling;
+        if (label && label.classList && label.classList.contains("sports-count-label") &&
+            label.textContent !== "比赛进行中") {
+          label.textContent = "比赛进行中";
+        }
         return;
       }
       const days = Math.floor(rest / 86400000);
