@@ -78,6 +78,14 @@ node tools/cloud-check.mjs prune 300   # 只留最新 300 条，更老的删掉
   插在中间会让所有人的编号错位，已经上墙的加油就指错人了（`node tools/smoke.mjs` 会检查这一条）
 - 改完照旧 `node tools/build.mjs` → `node tools/smoke.mjs` → 复制上线
 
+想核对「负责人发过来的名单」和页面是否一致（第一行写表头，逐行 `编号 姓名 项目 组别`）：
+
+```
+node tools/check-roster.mjs 名单.txt
+```
+
+它会一条条对：姓名、组别、项目（项目里有没有空格、用不用 `/` 都算一样），不一样的地方会 ❌ 标出来。
+
 ## 怎么换管理口令
 
 `admin.js` 顶部有一行 `SECRET_HASH`。新口令的算法是

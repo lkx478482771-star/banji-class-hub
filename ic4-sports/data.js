@@ -41,6 +41,7 @@ window.IC4_ROSTER = [
   { name: "李知远", group: "男子组", kind: "field", events: ["男子跳远"], cheer: "沙坑那边，等你签名。" },
   { name: "马飞扬", group: "男子组", kind: "field", events: ["男子铅球"], cheer: "一掷定音，全场静默。" },
   { name: "曹可瑞", group: "女子组", kind: "track", events: ["女子 200 米"], cheer: "女子 200 米，一路通电到底。" },
+  { name: "刘佳豪", group: "男子组", kind: "field", events: ["男子铅球"], cheer: "蓄力满格，一掷到底。" },
 ];
 
 /* 赛场原声：[歌名, 文件名, 时长]。文件不复制，直接播旧站 assets/music/ 里的那几首。 */
@@ -49,4 +50,4 @@ window.IC4_BGM = [["那些无人看见的时光","01-unseen-days.mp3","4:23"],["
 /* 加油墙快照：上次同步到的「已上墙」的句子，网络不通时先用它顶着。 */
 window.IC4_CHEERS = [];
 
-window.IC4_BUILD = { at: "2026-10-16T06:23:45.443Z", count: 32 };
+window.IC4_BUILD = { at: "2026-10-16T07:53:30.917Z", count: 33 };
