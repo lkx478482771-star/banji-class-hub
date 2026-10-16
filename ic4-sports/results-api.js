@@ -162,26 +162,31 @@
         Date.now().toString(36) +
         Math.random().toString(36).slice(2, 4);
       if (!PATH_OK.test(path)) return Promise.resolve({ ok: false, error: "bad-path", path: path, at: at });
-      return call(
-        "POST",
-        base() + TABLE + "?on_conflict=namespace,path",
-        [
-          {
-            namespace: NS.live,
-            path: path,
-            value: {
-              v: 1,
-              name: name,
-              event: event,
-              slot: String(src.slot || ""),
-              result: result,
-              rank: rank,
-              at: at
+      // 写也重试，而且**重试用的是同一个 path**：on_conflict=namespace,path 加
+      // merge-duplicates 让重复写变成幂等操作——哪怕第一次其实写成功了、只是回包在路上丢了，
+      // 也只会是同一行，不会多出一条。运动场信号抖的时候靠这个把成绩送出去。
+      return withRetry(() =>
+        call(
+          "POST",
+          base() + TABLE + "?on_conflict=namespace,path",
+          [
+            {
+              namespace: NS.live,
+              path: path,
+              value: {
+                v: 1,
+                name: name,
+                event: event,
+                slot: String(src.slot || ""),
+                result: result,
+                rank: rank,
+                at: at
+              }
             }
-          }
-        ],
-        { Prefer: "resolution=merge-duplicates,return=minimal" },
-        TIMEOUT_WRITE
+          ],
+          { Prefer: "resolution=merge-duplicates,return=minimal" },
+          TIMEOUT_WRITE
+        )
       ).then((out) => (out.ok ? { ok: true, path: path, at: at } : Object.assign({}, out, { path: path, at: at })));
     },
 
@@ -194,8 +199,8 @@
         rejected: "服务器把这条退回来了，刷新一下再试。",
         denied: "这个网络发不出去，换个网试试。",
         "not-ready": "成绩单还没开通（负责人正在配置）。",
-        offline: "网络有点慢，等下有网了再填一次。",
-        timeout: "网络有点慢，正在自动重试…",
+        offline: "网络没连上，内容还留着——等有信号了点一下这一格就会重存。",
+        timeout: "网络有点慢，还没发出去——内容还留着，过会儿点一下这一格就行。",
         "no-cloud": "这个页面没有配置成绩单。"
       };
       if (table[error]) return table[error];

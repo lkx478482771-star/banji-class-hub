@@ -135,6 +135,10 @@
         if (el.__res) el.__res.value = item ? item.result : "";
         if (el.__rank) el.__rank.value = item ? item.rank : "";
         el.__dirty = false;
+        // 记住「这一格现在显示的就是服务器上的内容」，这样点进去看一眼再走开
+        // 不会被当成一次修改（否则每碰一下就多存一条、还凭空多出「改过 N 次」）。
+        el.__savedResult = item ? item.result : "";
+        el.__savedRank = item ? item.rank : "";
       }
       if (!el.__saving) {
         if (!hasValue) say(el.__state, "还没填", "warn");
@@ -237,9 +241,12 @@
     });
     el.__saving = false;
     if (!out || !out.ok) {
-      say(el.__state, (api.explain && api.explain(out && out.error)) || "没存上，再试一次", "bad");
+      // 内容留在输入框里不丢；标一下，等网络回来（online 事件）自动重发一次。
+      el.__failed = true;
+      say(el.__state, (api.explain && api.explain(out && out.error)) || "没存上，再点一下这一格重试", "bad");
       return;
     }
+    el.__failed = false;
     el.__dirty = false;
     el.__savedResult = result;
     el.__savedRank = rank;
@@ -309,6 +316,12 @@
   }
   document.addEventListener("visibilitychange", () => {
     if (state.shown && !document.hidden) load();
+  });
+  // 刚才没发出去的那几格：手机一恢复联网就自己重发一次，不用同学自己想起来再点。
+  window.addEventListener("online", () => {
+    rows.forEach((el) => {
+      if (el.__failed && !el.__saving) save(el);
+    });
   });
   schedule();
 
