@@ -1508,10 +1508,45 @@ body.standalone-page {
   text-align: center;
 }
 
+/* 首屏就能写加油/看墙：手机上不用先滚过整张晶圆图才找到入口。 */
+.sports-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.sports-hero-actions .primary-button,
+.sports-hero-actions .secondary-button {
+  font-size: 13px;
+}
+
+/* 弹层打开时别再让后面的页面跟着滚（手机上很容易误滚）。 */
+body.is-modal-open {
+  overflow: hidden;
+}
+
 @media (max-width: 760px) {
   .standalone-shell {
     width: min(1180px, 100% - 20px);
     padding: 16px 0 40px;
+  }
+
+  .sports-hero-actions .primary-button,
+  .sports-hero-actions .secondary-button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  /* 手机上四个数字排成两行两列就够，竖着排四行太费滚动距离。 */
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric {
+    min-height: 72px;
+    gap: 10px;
+    padding: 13px;
   }
 }
 
@@ -1589,7 +1624,9 @@ body.standalone-page {
 .ic4-modal {
   width: min(520px, 100%);
   max-height: 84vh;
+  max-height: 84dvh;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 18px 18px 16px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);

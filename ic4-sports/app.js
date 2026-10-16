@@ -29,8 +29,11 @@
   const CHEER_SEED = Array.isArray(window.IC4_CHEERS) ? window.IC4_CHEERS : [];
   const CHEER_CACHE_KEY = "ic4-cheer-cache-v1";
   const CHEER_QUEUE_KEY = "ic4-cheer-queue-v1";
-  const cheer = { status: "loading", error: "", items: CHEER_SEED.slice(), queued: [], modal: null, retry: 0 };
+  const cheer = { status: "loading", error: "", items: CHEER_SEED.slice(), queued: [], modal: null, retry: 0, retryStep: 0 };
   const CHEER_MAX = 40;
+  // 连不上时的自动重试节奏：先勤后疏，试够 8 次就停下来等「再试一次」或网络恢复事件，
+  // 免得一直每 8 秒打一次网络（手机上很费电）。
+  const CHEER_RETRY_DELAYS = [8000, 20000, 45000, 60000, 60000, 60000, 60000, 60000];
 
   function storeGet(key, fallback) {
     try {
@@ -271,8 +274,10 @@
   function cheerListHTML(items, options) {
     const opts = options || {};
     if (!items.length) return `<p class="empty-state">${escapeHTML(opts.empty || "还没有人写加油。")}</p>`;
-    const ordered = items.slice().reverse();
-    const shown = opts.limit ? ordered.slice(0, opts.limit) : ordered;
+    // 接口给的是「新的在前」；墙上按时间正序读起来才顺（最早的在上面，最新的在下面）。
+    const ordered = items.slice().sort((a, b) => (a.at || 0) - (b.at || 0));
+    // 面板里只想看最新几条 → 取末尾。注意不能取前几条（那是最早写的，刚发的反而看不见）。
+    const shown = opts.latest ? ordered.slice(-opts.latest) : ordered;
     return (
       `<ul class="cheer-list">` +
       shown
@@ -295,13 +300,17 @@
     if (cheer.status === "loading") return `<p class="empty-state">正在加载加油墙…</p>`;
     // 网络是通的、只是还没人写：这是好消息，别写成错误提示。
     if (cheer.status === "ready") return `<p class="empty-state">还没有人写加油，第一句可以是你写的。</p>`;
+    const tried = cheer.retryStep >= CHEER_RETRY_DELAYS.length;
+    const text = tried
+      ? "这台设备的网络一直连不上加油墙。写的内容会先存在本机，有网了自动传上去。"
+      : cheer.error || "网络有点慢，先显示上次同步到的加油。";
     return (
-      `<p class="empty-state">${escapeHTML(cheer.error || "网络有点慢，先显示上次同步到的加油。")}</p>` +
+      `<p class="empty-state">${escapeHTML(text)}</p>` +
       `<div class="cheer-actions"><button class="secondary-button" type="button" data-action="cheer-retry">${icon("refresh-cw")} 再试一次</button></div>`
     );
   }
 
-  // 存在本机、还没传上去的句子：写的人自己能看到，别人看不到（还没过审）。
+  // 存在本机、还没传上去的句子：写的人自己能看到，别人看不到（还没进数据库）。
   function cheerQueueHTML() {
     if (!cheer.queued.length) return "";
     return (
@@ -315,10 +324,12 @@
     const current = total ? ((ui.selected % total) + total) % total : 0;
     const target = total ? athleteId(current) : "ALL";
     const mine = cheerFor(target);
-    const badge = cheer.status === "ready" ? cheer.items.length + " 条" : cheer.status === "loading" ? "…" : "离线";
+    // 徽章跟下面列出来的内容对齐：这位同学收到几条，就写几条（不是全班的条数）。
+    const badge = cheer.status === "ready" ? mine.length + " 条" : cheer.status === "loading" ? "…" : "离线";
     const tone = cheer.status === "ready" ? "green" : "yellow";
+    const wallLabel = "全班加油墙" + (cheer.items.length ? " · " + cheer.items.length : "");
     const list = cheer.items.length
-      ? cheerListHTML(mine, { empty: "还没有人给这位同学写加油，你可以写第一句。", limit: 6 }) +
+      ? cheerListHTML(mine, { empty: "还没有人给这位同学写加油，你可以写第一句。", latest: 6 }) +
         (cheer.status === "ready"
           ? ""
           : `<p class="cheer-note">${escapeHTML(cheer.status === "loading" ? "正在刷新…" : cheer.error || "网络有点慢，先显示上次同步到的加油。")}</p>`)
@@ -335,7 +346,7 @@
       <div class="panel-body">
         <div class="cheer-actions">
           <button class="primary-button" type="button" data-action="cheer-open" data-target="${target}">${icon("megaphone")} 写一句加油</button>
-          <button class="secondary-button" type="button" data-action="cheer-wall">${icon("message-circle")} 全班加油墙</button>
+          <button class="secondary-button" type="button" data-action="cheer-wall">${icon("message-circle")} ${wallLabel}</button>
         </div>
         <p class="cheer-note">写完立刻出现在墙上，不用等审核。别写脏话、别写别人的隐私。</p>
         ${list}
@@ -347,6 +358,7 @@
   /* ---------------- 弹层 ---------------- */
 
   let modalKeydown = null;
+  let modalReturnFocus = null;
 
   function closeModal() {
     const node = document.getElementById("ic4-modal");
@@ -355,11 +367,22 @@
       document.removeEventListener("keydown", modalKeydown);
       modalKeydown = null;
     }
+    document.body.classList.remove("is-modal-open");
+    // 关掉弹层后焦点回到刚才那个按钮，键盘/读屏用户不会「丢位置」。
+    if (modalReturnFocus && typeof modalReturnFocus.focus === "function") {
+      try {
+        modalReturnFocus.focus();
+      } catch (error) {
+        /* 元素可能已经不在了，忽略 */
+      }
+    }
+    modalReturnFocus = null;
     cheer.modal = null;
   }
 
   function openModal(html) {
     closeModal();
+    modalReturnFocus = document.activeElement;
     const wrap = document.createElement("div");
     wrap.className = "ic4-modal-backdrop";
     wrap.id = "ic4-modal";
@@ -368,8 +391,14 @@
       if (event.target === wrap) closeModal();
     });
     document.body.appendChild(wrap);
+    document.body.classList.add("is-modal-open");
     modalKeydown = (event) => {
       if (event.key === "Escape") closeModal();
+      // Ctrl/⌘ + Enter 直接提交，写长句时不用去点按钮。
+      else if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && document.getElementById("cheer-input")) {
+        event.preventDefault();
+        submitCheer();
+      }
     };
     document.addEventListener("keydown", modalKeydown);
     refreshIcons(wrap);
@@ -441,7 +470,9 @@
     }
     if (soft) {
       // 网络没通：先存在这台设备上，等网络好了自动重传。别让同学白写一遍。
-      queueCheer(target, body);
+      // 复用刚才那次请求的 path/at：万一服务器其实已经收到、只是回复丢了，
+      // 重传写的是同一条（on_conflict=namespace,path 会覆盖），不会变成两条。
+      queueCheer(target, body, result.path, result.at);
       cheer.status = cheer.status === "ready" ? "ready" : "offline";
       renderCheerPanel();
       scheduleCheerRetry();
@@ -486,8 +517,16 @@
     cheer.queued = (Array.isArray(raw) ? raw : []).filter((item) => item && item.target && item.body);
   }
 
-  function queueCheer(target, body) {
-    cheer.queued.push({ id: "q-" + Date.now().toString(36), target: target, body: body, at: Date.now() });
+  // path 是这条留言在数据库里的主键（namespace+path）：存下来，重传时用同一个，避免重复上墙。
+  function queueCheer(target, body, path, at) {
+    const stamp = at ? Date.parse(at) || Date.now() : Date.now();
+    cheer.queued.push({
+      id: path || "q-" + stamp.toString(36),
+      path: path || "",
+      target: target,
+      body: body,
+      at: stamp
+    });
     storeSet(CHEER_QUEUE_KEY, cheer.queued);
   }
 
@@ -503,7 +542,11 @@
         rest.push(item);
         continue;
       }
-      const result = await api.submit(item.target, item.body, { force: true });
+      const result = await api.submit(item.target, item.body, {
+        force: true,
+        path: item.path,
+        at: item.at ? new Date(item.at).toISOString() : ""
+      });
       if (result.ok) continue;
       if (result.error === "offline" || result.error === "timeout") {
         softStop = true;
@@ -513,14 +556,19 @@
     cheer.queued = rest;
     storeSet(CHEER_QUEUE_KEY, rest);
     renderCheerPanel();
+    // 弹层开着的话（比如「全班加油墙」），把已经传上去的从「待上传」里去掉。
+    if (cheer.modal && cheer.modal.kind === "wall") openCheerWall();
   }
 
   function scheduleCheerRetry() {
     if (cheer.retry) return;
+    if (cheer.retryStep >= CHEER_RETRY_DELAYS.length) return; // 试够了：交给「再试一次」按钮和网络恢复事件
+    const delay = CHEER_RETRY_DELAYS[cheer.retryStep] || 60000;
+    cheer.retryStep += 1;
     cheer.retry = window.setTimeout(() => {
       cheer.retry = 0;
       loadCheers();
-    }, 8000);
+    }, delay);
   }
 
   async function loadCheers() {
@@ -539,8 +587,10 @@
     if (result.ok) {
       cheer.status = "ready";
       cheer.error = "";
+      cheer.retryStep = 0;
       cheer.items = result.items;
-      storeSet(CHEER_CACHE_KEY, cheer.items.slice(-200));
+      // items 是「新的在前」：缓存留最新的 200 条（不是最早的 200 条）。
+      storeSet(CHEER_CACHE_KEY, cheer.items.slice(0, 200));
       renderCheerPanel();
       if (cheer.modal && cheer.modal.kind === "wall") openCheerWall();
       await flushCheerQueue();
@@ -671,6 +721,10 @@
             <h2>IC-4 <b>出战名单</b></h2>
             <p class="sports-hero-sub">${escapeHTML(MEET.dateLabel || "")} · 一片晶圆，全员通电</p>
             <p class="sports-hero-slogan">${escapeHTML(MEET.slogan || "")}</p>
+            <div class="sports-hero-actions">
+              <button class="primary-button" type="button" data-action="cheer-open" data-target="${total ? athleteId(ui.selected) : "ALL"}">${icon("megaphone")} 写一句加油</button>
+              <button class="secondary-button" type="button" data-action="cheer-wall">${icon("message-circle")} 看加油墙</button>
+            </div>
           </div>
           <div class="sports-count">
             <span class="sports-count-label">距开赛</span>
@@ -840,7 +894,10 @@
     else if (action === "sports-reset") resetPower();
     else if (action === "cheer-open") openCheerForm(node.dataset.target || "ALL");
     else if (action === "cheer-wall") openCheerWall();
-    else if (action === "cheer-retry") loadCheers();
+    else if (action === "cheer-retry") {
+      cheer.retryStep = 0;
+      loadCheers();
+    }
     else if (action === "cheer-submit") submitCheer();
     else if (action === "cheer-close") closeModal();
     else if (action === "bgm-toggle") toggleBgm(Number(node.dataset.index));
@@ -942,7 +999,10 @@
     ui.onResize = () => sizeWafer();
     window.addEventListener("resize", ui.onResize);
     // 走到有网的地方（或者刚才只是抖了一下）就自动再试一次。
-    window.addEventListener("online", () => loadCheers());
+    window.addEventListener("online", () => {
+      cheer.retryStep = 0;
+      loadCheers();
+    });
     loadQueue();
     loadCheers();
   }

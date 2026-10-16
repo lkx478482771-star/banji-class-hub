@@ -140,31 +140,41 @@
     return "c-" + stamp + "-" + rand;
   }
 
+  // 只接受我们自己生成的 path 形状，别让外面的东西往 URL 里塞字符。
+  const PATH_OK = /^c-[a-z0-9]+-[a-z0-9]{1,10}$/;
+  const AT_OK = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/;
+
   window.IC4_CHEER = {
     namespaces: NS,
 
     ready: () => Boolean(CLOUD.url && CLOUD.anonKey),
 
     /** 提交一句加油：直接进「已上墙」分区，不用审核，写完大家就能看到。
-     *  options.force = true 时跳过「10 秒一条」的本机节流（本机队列重传时用）。 */
+     *  options.force = true 时跳过「10 秒一条」的本机节流（本机队列重传时用）。
+     *  options.path / options.at = 重传时复用原来的主键与时间：
+     *    万一上一次请求其实写成功、只是回复丢了，重传会覆盖同一条，而不是又贴一条。
+     *  返回失败时带上 path/at，调用方可以直接把它们存进本机队列。 */
     submit(target, body, options) {
       const text = String(body || "").trim();
       const who = String(target || "ALL").trim() || "ALL";
+      const opts = options || {};
+      const path = PATH_OK.test(String(opts.path || "")) ? String(opts.path) : newPath();
+      const at = AT_OK.test(String(opts.at || "")) ? String(opts.at) : new Date().toISOString();
       if (text.length < TEXT_MIN || text.length > TEXT_MAX) {
-        return Promise.resolve({ ok: false, error: "length" });
+        return Promise.resolve({ ok: false, error: "length", path: path, at: at });
       }
-      if (!TARGET_OK.test(who)) return Promise.resolve({ ok: false, error: "target" });
-      if (!(options && options.force) && Date.now() - lastSubmitAt < 10000) {
-        return Promise.resolve({ ok: false, error: "too_fast" });
+      if (!TARGET_OK.test(who)) return Promise.resolve({ ok: false, error: "target", path: path, at: at });
+      if (!opts.force && Date.now() - lastSubmitAt < 10000) {
+        return Promise.resolve({ ok: false, error: "too_fast", path: path, at: at });
       }
       lastSubmitAt = Date.now();
       return call(
         "POST",
         base() + TABLE + "?on_conflict=namespace,path",
-        [{ namespace: NS.live, path: newPath(), value: { v: 1, target: who, text: text, at: new Date().toISOString() } }],
+        [{ namespace: NS.live, path: path, value: { v: 1, target: who, text: text, at: at } }],
         { Prefer: "resolution=merge-duplicates,return=minimal" },
         TIMEOUT_WRITE
-      );
+      ).then((result) => (result.ok ? result : Object.assign({}, result, { path: path, at: at })));
     },
 
     /** 已经上墙的加油（公开可读）。读不到会自动重试几次。 */
