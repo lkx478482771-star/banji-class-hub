@@ -1,5 +1,36 @@
 # 变更记录
 
+## 2026-10-16 — 正式切到 Supabase：真 Postgres 上线
+
+`config.js` 的 `provider` 从 `"mantle"` 改成 `"supabase"`，后端从 MantleDB 搬到自己的
+Supabase 项目。MantleDB 里的 13 条数据（账号 10、个人课表 2、发布额度 1）已用
+`scripts/migrate-to-supabase.mjs --apply` 幂等导入并逐条回读校验；**源数据一条没删**，
+把 `provider` 改回 `"mantle"` 就能原样退回。
+
+一路上修掉了三个真的会拦路的坑：
+
+- **建表 SQL 的正则量词在 Postgres 下必炸**：`p_namespace ~ '^banji-[a-z0-9-]{1,48}$'` 在
+  `create table` 时不报错，但一写数据（触发 check 约束 / RLS）就返回 `2201B invalid regular
+  expression: invalid repetition count(s)`。这就是这套表**从来没成功写入过任何一条**的原因。
+  改成零正则的纯字符串判断（`left(p_namespace, 6) = 'banji-'` + `char_length` 在 7~55 +
+  `translate(p_namespace, 'abcdefghijklmnopqrstuvwxyz0123456789-', '') = ''`）。
+- **建表 SQL 里的 `$` 全部删掉**：`$$ ... $$` 形式的函数体现在写成单引号字符串体（内部单引号
+  翻倍）。因为在聊天窗口里复制带 `$$` 的代码块，美元符号会被自动加反斜杠变成 `\$\$`，粘进
+  SQL Editor 必然语法错误。`scripts/check-backend.cjs` 新增 B11 守住这条：SQL 里一个 `$` 和
+  反斜杠都不许有。
+- **两个门禁脚本写死了「provider 一定是 mantle」**：`check-sync.cjs` 的 harness 只 mock 了
+  MantleDB 的 fetch，却继承了 `config.js` 的 `provider: "supabase"`，于是 app.js 走 supabase
+  分支、断言拿到 null；`check-backend.cjs` 的 A4 直接要求 `/provider:\s*"mantle"/`，切换后
+  必然红。现在 harness 显式强制 `provider: "mantle"`（它测的就是那条回退路径），A4 改成
+  「provider 合法，且切到 supabase 时 `supabaseUrl` / `supabaseAnonKey` 都已填写」。
+
+另外给 `config.js` 压了注释（2041 B → 1609 B），把首屏体积从 566.5 KB 拉回 566.1 KB / 上限
+566.4 KB —— 只剩 0.3 KB 余量，再加东西前必须先瘦身。
+
+⚠️ **本机直连 `*.supabase.co` 是被 SNI 阻断的**（`Connection was reset`），所以本地跑脚本要挂
+代理：`NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7897 node ...`。用户手机不上代理能
+正常打开，这就是选它的原因。
+
 ## 2026-10-16 — 运动会照片上传清晰化：改存 Supabase Storage
 
 上传的照片「点开就糊」，根子在 MantleDB 的两条硬顶：一条记录最多 64 KB（Supabase 版是

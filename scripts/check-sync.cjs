@@ -122,7 +122,8 @@ let listCount = 0;
 let getCount = 0;
 let failPaths = new Set();
 let lastListNamespace = "";
-const sharedConfig = Object.assign({}, ${CONFIG_JSON}, { mantleApiBase: "https://db" });
+// 这个 harness 的 fetch / 缓存 mock 只实现了 MantleDB 那一套，所以强制走 mantle 分支。
+const sharedConfig = Object.assign({}, ${CONFIG_JSON}, { mantleApiBase: "https://db", provider: "mantle" });
 const BASE = sharedConfig.mantleApiBase;
 const pathOfUrl = (url) => {
   const rest = String(url).slice(BASE.length + 1);

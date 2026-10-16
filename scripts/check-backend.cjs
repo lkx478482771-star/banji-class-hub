@@ -41,7 +41,15 @@ check(
   "defer 脚本按文档顺序执行"
 );
 check("A3 所有脚本都带 ?v= 版本号", versioned.length === scriptTags.length, versioned.length + "/" + scriptTags.length);
-check("A4 config.js 默认仍是 mantle（没被误切）", /provider:\s*"mantle"/.test(configSrc));
+// 2026-10-16 起正式切到 supabase：provider 允许两个值，但切过去时两个配置项必须填好。
+const providerHit = configSrc.match(/provider:\s*"(mantle|supabase)"/);
+check(
+  "A4 config.js 的 provider 合法且切到 supabase 时配置齐全",
+  Boolean(providerHit) &&
+    (providerHit[1] === "mantle" ||
+      (/supabaseUrl:\s*"[^"]+"/.test(configSrc) && /supabaseAnonKey:\s*"[^"]+"/.test(configSrc))),
+  providerHit && providerHit[1]
+);
 check("A5 config.js 留了 supabaseUrl / supabaseAnonKey 占位", /supabaseUrl:/.test(configSrc) && /supabaseAnonKey:/.test(configSrc));
 // 注释里可以提 service_role（比如「绝不允许进这个文件」），代码里出现才是事故。
 function stripComments(text) {
@@ -53,7 +61,7 @@ check("A7 适配器里没有 service_role", !/service_role/.test(stripComments(a
 
 check("B1 SQL 建了 class_hub_entries 表", /create table if not exists public\.class_hub_entries/.test(sql));
 check("B2 SQL 主键是 (namespace, path)", /primary key \(namespace, path\)/.test(sql));
-check("B3 SQL 的分区上限报错含 Entry limit reached", /raise exception 'Entry limit reached/.test(sql));
+check("B3 SQL 的分区上限报错含 Entry limit reached", /raise exception ''?Entry limit reached/.test(sql));
 check("B4 SQL 有写入频率触发器", /create trigger enforce_class_hub_write_rate/.test(sql));
 check("B5 SQL 开了 RLS", /enable row level security/.test(sql));
 check(
@@ -64,8 +72,14 @@ check(
 );
 check("B7 SQL 用 json_agg 绕开 PostgREST 1000 行截断", /json_agg\(/.test(sql) && /class_hub_list/.test(sql));
 check("B8 SQL 单条上限 256 KB（大于 MantleDB 的 64 KB）", /octet_length\(value::text\) <= 262144/.test(sql));
-check("B9 SQL 限制分区名格式", /class_hub_namespace_ok/.test(sql) && /\^banji-/.test(sql));
+// 2026-10-16：正则量词 {1,48} 在 Postgres ARE 下会报 2201B，所以改成零正则的纯字符串判断。
+check(
+  "B9 SQL 限制分区名格式（零正则）",
+  /class_hub_namespace_ok/.test(sql) && /left\(p_namespace, 6\)/.test(sql) && /translate\(p_namespace/.test(sql)
+);
 check("B10 导入脚本用 upsert（幂等可重跑）", /on_conflict=namespace,path/.test(migrateSrc) && /merge-duplicates/.test(migrateSrc));
+// 复制粘贴时 `$$` 会被聊天窗口加上反斜杠，SQL 里必须一个美元符号都不剩。
+check("B11 建表 SQL 里没有 $ 和反斜杠", !/\$/.test(sql) && !/\\/.test(sql), (sql.match(/\$/g) || []).length + " 个 $");
 
 // —— 动态检查：真的把 app.js 的 URL 构造函数和适配器对着跑 ——————————
 const code = `
@@ -117,7 +131,7 @@ check("C2 _endpoints 能从 base 推出 rpc 地址",
 
 // 2) app.js 里真正的 URL 构造函数，抠出来跑
 const seam = new Function(\`
-  let sharedConfig = \${CONFIG_JSON};
+  let sharedConfig = Object.assign({}, \${CONFIG_JSON}, { provider: "mantle" });
   const window = {};
   \${pick("function hasSharedConfig(")}
   \${pick("function sharedApiBase(")}
@@ -130,7 +144,7 @@ const seam = new Function(\`
   \${pick("function mantleListUrl(")}
   return {
     hasSharedConfig: () => hasSharedConfig(),
-    setConfig(next) { sharedConfig = Object.assign({}, \${CONFIG_JSON}, next); },
+    setConfig(next) { sharedConfig = Object.assign({}, \${CONFIG_JSON}, { provider: "mantle" }, next); },
     apiBase: () => sharedApiBase(),
     backend: () => sharedBackend(),
     setBackend(value) { window.SharedBackendSupabase = value; },
