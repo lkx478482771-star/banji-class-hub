@@ -6,6 +6,23 @@
     <meta name="theme-color" content="#f2f5fb" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0f1720" media="(prefers-color-scheme: dark)" />
     <title>班集 · 1 分钟上手</title>
+    <script>
+      // 这台设备上已经注册过（或还登着）就不再显示「先注册」这套引导，只留一个进入网站的入口。
+      // 想强制看完整说明：在网址后面加 ?all=1
+      (function () {
+        try {
+          if (/(?:^|[?&])all=1/.test(location.search)) return;
+          var accounts = localStorage.getItem("banji-local-accounts-v1");
+          var session = localStorage.getItem("banji-auth-session-v1");
+          var registered =
+            (!!accounts && accounts !== "[]" && accounts !== "null") ||
+            (!!session && session !== "null");
+          if (registered) document.documentElement.className += " registered";
+        } catch (error) {
+          /* 隐私模式下读不到 localStorage 就照常显示说明 */
+        }
+      })();
+    </script>
     <style>
       :root {
         --bg: #f2f5fb;
@@ -211,6 +228,18 @@
       .foot a {
         color: var(--accent);
       }
+      .when-known {
+        display: none;
+      }
+      html.registered .when-new {
+        display: none;
+      }
+      html.registered .when-known {
+        display: block;
+      }
+      .cta.inline {
+        margin-top: 4px;
+      }
     </style>
   </head>
   <body>
@@ -220,7 +249,8 @@
           <span class="mark">班</span>
           <div>
             <h1>班集 · 1 分钟上手</h1>
-            <p>写给第一次打开这个网站的同学，照着做就行。</p>
+            <p class="when-new">写给第一次打开这个网站的同学，照着做就行。</p>
+            <p class="when-known">你已经注册过了，直接进网站就行。</p>
           </div>
         </div>
         <a class="cta" href="./">打开班集 →</a>
@@ -228,6 +258,16 @@
     </header>
 
     <main class="wrap">
+      <section class="card when-known">
+        <h2>你已经注册过了</h2>
+        <p>这台设备上有你的账号，说明你已经用过这个网站了。下面那套注册引导不用再看。</p>
+        <a class="cta inline" href="./">进入班集 →</a>
+        <p class="hint" style="margin-top: 12px">
+          换了新手机／新电脑，或者只是想再看一遍怎么用？<a href="?all=1">展开完整说明</a>
+        </p>
+      </section>
+
+      <div class="when-new">
       <section class="card">
         <h2><span class="num">1</span>先注册（只做一次）</h2>
         <p>打开网站后点中间的 <b>注册</b> 页签，就填这几个：</p>
@@ -317,6 +357,7 @@
           <li><b>「匿名意见箱」只是界面上匿名</b>，数据库里记着是谁提交的，请对自己的话负责</li>
         </ol>
       </section>
+      </div>
 
       <p class="foot">
         还是不会？在群里 @刘凯翔，或直接找宣传委员。<br />
