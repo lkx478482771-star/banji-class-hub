@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#0f1720" />
+    <title>加油墙审核 · 集成电路 4 班</title>
+    <meta name="description" content="IC-4 运动会加油墙的负责人审核页。" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="standalone-page">
+    <div class="admin-shell">
+      <div class="standalone-bar">
+        <p class="eyebrow">安徽大学 · 集成电路学院 · 集成电路 4 班</p>
+        <p class="standalone-note">只有负责人需要这个页面，同学不用来。</p>
+      </div>
+
+      <main class="page-content" id="admin" tabindex="-1">
+        <section class="panel">
+          <header class="panel-header">
+            <div>
+              <h3>加油墙审核</h3>
+              <p>输入审核口令，看待审留言，通过或删掉</p>
+            </div>
+            <span class="badge yellow">待审核</span>
+          </header>
+          <div class="panel-body">
+            <div class="cheer-actions">
+              <input class="admin-input" id="admin-secret" type="password" autocomplete="off" placeholder="审核口令" />
+              <button class="primary-button" type="button" data-action="admin-load">查看待审</button>
+            </div>
+            <p class="admin-msg" id="admin-msg"></p>
+            <p class="admin-stats" id="admin-stats"></p>
+            <div id="admin-list"></div>
+            <p class="cheer-note">口令只存在你自己的浏览器里，关掉页面就忘了；通过后刷新同学那边的页面就能看到。</p>
+          </div>
+        </section>
+      </main>
+
+      <p class="standalone-footer">审核页 · 请勿把网址发给同学</p>
+    </div>
+
+    <noscript>
+      <div class="admin-shell">
+        <p class="eyebrow">这个页面需要浏览器打开 JavaScript 才能用。</p>
+      </div>
+    </noscript>
+
+    <script src="assets/icons.js"></script>
+    <script src="config.js"></script>
+    <script src="cheer-api.js"></script>
+    <script src="admin.js" defer></script>
+  </body>
+</html>

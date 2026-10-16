@@ -1,0 +1,172 @@
+-- ============================================================================
+-- IC-4 运动会 · 匿名加油墙（不用登录 + 先审后显）
+--
+-- 怎么用：
+--   1. 打开你的 Supabase 项目 → 左侧 SQL Editor → New query
+--   2. 把这一整份文件的内容粘进去
+--   3. 把下面第 3 步里 '换成你自己的口令' 改成你想要的审核口令（别告诉同学）
+--   4. 点 Run（右上角），看到 Success 就成了
+--
+-- 这份 SQL 只新建 2 张小表和 3 个函数，**不会碰旧站用的 class_hub_entries 表**，
+-- 旧站的任何功能都不受影响。
+-- ============================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- 1) 只放加油的小表（匿名提交的内容先进入这里，状态是 pending 待审核）
+-- ---------------------------------------------------------------------------
+create table if not exists public.ic4_cheers (
+  id          uuid primary key default gen_random_uuid(),
+  target      text not null default 'ALL',          -- 给谁加油：选手编号 IC4-001… 或 'ALL'（全班）
+  body        text not null,                        -- 留言内容
+  status      text not null default 'pending',      -- pending 待审 / approved 已通过
+  created_at  timestamptz not null default now(),
+  approved_at timestamptz,
+  ip_hash     text,                                 -- 只存打码后的指纹，用来限频，不含明文 IP
+  constraint ic4_cheers_status_chk check (status in ('pending', 'approved')),
+  constraint ic4_cheers_body_chk   check (char_length(btrim(body)) between 2 and 40),
+  constraint ic4_cheers_target_chk check (char_length(target) between 1 and 24)
+);
+
+create index if not exists ic4_cheers_status_idx on public.ic4_cheers (status, created_at desc);
+
+-- 锁死：这张表不允许任何匿名/登录用户直接读、写、删，只能走下面的函数。
+alter table public.ic4_cheers enable row level security;
+revoke all on table public.ic4_cheers from anon, authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- 2) 审核口令（只存一串打码值，不存明文）
+-- ---------------------------------------------------------------------------
+create table if not exists public.ic4_admin (
+  id          smallint primary key,
+  secret_hash text not null,
+  constraint ic4_admin_single_row check (id = 1)
+);
+alter table public.ic4_admin enable row level security;
+revoke all on table public.ic4_admin from anon, authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- 3) ★ 设置/修改审核口令（把引号里的中文换成你自己的口令，然后运行这一段）★
+-- ---------------------------------------------------------------------------
+insert into public.ic4_admin (id, secret_hash)
+values (1, md5('ic4-cheer-v1|' || '换成你自己的口令'))
+on conflict (id) do update set secret_hash = excluded.secret_hash;
+
+
+-- ---------------------------------------------------------------------------
+-- 4) 提交一条加油（匿名可调）：长度校验 + 同一个人的限频
+-- ---------------------------------------------------------------------------
+create or replace function public.ic4_cheer_submit(p_target text, p_body text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_body   text := btrim(coalesce(p_body, ''));
+  v_target text := coalesce(nullif(btrim(coalesce(p_target, '')), ''), 'ALL');
+  v_finger text;
+  v_count  int;
+begin
+  if char_length(v_body) < 2 or char_length(v_body) > 40 then
+    return jsonb_build_object('ok', false, 'error', 'length');
+  end if;
+  if char_length(v_target) > 24 then
+    return jsonb_build_object('ok', false, 'error', 'target');
+  end if;
+
+  -- 用请求头里的来源地址做 12 位打码指纹，只用于限频
+  v_finger := substr(md5(split_part(
+    coalesce(current_setting('request.headers', true)::jsonb ->> 'x-forwarded-for', 'unknown'),
+    ',', 1)), 1, 12);
+
+  select count(*) into v_count from public.ic4_cheers
+   where ip_hash = v_finger and created_at > now() - interval '10 seconds';
+  if v_count > 0 then
+    return jsonb_build_object('ok', false, 'error', 'too_fast');
+  end if;
+
+  select count(*) into v_count from public.ic4_cheers
+   where ip_hash = v_finger and created_at > now() - interval '1 hour';
+  if v_count >= 20 then
+    return jsonb_build_object('ok', false, 'error', 'too_many');
+  end if;
+
+  insert into public.ic4_cheers (target, body, ip_hash) values (v_target, v_body, v_finger);
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+
+-- ---------------------------------------------------------------------------
+-- 5) 只读「已通过」的加油（公开可调，带分页上限）
+-- ---------------------------------------------------------------------------
+create or replace function public.ic4_cheer_list(p_limit int default 300)
+returns table (id uuid, target text, body text, created_at timestamptz)
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  select c.id, c.target, c.body, c.created_at
+    from public.ic4_cheers c
+   where c.status = 'approved'
+   order by c.created_at asc
+   limit least(greatest(coalesce(p_limit, 300), 1), 500);
+$$;
+
+
+-- ---------------------------------------------------------------------------
+-- 6) 审核（要口令）：list 看待审 / approve 通过 / delete 删除
+-- ---------------------------------------------------------------------------
+create or replace function public.ic4_cheer_review(p_secret text, p_action text, p_id uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_hash text;
+begin
+  select secret_hash into v_hash from public.ic4_admin where id = 1;
+  if v_hash is null or v_hash <> md5('ic4-cheer-v1|' || coalesce(p_secret, '')) then
+    return jsonb_build_object('ok', false, 'error', 'bad_secret');
+  end if;
+
+  if p_action = 'list' then
+    return jsonb_build_object(
+      'ok', true,
+      'pendingCount', (select count(*) from public.ic4_cheers where status = 'pending'),
+      'approvedCount', (select count(*) from public.ic4_cheers where status = 'approved'),
+      'pending', coalesce((
+        select jsonb_agg(jsonb_build_object(
+                 'id', t.id, 'target', t.target, 'body', t.body, 'created_at', t.created_at)
+               order by t.created_at asc)
+          from (select * from public.ic4_cheers
+                 where status = 'pending' order by created_at asc limit 200) t
+      ), '[]'::jsonb)
+    );
+  elsif p_action = 'approve' and p_id is not null then
+    update public.ic4_cheers set status = 'approved', approved_at = now() where id = p_id;
+    return jsonb_build_object('ok', true);
+  elsif p_action = 'delete' and p_id is not null then
+    delete from public.ic4_cheers where id = p_id;
+    return jsonb_build_object('ok', true);
+  end if;
+
+  return jsonb_build_object('ok', false, 'error', 'bad_action');
+end;
+$$;
+
+
+-- ---------------------------------------------------------------------------
+-- 7) 只放开这 3 个函数的调用权（表本身仍然锁着）
+-- ---------------------------------------------------------------------------
+grant execute on function public.ic4_cheer_submit(text, text)   to anon, authenticated;
+grant execute on function public.ic4_cheer_list(int)            to anon, authenticated;
+grant execute on function public.ic4_cheer_review(text, text, uuid) to anon, authenticated;
+
+-- 检查一下结果（应该看到 public.ic4_cheers 与 public.ic4_admin 两张表）
+-- select table_name from information_schema.tables
+--  where table_schema = 'public' and table_name like 'ic4%';

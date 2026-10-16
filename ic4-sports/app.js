@@ -1,9 +1,10 @@
-/* 集成电路 4 班 · 运动会出战名单（独立只读页）
+/* 集成电路 4 班 · 运动会出战名单（独立只读页 + 匿名加油墙）
  *
  * 这份脚本由 ic4-sports/app.js 维护，是班集「IC-4 运动会」栏目的精简复刻：
- *   有：晶圆图点人、出战参数面板、径赛/田赛筛选、开赛倒计时、一键通电
- *   没有：登录、账号、云端读写、照片上传、成绩录入、加油墙、海报、背景音乐
- * 交互逻辑与排版参数跟旧站保持一致，方便两边看起来是同一个班的东西。
+ *   有：晶圆图点人、出战参数面板、径赛/田赛筛选、开赛倒计时、一键通电、匿名加油墙
+ *   没有：登录、账号、照片上传、成绩录入、海报、背景音乐
+ * 加油墙只能通过 Supabase 里的两个安全函数提交/读取（见 cheer-api.js），
+ * 页面拿不到、也不需要数据库表的直接读写权，所以墙上的内容别人删不掉。
  */
 (function () {
   "use strict";
@@ -18,6 +19,10 @@
   const KIND_COLORS = { track: "#38bdf8", field: "#fb923c", both: "#a78bfa" };
 
   const ui = { selected: 0, lit: false, filter: "all", timer: 0, onResize: null };
+
+  // 加油墙状态：loading 加载中 / ready 拿到数据 / error 连不上
+  const cheer = { status: "loading", error: "", items: [], modal: null };
+  const CHEER_MAX = 40;
 
   const escapeHTML = (value) =>
     String(value == null ? "" : value).replace(
@@ -44,6 +49,25 @@
       (item) =>
         ui.filter === "all" || item.athlete.events.some((event) => trackField(event) === ui.filter)
     );
+
+  /* ---------------- 加油墙的小工具 ---------------- */
+
+  // 加油对象是选手编号（IC4-001…）或 "ALL"（全班）；这里换成给人看的名字。
+  function nameOfTarget(target) {
+    const hit = /^IC4-(\d{1,3})$/.exec(String(target || ""));
+    if (!hit) return "全班同学";
+    const athlete = ATHLETES[Number(hit[1]) - 1];
+    return athlete ? athlete.name : "同学";
+  }
+
+  function formatTime(ms) {
+    if (!ms) return "";
+    const date = new Date(ms);
+    const pad = (value) => String(value).padStart(2, "0");
+    return pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + " " + pad(date.getHours()) + ":" + pad(date.getMinutes());
+  }
+
+  const cheerFor = (target) => cheer.items.filter((item) => item.target === target);
 
   /* ---------------- 晶圆排版：与旧站逐行一致 ---------------- */
 
@@ -188,6 +212,204 @@
     return rows.join("") || `<p class="sports-roster-empty">这一类暂时没有人报名。</p>`;
   }
 
+  /* ---------------- 加油墙渲染 ---------------- */
+
+  function cheerListHTML(items, options) {
+    const opts = options || {};
+    if (!items.length) return `<p class="empty-state">${escapeHTML(opts.empty || "还没有人写加油。")}</p>`;
+    const ordered = items.slice().reverse();
+    const shown = opts.limit ? ordered.slice(0, opts.limit) : ordered;
+    return (
+      `<ul class="cheer-list">` +
+      shown
+        .map(
+          (item) => `
+        <li class="cheer-item">
+          <div class="cheer-item-head">
+            <span class="cheer-item-target">给 ${escapeHTML(nameOfTarget(item.target))}</span>
+            <span class="cheer-item-time">${escapeHTML(formatTime(item.at))}</span>
+          </div>
+          <p class="cheer-item-body">${escapeHTML(item.body)}</p>
+        </li>`
+        )
+        .join("") +
+      `</ul>`
+    );
+  }
+
+  function cheerStatusHTML() {
+    if (cheer.status === "loading") return `<p class="empty-state">正在加载加油墙…</p>`;
+    return `<p class="empty-state">${escapeHTML(cheer.error || "加油墙暂时连不上。")}</p>`;
+  }
+
+  function cheerPanelHTML() {
+    const total = ATHLETES.length;
+    const current = total ? ((ui.selected % total) + total) % total : 0;
+    const target = total ? athleteId(current) : "ALL";
+    const mine = cheerFor(target);
+    const badge = cheer.status === "ready" ? cheer.items.length + " 条" : "…";
+    const tone = cheer.status === "ready" ? "green" : "yellow";
+    const list =
+      cheer.status === "ready"
+        ? cheerListHTML(mine, { empty: "还没有人给这位同学写加油，你可以写第一句。", limit: 6 })
+        : cheerStatusHTML();
+
+    return `
+      <header class="panel-header">
+        <div>
+          <h3>加油墙</h3>
+          <p>匿名留言 · 不用登录 · 负责人审核后显示</p>
+        </div>
+        <span class="badge ${tone}">${escapeHTML(badge)}</span>
+      </header>
+      <div class="panel-body">
+        <div class="cheer-actions">
+          <button class="primary-button" type="button" data-action="cheer-open" data-target="${target}">${icon("megaphone")} 写一句加油</button>
+          <button class="secondary-button" type="button" data-action="cheer-wall">${icon("message-circle")} 全班加油墙</button>
+        </div>
+        <p class="cheer-note">写的话会先进待审核，负责人通过后才出现在墙上。别写脏话、别写别人的隐私。</p>
+        ${list}
+      </div>
+    `;
+  }
+
+  /* ---------------- 弹层 ---------------- */
+
+  let modalKeydown = null;
+
+  function closeModal() {
+    const node = document.getElementById("ic4-modal");
+    if (node) node.remove();
+    if (modalKeydown) {
+      document.removeEventListener("keydown", modalKeydown);
+      modalKeydown = null;
+    }
+    cheer.modal = null;
+  }
+
+  function openModal(html) {
+    closeModal();
+    const wrap = document.createElement("div");
+    wrap.className = "ic4-modal-backdrop";
+    wrap.id = "ic4-modal";
+    wrap.innerHTML = `<div class="ic4-modal" role="dialog" aria-modal="true">${html}</div>`;
+    wrap.addEventListener("click", (event) => {
+      if (event.target === wrap) closeModal();
+    });
+    document.body.appendChild(wrap);
+    modalKeydown = (event) => {
+      if (event.key === "Escape") closeModal();
+    };
+    document.addEventListener("keydown", modalKeydown);
+    refreshIcons(wrap);
+    return wrap;
+  }
+
+  function openCheerForm(target) {
+    openModal(`
+      <div class="ic4-modal-head">
+        <div>
+          <h3 class="ic4-modal-title">给 ${escapeHTML(nameOfTarget(target))} 写一句加油</h3>
+          <p class="ic4-modal-sub">匿名 · 不用登录 · 最多 ${CHEER_MAX} 个字</p>
+        </div>
+        <button class="ic4-modal-close" type="button" data-action="cheer-close" aria-label="关闭">×</button>
+      </div>
+      <textarea class="cheer-input" id="cheer-input" maxlength="${CHEER_MAX}" placeholder="例如：起跑枪一响，全班的信号都给你！"></textarea>
+      <p class="cheer-counter" id="cheer-counter">0 / ${CHEER_MAX}</p>
+      <p class="cheer-msg" id="cheer-msg"></p>
+      <div class="ic4-modal-actions">
+        <button class="primary-button" type="button" data-action="cheer-submit">${icon("send")} 提交</button>
+        <button class="secondary-button" type="button" data-action="cheer-close">取消</button>
+      </div>
+    `);
+    cheer.modal = { kind: "form", target };
+    const input = document.getElementById("cheer-input");
+    if (input) input.focus();
+  }
+
+  function openCheerWall() {
+    const list =
+      cheer.status === "ready"
+        ? cheerListHTML(cheer.items, { empty: "还没有人写加油，你是第一个。" })
+        : cheerStatusHTML();
+    openModal(`
+      <div class="ic4-modal-head">
+        <div>
+          <h3 class="ic4-modal-title">全班加油墙</h3>
+          <p class="ic4-modal-sub">已通过审核的 ${cheer.items.length} 条 · 全部匿名</p>
+        </div>
+        <button class="ic4-modal-close" type="button" data-action="cheer-close" aria-label="关闭">×</button>
+      </div>
+      ${list}
+    `);
+    cheer.modal = { kind: "wall" };
+  }
+
+  async function submitCheer() {
+    const input = document.getElementById("cheer-input");
+    const msg = document.getElementById("cheer-msg");
+    if (!input) return;
+    const say = (text, kind) => {
+      if (!msg) return;
+      msg.textContent = text;
+      msg.className = "cheer-msg" + (kind ? " is-" + kind : "");
+    };
+    const target = (cheer.modal && cheer.modal.target) || "ALL";
+    const body = input.value.trim();
+    if (body.length < 2) return say("至少写 2 个字。", "error");
+    if (body.length > CHEER_MAX) return say("最多 " + CHEER_MAX + " 个字。", "error");
+
+    const button = document.querySelector('[data-action="cheer-submit"]');
+    if (button) button.disabled = true;
+    say("正在提交…");
+    const result = await window.IC4_CHEER.submit(target, body);
+    if (!result.ok) {
+      if (button) button.disabled = false;
+      return say(window.IC4_CHEER.explain(result.error), "error");
+    }
+    const modal = document.querySelector("#ic4-modal .ic4-modal");
+    if (modal) {
+      modal.innerHTML = `
+        <div class="cheer-done">
+          <strong>已提交 ✅</strong>
+          <p>等负责人审核通过后，就会出现在加油墙上。<br />现在可以关掉这个窗口了。</p>
+          <div class="ic4-modal-actions">
+            <button class="primary-button" type="button" data-action="cheer-close">好</button>
+          </div>
+        </div>
+      `;
+      refreshIcons(modal);
+    }
+    cheer.modal = null;
+  }
+
+  function renderCheerPanel() {
+    const panel = document.getElementById("cheer-panel");
+    if (!panel) return;
+    panel.innerHTML = cheerPanelHTML();
+    refreshIcons(panel);
+  }
+
+  async function loadCheers() {
+    const api = window.IC4_CHEER;
+    if (!api || !api.ready()) {
+      cheer.status = "error";
+      cheer.error = "加油墙还没有配置好（负责人正在弄）。";
+      renderCheerPanel();
+      return;
+    }
+    const result = await api.list(300);
+    if (result.ok) {
+      cheer.status = "ready";
+      cheer.items = result.items;
+    } else {
+      cheer.status = "error";
+      cheer.error = api.explain(result.error);
+    }
+    renderCheerPanel();
+    if (cheer.modal && cheer.modal.kind === "wall") openCheerWall();
+  }
+
   function view() {
     const total = ATHLETES.length;
     const layout = waferLayout(total);
@@ -288,6 +510,7 @@
 
           <aside class="stack">
             <section class="panel" id="sports-panel">${panelHTML(ui.selected)}</section>
+            <section class="panel" id="cheer-panel">${cheerPanelHTML()}</section>
             <section class="panel">
               <header class="panel-header">
                 <div>
@@ -327,6 +550,7 @@
       panel.innerHTML = panelHTML(next);
       refreshIcons(panel);
     }
+    renderCheerPanel();
   }
 
   function renderRoster() {
@@ -386,6 +610,19 @@
       renderRoster();
     } else if (action === "sports-power") powerOn();
     else if (action === "sports-reset") resetPower();
+    else if (action === "cheer-open") openCheerForm(node.dataset.target || "ALL");
+    else if (action === "cheer-wall") openCheerWall();
+    else if (action === "cheer-submit") submitCheer();
+    else if (action === "cheer-close") closeModal();
+  }
+
+  function onInput(event) {
+    if (!event.target || event.target.id !== "cheer-input") return;
+    const counter = document.getElementById("cheer-counter");
+    if (!counter) return;
+    const length = event.target.value.length;
+    counter.textContent = length + " / " + CHEER_MAX;
+    counter.className = "cheer-counter" + (length >= CHEER_MAX ? " is-over" : "");
   }
 
   /* ---------------- 倒计时与芯片自适应 ---------------- */
@@ -468,9 +705,12 @@
     refreshIcons(app);
     sizeWafer();
     startCountdown();
-    app.addEventListener("click", onClick);
+    // 事件挂在 document 上：加油墙的弹层在 body 下，不在 #app 里。
+    document.addEventListener("click", onClick);
+    document.addEventListener("input", onInput);
     ui.onResize = () => sizeWafer();
     window.addEventListener("resize", ui.onResize);
+    loadCheers();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

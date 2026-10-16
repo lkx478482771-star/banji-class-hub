@@ -1514,3 +1514,284 @@ body.standalone-page {
     padding: 16px 0 40px;
   }
 }
+
+/* ===================== 加油墙与弹层（独立页自己写的，不来自旧站） ===================== */
+
+.cheer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.cheer-note {
+  margin: 0 0 12px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.cheer-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.cheer-item {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--surface-soft);
+}
+
+.cheer-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.cheer-item-target {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-strong);
+}
+
+.cheer-item-time {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.cheer-item-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.ic4-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(8, 16, 26, 0.62);
+}
+
+.ic4-modal {
+  width: min(520px, 100%);
+  max-height: 84vh;
+  overflow: auto;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-md);
+}
+
+.ic4-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ic4-modal-title {
+  margin: 0;
+  font-size: 17px;
+}
+
+.ic4-modal-sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.ic4-modal-close {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 20px;
+  line-height: 1.1;
+  cursor: pointer;
+}
+
+.ic4-modal-close:hover {
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
+.ic4-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.cheer-input {
+  width: 100%;
+  min-height: 88px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  resize: vertical;
+}
+
+.cheer-input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.cheer-counter {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
+.cheer-counter.is-over {
+  color: var(--red);
+}
+
+.cheer-msg {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.cheer-msg.is-ok {
+  color: var(--primary-strong);
+}
+
+.cheer-msg.is-error {
+  color: var(--red);
+}
+
+.cheer-done {
+  padding: 14px 4px 4px;
+  text-align: center;
+}
+
+.cheer-done strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 16px;
+}
+
+.cheer-done p {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* ===================== 负责人审核页（admin.html 专用） ===================== */
+
+.admin-shell {
+  width: min(760px, 100% - 32px);
+  margin: 0 auto;
+  padding: 28px 0 64px;
+}
+
+.admin-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--surface-soft);
+  margin-bottom: 8px;
+}
+
+.admin-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.admin-row-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.admin-input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.admin-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.admin-msg {
+  margin: 10px 0 0;
+  font-size: 13px;
+}
+
+.admin-msg.is-ok {
+  color: var(--primary-strong);
+}
+
+.admin-msg.is-error {
+  color: var(--red);
+}
+
+@media (max-width: 760px) {
+  .admin-shell {
+    width: min(760px, 100% - 20px);
+    padding: 16px 0 48px;
+  }
+
+  .cheer-list {
+    max-height: 54vh;
+  }
+
+  .ic4-modal {
+    width: 100%;
+    max-height: 88vh;
+  }
+}
