@@ -30,9 +30,12 @@
 <body>
 <h1>一键全选 SQL</h1>
 <p class="lead">绿色按钮<b>只负责把内容全选</b>，<b>复制要你自己按 Ctrl+C</b>（这样最稳，不会复制到旧东西）。</p>
-<p class="warn">粘进 Supabase 之后先别急着 Run：看一眼输入框<b>最后一行</b>，必须是
-<code>$$;</code> —— 两个美元符号，<b>前面绝对不能有反斜杠</b>。
-如果看到 <code>\$$</code>，说明粘的还是旧内容，回去重新全选 + Ctrl+C。</p>
+<p class="warn">
+  粘进 Supabase 之后，<b>先按 Ctrl+End 跳到最末尾看一眼</b>：
+  <br />① 最后一行必须是 <code>;</code> 结尾的那句查询，<b>不能多出别的东西</b>；
+  <br />② 如果末尾单独冒出来一行 <code>$0</code>，那是编辑器自己加的，<b>把它整行删掉</b>再 Run；
+  <br />③ 如果看到 <code>\$$</code>（反斜杠加两个美元符号），说明粘到旧内容了，重新全选 + Ctrl+C。
+</p>
 
 <section>
   <h2>第一段：建表（先跑这段）</h2>
@@ -59,12 +62,18 @@ create extension if not exists pgcrypto;
 
 -- 分片名格式：只允许 banji- 开头的短横线小写串，防止这张表被当成免费网盘。
 -- 加/改分片时，config.js 的 mantleNamespaceMap 必须同步。
+-- 注意：这里刻意不用正则表达式。实测这台 Postgres 跑 `{1,48}` 这种量词会抛
+-- "invalid regular expression: invalid repetition count(s)"——建表时看不出来，
+-- 等真要写数据（触发 check 约束 / RLS）时才炸，所以改成纯字符串判断：
+-- 开头是 banji-、长度 7~55、且不含小写字母/数字/短横线以外的任何字符。
 create or replace function public.class_hub_namespace_ok(p_namespace text)
 returns boolean
 language sql
 immutable
 as '
-  select p_namespace ~ ''^banji-[a-z0-9-]{1,48}'' and p_namespace !~ ''[^a-z0-9-]'';
+  select left(p_namespace, 6) = ''banji-''
+     and char_length(p_namespace) between 7 and 55
+     and translate(p_namespace, ''abcdefghijklmnopqrstuvwxyz0123456789-'', '''') = '''';
 ';
 
 create table if not exists public.class_hub_entries (

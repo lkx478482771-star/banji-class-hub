@@ -20,12 +20,18 @@ create extension if not exists pgcrypto;
 
 -- 分片名格式：只允许 banji- 开头的短横线小写串，防止这张表被当成免费网盘。
 -- 加/改分片时，config.js 的 mantleNamespaceMap 必须同步。
+-- 注意：这里刻意不用正则表达式。实测这台 Postgres 跑 `{1,48}` 这种量词会抛
+-- "invalid regular expression: invalid repetition count(s)"——建表时看不出来，
+-- 等真要写数据（触发 check 约束 / RLS）时才炸，所以改成纯字符串判断：
+-- 开头是 banji-、长度 7~55、且不含小写字母/数字/短横线以外的任何字符。
 create or replace function public.class_hub_namespace_ok(p_namespace text)
 returns boolean
 language sql
 immutable
 as '
-  select p_namespace ~ ''^banji-[a-z0-9-]{1,48}'' and p_namespace !~ ''[^a-z0-9-]'';
+  select left(p_namespace, 6) = ''banji-''
+     and char_length(p_namespace) between 7 and 55
+     and translate(p_namespace, ''abcdefghijklmnopqrstuvwxyz0123456789-'', '''') = '''';
 ';
 
 create table if not exists public.class_hub_entries (
