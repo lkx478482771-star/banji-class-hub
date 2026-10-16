@@ -257,7 +257,10 @@
 
   function cheerStatusHTML() {
     if (cheer.status === "loading") return `<p class="empty-state">正在加载加油墙…</p>`;
-    return `<p class="empty-state">${escapeHTML(cheer.error || "加油墙暂时连不上。")}</p>`;
+    return (
+      `<p class="empty-state">${escapeHTML(cheer.error || "加油墙暂时连不上。")}</p>` +
+      `<div class="cheer-actions"><button class="secondary-button" type="button" data-action="cheer-retry">${icon("refresh-cw")} 再试一次</button></div>`
+    );
   }
 
   function cheerPanelHTML() {
@@ -416,6 +419,9 @@
       renderCheerPanel();
       return;
     }
+    cheer.status = "loading";
+    cheer.error = "";
+    renderCheerPanel();
     const result = await api.list(300);
     if (result.ok) {
       cheer.status = "ready";
@@ -712,6 +718,7 @@
     else if (action === "sports-reset") resetPower();
     else if (action === "cheer-open") openCheerForm(node.dataset.target || "ALL");
     else if (action === "cheer-wall") openCheerWall();
+    else if (action === "cheer-retry") loadCheers();
     else if (action === "cheer-submit") submitCheer();
     else if (action === "cheer-close") closeModal();
     else if (action === "bgm-toggle") toggleBgm(Number(node.dataset.index));

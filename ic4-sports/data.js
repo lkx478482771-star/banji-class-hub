@@ -45,4 +45,4 @@ window.IC4_ROSTER = [
 /* 赛场原声：[歌名, 文件名, 时长]。文件不复制，直接播旧站 assets/music/ 里的那几首。 */
 window.IC4_BGM = [["那些无人看见的时光","01-unseen-days.mp3","4:23"],["那天的风","02-wind-of-that-day.mp3","3:28"],["发令枪响之前","03-before-the-gun.mp3","3:29"]];
 
-window.IC4_BUILD = { at: "2026-10-16T04:51:20.697Z", count: 31 };
+window.IC4_BUILD = { at: "2026-10-16T05:06:09.916Z", count: 31 };
