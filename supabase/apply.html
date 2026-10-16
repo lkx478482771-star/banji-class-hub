@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>一键复制 SQL · 班集</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 22px; font: 16px/1.7 system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+         background: #0f1512; color: #e6efe9; }
+  h1 { font-size: 22px; margin: 0 0 8px; }
+  .lead { margin: 0 0 22px; color: #9fb3a8; }
+  section { margin: 0 0 26px; padding: 18px; border: 1px solid #26342d; border-radius: 14px; background: #141c18; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  button { display: block; width: 100%; padding: 15px; margin: 0 0 12px; border: 0; border-radius: 10px;
+           background: #34d399; color: #05231a; font-size: 17px; font-weight: 700; cursor: pointer;
+           font-family: inherit; }
+  button.done { background: #1f6f52; color: #d7ffee; }
+  textarea { width: 100%; height: 168px; padding: 12px; border: 1px solid #26342d; border-radius: 10px;
+             background: #0b110e; color: #8fa79b; font: 12px/1.55 ui-monospace, Consolas, monospace;
+             resize: vertical; }
+  .hint { font-size: 14px; color: #7f948a; margin: 12px 0 0; }
+  b { color: #6ee7b7; }
+</style>
+</head>
+<body>
+<h1>一键复制 SQL</h1>
+<p class="lead">点绿色按钮 → 内容进剪贴板 → 回到 Supabase 的 SQL Editor 点输入框 → Ctrl+V → 点 Run。</p>
+
+<section>
+  <h2>第一段：建表（先跑这段）</h2>
+  <button type="button" data-target="sql1">点我复制第一段</button>
+  <textarea id="sql1" readonly spellcheck="false">-- ============================================================================
+-- 班级站共享存储 · Supabase 版（Postgres + PostgREST）
+--
+-- 和 MantleDB 版的关系：把「命名空间 + path → 一段 JSON」这套模型原样搬过来，
+-- 所以前端的缓存、增量同步、写入精准失效一行都不用改（适配器见 backend-supabase.js）。
+-- 换来的三件事：
+--   1. 没有「每个命名空间 100 条」的硬顶（MantleDB 免费档第 101 条直接 403）；
+--   2. 体积、条数、写入频率由服务端真正把关，客户端节流被绕过也不怕；
+--   3. 以后接 Supabase Auth 时，权限直接用 auth.uid() 收紧，数据模型不用再动。
+--
+-- 用法：Supabase Dashboard → SQL Editor → 整段粘贴 → Run。可重复执行（幂等）。
+-- 然后把项目 URL 与 anon key 填进 config.js，并把 provider 改成 "supabase"。
+-- 操作步骤见 README 的「迁到 Supabase（怎么操作）」一节。
+--
+-- ⚠️ 现在（第一阶段）的权限与 MantleDB 时期**同级**：anon 可读可写。
+--    真正的权限边界要等接入 Supabase Auth 之后才能立起来，别以为搬过来就安全了。
+-- ============================================================================
+
+create extension if not exists pgcrypto;
+
+-- 分片名格式：只允许 banji- 开头的短横线小写串，防止这张表被当成免费网盘。
+-- 加/改分片时，config.js 的 mantleNamespaceMap 必须同步。
+create or replace function public.class_hub_namespace_ok(p_namespace text)
+returns boolean
+language sql
+immutable
+as $$
+  select p_namespace ~ '^banji-[a-z0-9-]{1,48}$';
+$$;
+
+create table if not exists public.class_hub_entries (
+  namespace  text        not null,
+  path       text        not null,
+  value      jsonb       not null,
+  updated_at timestamptz not null default now(),
+  primary key (namespace, path),
+  constraint class_hub_entries_namespace_format
+    check (public.class_hub_namespace_ok(namespace)),
+  constraint class_hub_entries_path_format
+    check (char_length(path) between 1 and 200),
+  -- 单条上限 256 KB。MantleDB 免费档是 64 KB；运动会照片是 data_url，属于最胖的一类。
+  constraint class_hub_entries_value_bytes
+    check (octet_length(value::text) &lt;= 262144)
+);
+
+create index if not exists class_hub_entries_ns_updated_idx
+  on public.class_hub_entries (namespace, updated_at desc);
+
+-- ---------------------------------------------------------------------------
+-- 写入时自动刷新 updated_at：前端增量同步就是靠它判断"哪一条变了"
+-- ---------------------------------------------------------------------------
+create or replace function public.touch_class_hub_entry()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists touch_class_hub_entry on public.class_hub_entries;
+create trigger touch_class_hub_entry
+  before insert or update on public.class_hub_entries
+  for each row execute procedure public.touch_class_hub_entry();
+
+-- ---------------------------------------------------------------------------
+-- 服务端限流：客户端那套 60 秒节流谁都能绕过，这里才是真正的底线
+-- ---------------------------------------------------------------------------
+create or replace function public.enforce_class_hub_write_rate()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  recent integer;
+begin
+  -- 同一条 path 一分钟内被写超过 20 次：基本只有死循环或脚本刷屏会这样。
+  select count(*) into recent
+    from public.class_hub_entries
+   where namespace = new.namespace
+     and path = new.path
+     and updated_at &gt; now() - interval '1 minute';
+
+  if tg_op = 'UPDATE' and recent &gt;= 20 then
+    raise exception 'Too many writes: 同一条内容一分钟内写了 % 次，已拦住。', recent;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_class_hub_write_rate on public.class_hub_entries;
+create trigger enforce_class_hub_write_rate
+  before insert or update on public.class_hub_entries
+  for each row execute procedure public.enforce_class_hub_write_rate();
+
+-- ---------------------------------------------------------------------------
+-- 分区条数上限：免费档 100 条/命名空间换成 4000 条/分区。
+-- 报错文案里保留 "Entry limit reached"，这样前端已有的判断（注册时提示"共享库已满"）
+-- 在 MantleDB 与 Supabase 两套后端上都能生效，不用改一行 app.js。
+-- ---------------------------------------------------------------------------
+create or replace function public.enforce_class_hub_entry_cap()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  used  integer;
+  quota integer := 4000;
+begin
+  select count(*) into used
+    from public.class_hub_entries
+   where namespace = new.namespace;
+
+  if used &gt;= quota then
+    raise exception 'Entry limit reached: 分区 % 已有 % 条（上限 %），请管理员清理旧数据。',
+      new.namespace, used, quota;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_class_hub_entry_cap on public.class_hub_entries;
+create trigger enforce_class_hub_entry_cap
+  before insert on public.class_hub_entries
+  for each row execute procedure public.enforce_class_hub_entry_cap();
+
+-- ---------------------------------------------------------------------------
+-- 列表接口：一次返回整个分区的 path + updated_at（毫秒），不分页、不会被截断。
+-- 为什么不用 `select path,updated_at from class_hub_entries`：
+-- PostgREST 默认单次最多回 1000 行，超了会**静默截断**，而前端的增量同步会把
+-- "看起来完整其实少了" 的列表当成真列表，进而删掉本地缓存 —— 那等于丢数据。
+-- 这里用 json_agg 把整个分区聚合成一行 json，绕开行数上限。
+-- ---------------------------------------------------------------------------
+create or replace function public.class_hub_list(p_namespace text)
+returns json
+language sql
+stable
+as $$
+  select coalesce(
+    json_agg(
+      json_build_object(
+        'path', e.path,
+        'updated_at', (extract(epoch from e.updated_at) * 1000)::bigint
+      )
+      order by e.path
+    ),
+    '[]'::json
+  )
+  from public.class_hub_entries e
+  where e.namespace = p_namespace;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 行级权限（RLS）
+-- 第一阶段：与 MantleDB 公开命名空间同级 —— anon 可读可写，但只限 banji-* 分区。
+-- 第二阶段（接 Supabase Auth 之后）：把 select/insert/update/delete 改成
+--   用 auth.uid() 判断作者与角色，anon 只保留只读。
+-- ---------------------------------------------------------------------------
+alter table public.class_hub_entries enable row level security;
+
+drop policy if exists class_hub_entries_read on public.class_hub_entries;
+create policy class_hub_entries_read
+  on public.class_hub_entries for select
+  to anon, authenticated
+  using (public.class_hub_namespace_ok(namespace));
+
+drop policy if exists class_hub_entries_insert on public.class_hub_entries;
+create policy class_hub_entries_insert
+  on public.class_hub_entries for insert
+  to anon, authenticated
+  with check (public.class_hub_namespace_ok(namespace));
+
+drop policy if exists class_hub_entries_update on public.class_hub_entries;
+create policy class_hub_entries_update
+  on public.class_hub_entries for update
+  to anon, authenticated
+  using (public.class_hub_namespace_ok(namespace))
+  with check (public.class_hub_namespace_ok(namespace));
+
+drop policy if exists class_hub_entries_delete on public.class_hub_entries;
+create policy class_hub_entries_delete
+  on public.class_hub_entries for delete
+  to anon, authenticated
+  using (public.class_hub_namespace_ok(namespace));
+
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.class_hub_entries to anon, authenticated;
+grant execute on function public.class_hub_namespace_ok(text) to anon, authenticated;
+grant execute on function public.class_hub_list(text) to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 收尾自检：执行完应该看到一张空表（或你导入后的条数）与四个策略名。
+-- ---------------------------------------------------------------------------
+select
+  (select count(*) from public.class_hub_entries) as entries,
+  (select count(*) from pg_policies
+    where schemaname = 'public' and tablename = 'class_hub_entries') as policies;
+</textarea>
+  <p class="hint">成功标志：结果里出现 <b>entries = 0</b>、<b>policies = 4</b>。</p>
+</section>
+
+<section>
+  <h2>第二段：建照片的桶（再跑这段）</h2>
+  <button type="button" data-target="sql2">点我复制第二段</button>
+  <textarea id="sql2" readonly spellcheck="false">-- ============================================================================
+-- 运动会照片 · Supabase Storage 桶（清晰版照片的落脚点）
+--
+-- 为什么要有这个桶：
+--   class_hub_entries 把「一张照片」当成一条 JSON 记录，单条上限 256 KB
+--   （MantleDB 免费档只有 64 KB），于是照片只能压到 480~640 px，放大就糊。
+--   照片改用对象存储之后：图片以文件形式存，记录里只留几十字节的路径，
+--   网格读缩略图、点开才读原图，清晰度与首屏流量同时解决。
+--
+-- 用法：Supabase Dashboard → SQL Editor → 整段粘贴 → Run。可重复执行（幂等）。
+--       跑完再按 README「迁到 Supabase（怎么操作）」里的步骤填 config.js。
+--
+-- ⚠️ 与第一阶段同级：anon 可读可写（班级站本来是公开投稿、事后删的管理方式）。
+--    真正的权限边界要等接入 Supabase Auth 之后才立得起来。
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 建桶：公开读（&lt;img src&gt; 直接能用）、匿名可写，单文件 2 MB、只收图片。
+-- 上传时会自动压到 1.5 MB 以内（见 photo-store.js），这里只是服务端兜底。
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'sports-photos',
+  'sports-photos',
+  true,
+  2097152,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+-- ---------------------------------------------------------------------------
+-- 行级权限：只开放 sports-photos 这一个桶，别的桶不受影响。
+-- 刻意不给 update —— 照片传上去就只读，改说明只改数据库里那条记录。
+-- ---------------------------------------------------------------------------
+drop policy if exists sports_photos_read on storage.objects;
+create policy sports_photos_read
+  on storage.objects for select
+  to anon, authenticated
+  using (bucket_id = 'sports-photos');
+
+drop policy if exists sports_photos_insert on storage.objects;
+create policy sports_photos_insert
+  on storage.objects for insert
+  to anon, authenticated
+  with check (bucket_id = 'sports-photos');
+
+drop policy if exists sports_photos_delete on storage.objects;
+create policy sports_photos_delete
+  on storage.objects for delete
+  to anon, authenticated
+  using (bucket_id = 'sports-photos');
+
+-- ---------------------------------------------------------------------------
+-- 收尾自检：应该看到 bucket = 1、policies = 3。
+-- ---------------------------------------------------------------------------
+select
+  (select count(*) from storage.buckets where id = 'sports-photos') as bucket,
+  (select count(*) from pg_policies
+    where schemaname = 'storage' and tablename = 'objects'
+      and policyname like 'sports_photos_%') as policies;
+</textarea>
+  <p class="hint">成功标志：结果里出现 <b>bucket = 1</b>、<b>policies = 3</b>。</p>
+</section>
+
+<script>
+function flash(button, ok) {
+  var old = button.textContent;
+  button.textContent = ok ? "已复制 ✓ 去 Supabase 粘贴吧" : "已选中，请按 Ctrl+C";
+  button.classList.toggle("done", Boolean(ok));
+  setTimeout(function () {
+    button.textContent = old;
+    button.classList.remove("done");
+  }, 2600);
+}
+Array.prototype.forEach.call(document.querySelectorAll("button[data-target]"), function (button) {
+  button.addEventListener("click", function () {
+    var area = document.getElementById(button.getAttribute("data-target"));
+    area.focus();
+    area.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (error) { ok = false; }
+    if (ok) { flash(button, true); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(area.value).then(
+        function () { flash(button, true); },
+        function () { flash(button, false); }
+      );
+      return;
+    }
+    flash(button, false);
+  });
+});
+</script>
+</body>
+</html>

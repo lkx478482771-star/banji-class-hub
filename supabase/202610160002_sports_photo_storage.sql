@@ -54,7 +54,7 @@ create policy sports_photos_delete
   using (bucket_id = 'sports-photos');
 
 -- ---------------------------------------------------------------------------
--- 收尾自检：应该看到 sports-photos / true / 1048576 一行，加三个策略。
+-- 收尾自检：应该看到 bucket = 1、policies = 3。
 -- ---------------------------------------------------------------------------
 select
   (select count(*) from storage.buckets where id = 'sports-photos') as bucket,
