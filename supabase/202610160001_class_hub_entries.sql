@@ -24,9 +24,9 @@ create or replace function public.class_hub_namespace_ok(p_namespace text)
 returns boolean
 language sql
 immutable
-as $$
-  select p_namespace ~ '^banji-[a-z0-9-]{1,48}$';
-$$;
+as '
+  select p_namespace ~ ''^banji-[a-z0-9-]{1,48}'' and p_namespace !~ ''[^a-z0-9-]'';
+';
 
 create table if not exists public.class_hub_entries (
   namespace  text        not null,
@@ -52,12 +52,12 @@ create index if not exists class_hub_entries_ns_updated_idx
 create or replace function public.touch_class_hub_entry()
 returns trigger
 language plpgsql
-as $$
+as '
 begin
   new.updated_at := now();
   return new;
 end;
-$$;
+';
 
 drop trigger if exists touch_class_hub_entry on public.class_hub_entries;
 create trigger touch_class_hub_entry
@@ -72,7 +72,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = public
-as $$
+as '
 declare
   recent integer;
 begin
@@ -81,15 +81,15 @@ begin
     from public.class_hub_entries
    where namespace = new.namespace
      and path = new.path
-     and updated_at > now() - interval '1 minute';
+     and updated_at > now() - interval ''1 minute'';
 
-  if tg_op = 'UPDATE' and recent >= 20 then
-    raise exception 'Too many writes: 同一条内容一分钟内写了 % 次，已拦住。', recent;
+  if tg_op = ''UPDATE'' and recent >= 20 then
+    raise exception ''Too many writes: 同一条内容一分钟内写了 % 次，已拦住。'', recent;
   end if;
 
   return new;
 end;
-$$;
+';
 
 drop trigger if exists enforce_class_hub_write_rate on public.class_hub_entries;
 create trigger enforce_class_hub_write_rate
@@ -106,7 +106,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = public
-as $$
+as '
 declare
   used  integer;
   quota integer := 4000;
@@ -116,13 +116,13 @@ begin
    where namespace = new.namespace;
 
   if used >= quota then
-    raise exception 'Entry limit reached: 分区 % 已有 % 条（上限 %），请管理员清理旧数据。',
+    raise exception ''Entry limit reached: 分区 % 已有 % 条（上限 %），请管理员清理旧数据。'',
       new.namespace, used, quota;
   end if;
 
   return new;
 end;
-$$;
+';
 
 drop trigger if exists enforce_class_hub_entry_cap on public.class_hub_entries;
 create trigger enforce_class_hub_entry_cap
@@ -140,20 +140,20 @@ create or replace function public.class_hub_list(p_namespace text)
 returns json
 language sql
 stable
-as $$
+as '
   select coalesce(
     json_agg(
       json_build_object(
-        'path', e.path,
-        'updated_at', (extract(epoch from e.updated_at) * 1000)::bigint
+        ''path'', e.path,
+        ''updated_at'', (extract(epoch from e.updated_at) * 1000)::bigint
       )
       order by e.path
     ),
-    '[]'::json
+    ''[]''::json
   )
   from public.class_hub_entries e
   where e.namespace = p_namespace;
-$$;
+';
 
 -- ---------------------------------------------------------------------------
 -- 行级权限（RLS）

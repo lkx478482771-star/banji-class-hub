@@ -3,14 +3,16 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>一键复制 SQL · 班集</title>
+<title>一键全选 SQL · 班集</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 22px; font: 16px/1.7 system-ui, -apple-system, "Microsoft YaHei", sans-serif;
          background: #0f1512; color: #e6efe9; }
   h1 { font-size: 22px; margin: 0 0 8px; }
-  .lead { margin: 0 0 22px; color: #9fb3a8; }
+  .lead { margin: 0 0 10px; color: #9fb3a8; }
+  .warn { margin: 0 0 22px; padding: 12px 14px; border: 1px solid #7c4a12; border-radius: 10px;
+          background: #2a1b08; color: #ffd9a3; font-size: 15px; }
   section { margin: 0 0 26px; padding: 18px; border: 1px solid #26342d; border-radius: 14px; background: #141c18; }
   h2 { font-size: 17px; margin: 0 0 12px; }
   button { display: block; width: 100%; padding: 15px; margin: 0 0 12px; border: 0; border-radius: 10px;
@@ -22,15 +24,19 @@
              resize: vertical; }
   .hint { font-size: 14px; color: #7f948a; margin: 12px 0 0; }
   b { color: #6ee7b7; }
+  code { background: #0b110e; padding: 1px 5px; border-radius: 4px; color: #ffd9a3; }
 </style>
 </head>
 <body>
-<h1>一键复制 SQL</h1>
-<p class="lead">点绿色按钮 → 内容进剪贴板 → 回到 Supabase 的 SQL Editor 点输入框 → Ctrl+V → 点 Run。</p>
+<h1>一键全选 SQL</h1>
+<p class="lead">绿色按钮<b>只负责把内容全选</b>，<b>复制要你自己按 Ctrl+C</b>（这样最稳，不会复制到旧东西）。</p>
+<p class="warn">粘进 Supabase 之后先别急着 Run：看一眼输入框<b>最后一行</b>，必须是
+<code>$$;</code> —— 两个美元符号，<b>前面绝对不能有反斜杠</b>。
+如果看到 <code>\$$</code>，说明粘的还是旧内容，回去重新全选 + Ctrl+C。</p>
 
 <section>
   <h2>第一段：建表（先跑这段）</h2>
-  <button type="button" data-target="sql1">点我复制第一段</button>
+  <button type="button" data-target="sql1">① 点我全选第一段</button>
   <textarea id="sql1" readonly spellcheck="false">-- ============================================================================
 -- 班级站共享存储 · Supabase 版（Postgres + PostgREST）
 --
@@ -57,9 +63,9 @@ create or replace function public.class_hub_namespace_ok(p_namespace text)
 returns boolean
 language sql
 immutable
-as $$
-  select p_namespace ~ '^banji-[a-z0-9-]{1,48}$';
-$$;
+as '
+  select p_namespace ~ ''^banji-[a-z0-9-]{1,48}'' and p_namespace !~ ''[^a-z0-9-]'';
+';
 
 create table if not exists public.class_hub_entries (
   namespace  text        not null,
@@ -85,12 +91,12 @@ create index if not exists class_hub_entries_ns_updated_idx
 create or replace function public.touch_class_hub_entry()
 returns trigger
 language plpgsql
-as $$
+as '
 begin
   new.updated_at := now();
   return new;
 end;
-$$;
+';
 
 drop trigger if exists touch_class_hub_entry on public.class_hub_entries;
 create trigger touch_class_hub_entry
@@ -105,7 +111,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = public
-as $$
+as '
 declare
   recent integer;
 begin
@@ -114,15 +120,15 @@ begin
     from public.class_hub_entries
    where namespace = new.namespace
      and path = new.path
-     and updated_at &gt; now() - interval '1 minute';
+     and updated_at &gt; now() - interval ''1 minute'';
 
-  if tg_op = 'UPDATE' and recent &gt;= 20 then
-    raise exception 'Too many writes: 同一条内容一分钟内写了 % 次，已拦住。', recent;
+  if tg_op = ''UPDATE'' and recent &gt;= 20 then
+    raise exception ''Too many writes: 同一条内容一分钟内写了 % 次，已拦住。'', recent;
   end if;
 
   return new;
 end;
-$$;
+';
 
 drop trigger if exists enforce_class_hub_write_rate on public.class_hub_entries;
 create trigger enforce_class_hub_write_rate
@@ -139,7 +145,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = public
-as $$
+as '
 declare
   used  integer;
   quota integer := 4000;
@@ -149,13 +155,13 @@ begin
    where namespace = new.namespace;
 
   if used &gt;= quota then
-    raise exception 'Entry limit reached: 分区 % 已有 % 条（上限 %），请管理员清理旧数据。',
+    raise exception ''Entry limit reached: 分区 % 已有 % 条（上限 %），请管理员清理旧数据。'',
       new.namespace, used, quota;
   end if;
 
   return new;
 end;
-$$;
+';
 
 drop trigger if exists enforce_class_hub_entry_cap on public.class_hub_entries;
 create trigger enforce_class_hub_entry_cap
@@ -173,20 +179,20 @@ create or replace function public.class_hub_list(p_namespace text)
 returns json
 language sql
 stable
-as $$
+as '
   select coalesce(
     json_agg(
       json_build_object(
-        'path', e.path,
-        'updated_at', (extract(epoch from e.updated_at) * 1000)::bigint
+        ''path'', e.path,
+        ''updated_at'', (extract(epoch from e.updated_at) * 1000)::bigint
       )
       order by e.path
     ),
-    '[]'::json
+    ''[]''::json
   )
   from public.class_hub_entries e
   where e.namespace = p_namespace;
-$$;
+';
 
 -- ---------------------------------------------------------------------------
 -- 行级权限（RLS）
@@ -234,12 +240,12 @@ select
   (select count(*) from pg_policies
     where schemaname = 'public' and tablename = 'class_hub_entries') as policies;
 </textarea>
-  <p class="hint">成功标志：结果里出现 <b>entries = 0</b>、<b>policies = 4</b>。</p>
+  <p class="hint">全选后按 <b>Ctrl+C</b>。成功标志：结果里出现 <b>entries = 0</b>、<b>policies = 4</b>。</p>
 </section>
 
 <section>
   <h2>第二段：建照片的桶（再跑这段）</h2>
-  <button type="button" data-target="sql2">点我复制第二段</button>
+  <button type="button" data-target="sql2">① 点我全选第二段</button>
   <textarea id="sql2" readonly spellcheck="false">-- ============================================================================
 -- 运动会照片 · Supabase Storage 桶（清晰版照片的落脚点）
 --
@@ -304,35 +310,28 @@ select
     where schemaname = 'storage' and tablename = 'objects'
       and policyname like 'sports_photos_%') as policies;
 </textarea>
-  <p class="hint">成功标志：结果里出现 <b>bucket = 1</b>、<b>policies = 3</b>。</p>
+  <p class="hint">全选后按 <b>Ctrl+C</b>。成功标志：结果里出现 <b>bucket = 1</b>、<b>policies = 3</b>。</p>
 </section>
 
 <script>
-function flash(button, ok) {
+function flash(button) {
   var old = button.textContent;
-  button.textContent = ok ? "已复制 ✓ 去 Supabase 粘贴吧" : "已选中，请按 Ctrl+C";
-  button.classList.toggle("done", Boolean(ok));
+  button.textContent = "已全选 ✓ 现在按 Ctrl+C";
+  button.classList.add("done");
   setTimeout(function () {
     button.textContent = old;
     button.classList.remove("done");
-  }, 2600);
+  }, 5000);
 }
 Array.prototype.forEach.call(document.querySelectorAll("button[data-target]"), function (button) {
   button.addEventListener("click", function () {
     var area = document.getElementById(button.getAttribute("data-target"));
     area.focus();
     area.select();
-    var ok = false;
-    try { ok = document.execCommand("copy"); } catch (error) { ok = false; }
-    if (ok) { flash(button, true); return; }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(area.value).then(
-        function () { flash(button, true); },
-        function () { flash(button, false); }
-      );
-      return;
+    if (area.setSelectionRange) {
+      area.setSelectionRange(0, area.value.length);
     }
-    flash(button, false);
+    flash(button);
   });
 });
 </script>
