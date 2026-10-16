@@ -12,18 +12,18 @@
     <meta property="og:description" content="出战名单、赛程与检录时间、开赛倒计时、匿名加油墙、赛场原声。" />
     <meta property="og:locale" content="zh_CN" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1720'/%3E%3Ccircle cx='32' cy='32' r='21' fill='none' stroke='%2338d39a' stroke-width='4'/%3E%3Ctext x='32' y='41' font-size='24' font-weight='700' font-family='system-ui,sans-serif' fill='%2338d39a' text-anchor='middle'%3E4%3C/text%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="styles.css?v=cc6b81d0" />
+    <link rel="stylesheet" href="styles.css?v=05598f3f" />
     <!--SC:STYLE:START-->
 <style id="sc-style">
-.module-switch{position:sticky;top:0;z-index:20;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:10px;max-width:760px;margin:0 0 20px;padding:8px 0;
+.module-switch{position:sticky;top:0;z-index:20;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:10px;max-width:820px;margin:0 0 20px;padding:8px 0;
   background:color-mix(in srgb,var(--page) 90%,transparent);backdrop-filter:blur(10px)}
 .module-switch .ms-btn{display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;
-  padding:12px 16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);
-  color:var(--ink);font-family:inherit;font-size:16px;font-weight:800;line-height:1.2;cursor:pointer;
+  padding:11px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);
+  color:var(--ink);font-family:inherit;font-size:15px;font-weight:800;line-height:1.2;cursor:pointer;
   box-shadow:var(--shadow-sm);transition:border-color .15s,background .15s,color .15s}
 .module-switch .ms-btn:hover{border-color:var(--line-strong)}
-.module-switch .ms-btn span{font-size:12px;font-weight:500;color:var(--ink-soft)}
+.module-switch .ms-btn span{font-size:11.5px;font-weight:500;color:var(--ink-soft)}
 .module-switch .ms-btn[aria-selected="true"]{border-color:var(--primary);background:var(--primary-soft);color:var(--primary-strong)}
 .module-switch .ms-btn[aria-selected="true"] span{color:var(--primary-strong);opacity:.9}
 .standalone-jump{flex-basis:100%;margin:10px 0 0}
@@ -32,10 +32,47 @@
   cursor:pointer;box-shadow:var(--shadow-md);transition:background .15s}
 .ms-jump:hover{background:var(--primary-strong)}
 .standalone-shell.mod-schedule .standalone-jump{display:none}
-.standalone-shell.mod-roster #schedule{display:none}
-.standalone-shell.mod-schedule #app{display:none}
-.standalone-shell.mod-schedule .standalone-footer{display:none}
+.standalone-shell.mod-results .standalone-jump{display:none}
+.standalone-shell.mod-roster #schedule,.standalone-shell.mod-roster #results{display:none}
+.standalone-shell.mod-schedule #app,.standalone-shell.mod-schedule #results{display:none}
+.standalone-shell.mod-results #app,.standalone-shell.mod-results #schedule{display:none}
+.standalone-shell.mod-schedule .standalone-footer,.standalone-shell.mod-results .standalone-footer{display:none}
 @media print{.module-switch{display:none}.standalone-shell.mod-roster #schedule{display:block}}
+
+
+#results{margin:30px 0 0;padding-top:24px;border-top:1px solid var(--line);color:var(--ink)}
+#results .rs-kicker{margin:0 0 6px;font-size:12px;letter-spacing:.16em;font-weight:700;color:var(--primary)}
+#results .rs-title{margin:0;font-size:clamp(22px,5.4vw,32px);font-weight:800;letter-spacing:-.01em;line-height:1.2}
+#results .rs-sub{margin:8px 0 0;color:var(--ink-soft);font-size:14px;line-height:1.75}
+#results .rs-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:16px 0 0}
+#results .rs-tools input[type=search]{flex:1 1 200px;padding:9px 12px;border-radius:10px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);font-size:15px;font-family:inherit;min-width:0}
+#results .rs-chk{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;color:var(--ink-soft);white-space:nowrap}
+#results .rs-refresh{padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);
+  color:var(--ink);font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
+#results .rs-stat{margin:10px 0 0;font-size:13.5px;font-weight:700;color:var(--primary-strong)}
+#results .rs-half{margin:20px 0 6px;font-size:12.5px;font-weight:800;letter-spacing:.14em;color:var(--ink-faint)}
+#results .rs-ev{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:12px 14px;margin:12px 0;box-shadow:var(--shadow-sm)}
+#results .rs-ev h3{margin:0;font-size:16.5px;color:var(--ink)}
+#results .rs-ev h3 span{display:block;font-size:12.5px;font-weight:500;color:var(--ink-soft);margin-top:3px}
+#results .rs-row{display:grid;grid-template-columns:minmax(76px,108px) 1fr;gap:6px 10px;align-items:center;
+  padding:10px 0;border-top:1px dashed var(--line)}
+#results .rs-row:first-of-type{border-top:0}
+#results .rs-name{font-weight:800;font-size:15px;color:var(--ink)}
+#results .rs-row[data-filled="1"] .rs-name{color:var(--primary-strong)}
+#results .rs-fields{display:grid;grid-template-columns:1.1fr .9fr;gap:8px;min-width:0}
+#results .rs-row input{padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--page);
+  color:var(--ink);font-size:14.5px;font-family:inherit;min-width:0;width:100%}
+#results .rs-row input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+#results .rs-state{grid-column:1 / -1;font-size:12.5px;color:var(--ink-faint)}
+#results .rs-state.rs-ok{color:var(--primary-strong)}
+#results .rs-state.rs-bad{color:#d9534f;font-weight:700}
+#results .rs-foot{margin:22px 0 0;padding-top:14px;border-top:1px solid var(--line);color:var(--ink-faint);
+  font-size:13px;line-height:1.75}
+#results .rs-empty{color:var(--ink-faint);font-size:14px;padding:6px 0}
+@media (max-width:520px){#results .rs-fields{grid-template-columns:1fr}}
+@media print{#results .rs-tools{display:none}#results .rs-ev{box-shadow:none;break-inside:avoid}}
 
 
 #schedule{margin:30px 0 0;padding-top:24px;border-top:1px solid var(--line);color:var(--ink)}
@@ -109,7 +146,10 @@
     <div class="standalone-shell mod-roster">
       <div class="standalone-bar">
         <p class="eyebrow">安徽大学 · 集成电路学院 · 集成电路 4 班</p>
-        <p class="standalone-note">不用登录：名单随便看，加油直接写、写完就上墙。</p>
+        <p class="standalone-note">不用登录：名单随便看，加油直接写、写完就上墙；比完了顺手在「成绩收集」里填个成绩。上面的按钮切换三个模块。</p>
+        <p class="standalone-jump"><button type="button" class="ms-jump" data-tab="schedule">赛程与检录时间 · 直接打开 →</button></p>
+        <p class="standalone-jump"><button type="button" class="ms-jump" data-tab="schedule">赛程与检录时间 · 直接打开 →</button></p>
+        <p class="standalone-jump"><button type="button" class="ms-jump" data-tab="schedule">赛程与检录时间 · 直接打开 →</button></p>
         <p class="standalone-jump"><button type="button" class="ms-jump" data-tab="schedule">赛程与检录时间 · 直接打开 →</button></p>
       </div>
 
@@ -117,6 +157,7 @@
 <nav class="module-switch" role="tablist" aria-label="页面模块">
   <button type="button" class="ms-btn" role="tab" aria-selected="true" data-tab="roster">出战名单<span>选手阵容 · 晶圆海报 · 加油墙</span></button>
   <button type="button" class="ms-btn" role="tab" aria-selected="false" data-tab="schedule">赛程与检录时间<span>16 个时段 · 按时间看 / 按人看</span></button>
+  <button type="button" class="ms-btn" role="tab" aria-selected="false" data-tab="results">成绩收集<span>62 格 · 比完就填，全班一起填</span></button>
 </nav>
 <!--SC:SWITCH:END-->
 
@@ -475,7 +516,7 @@
   </div>
   <h3 id="sc-notes">注意事项<span>照秩序册摘录，只留和参赛有关的</span></h3>
   <ul class="sc-notes"><li>时间以秩序册为准；册中原话：「因实际情况有所不同，时间可能依据实际情况发生改动，一切具体时间以现场指令为准」。</li><li>田赛如果与径赛冲突：优先径赛，田赛资格保留，径赛结束后立即到田赛场地比赛。</li><li>参赛运动员必须携带本人学生证或校园卡，检录核验后方可参赛；比赛期间不许穿钉鞋，不准横穿跑道。</li><li>册中印刷的小错已在页面就地更正：男子铅球「吴道韫」应为「吕道韫」；男子 200 米「陆家宸」应为「陆家辰」；拔河名单「崔姝雯」应为「崔姝斐」；男子 200 米把李明哲的号码印成 W2001（与曹家豪重号），本页按 W2002 显示。号码簿最终以现场发放的号码布为准。</li></ul>
-  <p class="sc-foot">数据来自班级运动会秩序册 PDF（27 页）逐页提取，生成时间 2026-10-17 00:56。时间与分组如有临时调整，以现场裁判与广播为准。<br>也可以单独打开这一页：<a href="schedule.html">赛程单页版</a></p>
+  <p class="sc-foot">数据来自班级运动会秩序册 PDF（27 页）逐页提取，生成时间 2026-10-17 01:47。时间与分组如有临时调整，以现场裁判与广播为准。<br>也可以单独打开这一页：<a href="schedule.html">赛程单页版</a></p>
 </section>
 
 <script>
@@ -518,20 +559,26 @@
     });
   });
 
-  // 顶部两个模块按钮：出战名单 / 赛程与检录时间（一次只显示一个，不再一路往下拉）
+  // 顶部三个模块按钮：出战名单 / 赛程与检录时间 / 成绩收集（一次只显示一个，不再一路往下拉）
+  var TABS = ['roster', 'schedule', 'results'];
   var shell = document.querySelector('.standalone-shell');
   var modBtns = [].slice.call(document.querySelectorAll('.module-switch .ms-btn'));
   function showModule(tab, scroll) {
-    if (tab !== 'schedule') tab = 'roster';
+    if (TABS.indexOf(tab) < 0) tab = 'roster';
     if (shell) {
       shell.classList.toggle('mod-schedule', tab === 'schedule');
-      shell.classList.toggle('mod-roster', tab !== 'schedule');
+      shell.classList.toggle('mod-results', tab === 'results');
+      shell.classList.toggle('mod-roster', tab === 'roster');
     }
     modBtns.forEach(function (b) {
       b.setAttribute('aria-selected', b.getAttribute('data-tab') === tab ? 'true' : 'false');
     });
     try { sessionStorage.setItem('ic4-module', tab); } catch (e) {}
-    if (history.replaceState) history.replaceState(null, '', tab === 'schedule' ? '#schedule' : '#roster');
+    if (history.replaceState) history.replaceState(null, '', '#' + tab);
+    // 成绩那一格只在真正切过去时才去读数据（名单页不因此变慢）
+    if (window.IC4_RESULTS_UI) {
+      if (tab === 'results') window.IC4_RESULTS_UI.show(); else window.IC4_RESULTS_UI.hide();
+    }
     if (scroll) window.scrollTo(0, 0);
     // 名单模块里的晶圆是 canvas 画出来的：显示/隐藏会改变可用宽度，
     // 让站点自己的 resize 钩子（ui.onResize → sizeWafer）重算一次。
@@ -550,13 +597,574 @@
     });
   });
   var hash = location.hash.replace('#', '');
-  var want = (hash === 'schedule' || hash === 'roster') ? hash : null;
+  var want = TABS.indexOf(hash) >= 0 ? hash : null;
   if (!want) { try { want = sessionStorage.getItem('ic4-module'); } catch (e) {} }
-  showModule(want === 'schedule' ? 'schedule' : 'roster', false);
+  showModule(TABS.indexOf(want) >= 0 ? want : 'roster', false);
 })();
 </script>
 
 <!--SC:SECTION:END-->
+
+      <!--SC:RESULTS:START-->
+<section id="results" aria-label="集成电路 4 班运动会成绩收集">
+  <p class="rs-kicker">比赛结束就填 · 全班一起填</p>
+  <h2 class="rs-title">成绩收集</h2>
+  <p class="rs-sub">谁的项目比完了，就在那一行填「成绩」和「名次」（填一个就行），离开输入框会自动保存。不用登录，填完全班都看得见；填错了直接改，页面显示最新那条，改过几次也会标出来。</p>
+  <div class="rs-tools">
+    <input id="rs-q" type="search" placeholder="搜名字或项目，比如：吕道韫 / 铅球" autocomplete="off">
+    <label class="rs-chk"><input id="rs-unfilled" type="checkbox"> 只看还没填的</label>
+    <button type="button" id="rs-refresh" class="rs-refresh">刷新</button>
+  </div>
+  <p class="rs-stat" id="rs-stat">正在读取…</p>
+  <p class="rs-half">上午</p>
+  <article class="rs-ev" data-event="女子100米">
+    <h3>女子100米<span>8:35 检录 · 9:00 开赛</span></h3>
+    <div class="rs-row" data-name="汪瑾" data-event="女子100米" data-slot="8:35" data-ekey="7d1efba7" data-nkey="1" data-filled="0">
+      <span class="rs-name">汪瑾</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="汪瑾 女子100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="汪瑾 女子100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="陈殿露" data-event="女子100米" data-slot="8:35" data-ekey="7d1efba7" data-nkey="2" data-filled="0">
+      <span class="rs-name">陈殿露</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="陈殿露 女子100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="陈殿露 女子100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="男子100米">
+    <h3>男子100米<span>8:45 检录 · 9:10 开赛</span></h3>
+    <div class="rs-row" data-name="李明哲" data-event="男子100米" data-slot="8:45" data-ekey="712a519e" data-nkey="3" data-filled="0">
+      <span class="rs-name">李明哲</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="李明哲 男子100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="李明哲 男子100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="胡梦宇" data-event="男子100米" data-slot="8:45" data-ekey="712a519e" data-nkey="4" data-filled="0">
+      <span class="rs-name">胡梦宇</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="胡梦宇 男子100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="胡梦宇 男子100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="女子铅球">
+    <h3>女子铅球<span>8:50 检录 · 9:10 开赛</span></h3>
+    <div class="rs-row" data-name="刘松岩" data-event="女子铅球" data-slot="8:50" data-ekey="341e1b44" data-nkey="5" data-filled="0">
+      <span class="rs-name">刘松岩</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="刘松岩 女子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="刘松岩 女子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="杨娜" data-event="女子铅球" data-slot="8:50" data-ekey="341e1b44" data-nkey="6" data-filled="0">
+      <span class="rs-name">杨娜</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="杨娜 女子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="杨娜 女子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="计楚韵" data-event="女子铅球" data-slot="8:50" data-ekey="341e1b44" data-nkey="7" data-filled="0">
+      <span class="rs-name">计楚韵</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="计楚韵 女子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="计楚韵 女子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="男子跳高">
+    <h3>男子跳高<span>9:00 检录 · 9:35 开赛</span></h3>
+    <div class="rs-row" data-name="孟永奇" data-event="男子跳高" data-slot="9:00" data-ekey="ae3e47bf" data-nkey="8" data-filled="0">
+      <span class="rs-name">孟永奇</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="孟永奇 男子跳高 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="孟永奇 男子跳高 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="黄林锴" data-event="男子跳高" data-slot="9:00" data-ekey="ae3e47bf" data-nkey="9" data-filled="0">
+      <span class="rs-name">黄林锴</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="黄林锴 男子跳高 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="黄林锴 男子跳高 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="男子400米">
+    <h3>男子400米<span>9:15 检录 · 9:40 开赛</span></h3>
+    <div class="rs-row" data-name="郑子涵" data-event="男子400米" data-slot="9:15" data-ekey="21e7c02d" data-nkey="a" data-filled="0">
+      <span class="rs-name">郑子涵</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="郑子涵 男子400米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="郑子涵 男子400米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="女子跳远">
+    <h3>女子跳远<span>9:18 检录 · 9:20 开赛</span></h3>
+    <div class="rs-row" data-name="倪欣悦" data-event="女子跳远" data-slot="9:18" data-ekey="8a0b94fd" data-nkey="b" data-filled="0">
+      <span class="rs-name">倪欣悦</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="倪欣悦 女子跳远 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="倪欣悦 女子跳远 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="刘春妍" data-event="女子跳远" data-slot="9:18" data-ekey="8a0b94fd" data-nkey="c" data-filled="0">
+      <span class="rs-name">刘春妍</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="刘春妍 女子跳远 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="刘春妍 女子跳远 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="崔姝斐" data-event="女子跳远" data-slot="9:18" data-ekey="8a0b94fd" data-nkey="d" data-filled="0">
+      <span class="rs-name">崔姝斐</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="崔姝斐 女子跳远 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="崔姝斐 女子跳远 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="覃奥粤" data-event="女子跳远" data-slot="9:18" data-ekey="8a0b94fd" data-nkey="e" data-filled="0">
+      <span class="rs-name">覃奥粤</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="覃奥粤 女子跳远 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="覃奥粤 女子跳远 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="男子铅球">
+    <h3>男子铅球<span>9:25 检录 · 9:40 开赛</span></h3>
+    <div class="rs-row" data-name="刘佳豪" data-event="男子铅球" data-slot="9:25" data-ekey="382ab17d" data-nkey="f" data-filled="0">
+      <span class="rs-name">刘佳豪</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="刘佳豪 男子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="刘佳豪 男子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="吕道韫" data-event="男子铅球" data-slot="9:25" data-ekey="382ab17d" data-nkey="g" data-filled="0">
+      <span class="rs-name">吕道韫</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="吕道韫 男子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="吕道韫 男子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="张子瑞" data-event="男子铅球" data-slot="9:25" data-ekey="382ab17d" data-nkey="h" data-filled="0">
+      <span class="rs-name">张子瑞</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="张子瑞 男子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="张子瑞 男子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="彭斐博" data-event="男子铅球" data-slot="9:25" data-ekey="382ab17d" data-nkey="i" data-filled="0">
+      <span class="rs-name">彭斐博</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="彭斐博 男子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="彭斐博 男子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="甄明宇" data-event="男子铅球" data-slot="9:25" data-ekey="382ab17d" data-nkey="j" data-filled="0">
+      <span class="rs-name">甄明宇</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="甄明宇 男子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="甄明宇 男子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="聂连灿" data-event="男子铅球" data-slot="9:25" data-ekey="382ab17d" data-nkey="k" data-filled="0">
+      <span class="rs-name">聂连灿</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="聂连灿 男子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="聂连灿 男子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="胡林鑫" data-event="男子铅球" data-slot="9:25" data-ekey="382ab17d" data-nkey="l" data-filled="0">
+      <span class="rs-name">胡林鑫</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="胡林鑫 男子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="胡林鑫 男子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="马飞扬" data-event="男子铅球" data-slot="9:25" data-ekey="382ab17d" data-nkey="m" data-filled="0">
+      <span class="rs-name">马飞扬</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="马飞扬 男子铅球 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="马飞扬 男子铅球 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="男子1500米">
+    <h3>男子1500米<span>9:35 检录 · 10:05 开赛</span></h3>
+    <div class="rs-row" data-name="孟永奇" data-event="男子1500米" data-slot="9:35" data-ekey="26e5b9ba" data-nkey="8" data-filled="0">
+      <span class="rs-name">孟永奇</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="孟永奇 男子1500米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="孟永奇 男子1500米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="聂连灿" data-event="男子1500米" data-slot="9:35" data-ekey="26e5b9ba" data-nkey="k" data-filled="0">
+      <span class="rs-name">聂连灿</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="聂连灿 男子1500米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="聂连灿 男子1500米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="邹梓博" data-event="男子1500米" data-slot="9:35" data-ekey="26e5b9ba" data-nkey="n" data-filled="0">
+      <span class="rs-name">邹梓博</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="邹梓博 男子1500米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="邹梓博 男子1500米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="女子200米">
+    <h3>女子200米<span>10:15 检录 · 10:40 开赛</span></h3>
+    <div class="rs-row" data-name="曹可瑞" data-event="女子200米" data-slot="10:15" data-ekey="fb8a8909" data-nkey="o" data-filled="0">
+      <span class="rs-name">曹可瑞</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="曹可瑞 女子200米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="曹可瑞 女子200米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="男子200米">
+    <h3>男子200米<span>10:20 检录 · 10:45 开赛</span></h3>
+    <div class="rs-row" data-name="李明哲" data-event="男子200米" data-slot="10:20" data-ekey="f7be2330" data-nkey="3" data-filled="0">
+      <span class="rs-name">李明哲</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="李明哲 男子200米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="李明哲 男子200米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="郑子涵" data-event="男子200米" data-slot="10:20" data-ekey="f7be2330" data-nkey="a" data-filled="0">
+      <span class="rs-name">郑子涵</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="郑子涵 男子200米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="郑子涵 男子200米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="邹梓博" data-event="男子200米" data-slot="10:20" data-ekey="f7be2330" data-nkey="n" data-filled="0">
+      <span class="rs-name">邹梓博</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="邹梓博 男子200米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="邹梓博 男子200米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="陆家辰" data-event="男子200米" data-slot="10:20" data-ekey="f7be2330" data-nkey="p" data-filled="0">
+      <span class="rs-name">陆家辰</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="陆家辰 男子200米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="陆家辰 男子200米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="男子跳远">
+    <h3>男子跳远<span>10:25 检录 · 10:50 开赛</span></h3>
+    <div class="rs-row" data-name="郑子涵" data-event="男子跳远" data-slot="10:25" data-ekey="863f3ec4" data-nkey="a" data-filled="0">
+      <span class="rs-name">郑子涵</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="郑子涵 男子跳远 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="郑子涵 男子跳远 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="方奥林" data-event="男子跳远" data-slot="10:25" data-ekey="863f3ec4" data-nkey="q" data-filled="0">
+      <span class="rs-name">方奥林</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="方奥林 男子跳远 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="方奥林 男子跳远 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="李知远" data-event="男子跳远" data-slot="10:25" data-ekey="863f3ec4" data-nkey="r" data-filled="0">
+      <span class="rs-name">李知远</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="李知远 男子跳远 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="李知远 男子跳远 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="沙嘉豪" data-event="男子跳远" data-slot="10:25" data-ekey="863f3ec4" data-nkey="s" data-filled="0">
+      <span class="rs-name">沙嘉豪</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="沙嘉豪 男子跳远 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="沙嘉豪 男子跳远 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="胡瀚波" data-event="男子跳远" data-slot="10:25" data-ekey="863f3ec4" data-nkey="t" data-filled="0">
+      <span class="rs-name">胡瀚波</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="胡瀚波 男子跳远 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="胡瀚波 男子跳远 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="鲁宇乐" data-event="男子跳远" data-slot="10:25" data-ekey="863f3ec4" data-nkey="u" data-filled="0">
+      <span class="rs-name">鲁宇乐</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="鲁宇乐 男子跳远 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="鲁宇乐 男子跳远 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="女子800米">
+    <h3>女子800米<span>11:10 检录 · 11:35 开赛</span></h3>
+    <div class="rs-row" data-name="计楚韵" data-event="女子800米" data-slot="11:10" data-ekey="5a11aa6f" data-nkey="7" data-filled="0">
+      <span class="rs-name">计楚韵</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="计楚韵 女子800米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="计楚韵 女子800米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="梅利" data-event="女子800米" data-slot="11:10" data-ekey="5a11aa6f" data-nkey="v" data-filled="0">
+      <span class="rs-name">梅利</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="梅利 女子800米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="梅利 女子800米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="男子800米">
+    <h3>男子800米<span>11:20 检录 · 11:45 开赛</span></h3>
+    <div class="rs-row" data-name="孟永奇" data-event="男子800米" data-slot="11:20" data-ekey="56250056" data-nkey="8" data-filled="0">
+      <span class="rs-name">孟永奇</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="孟永奇 男子800米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="孟永奇 男子800米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <p class="rs-half">下午</p>
+  <article class="rs-ev" data-event="女子4×100米">
+    <h3>女子4×100米<span>13:35 检录 · 14:00 开赛</span></h3>
+    <div class="rs-row" data-name="刘春妍" data-event="女子4×100米" data-slot="13:35" data-ekey="2358e8b6" data-nkey="c" data-filled="0">
+      <span class="rs-name">刘春妍</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="刘春妍 女子4×100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="刘春妍 女子4×100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="覃奥粤" data-event="女子4×100米" data-slot="13:35" data-ekey="2358e8b6" data-nkey="e" data-filled="0">
+      <span class="rs-name">覃奥粤</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="覃奥粤 女子4×100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="覃奥粤 女子4×100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="曹文萱" data-event="女子4×100米" data-slot="13:35" data-ekey="2358e8b6" data-nkey="w" data-filled="0">
+      <span class="rs-name">曹文萱</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="曹文萱 女子4×100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="曹文萱 女子4×100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="王思语" data-event="女子4×100米" data-slot="13:35" data-ekey="2358e8b6" data-nkey="x" data-filled="0">
+      <span class="rs-name">王思语</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="王思语 女子4×100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="王思语 女子4×100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="男子4×100米">
+    <h3>男子4×100米<span>13:55 检录 · 14:20 开赛</span></h3>
+    <div class="rs-row" data-name="李明哲" data-event="男子4×100米" data-slot="13:55" data-ekey="7dbe9673" data-nkey="3" data-filled="0">
+      <span class="rs-name">李明哲</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="李明哲 男子4×100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="李明哲 男子4×100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="邹梓博" data-event="男子4×100米" data-slot="13:55" data-ekey="7dbe9673" data-nkey="n" data-filled="0">
+      <span class="rs-name">邹梓博</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="邹梓博 男子4×100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="邹梓博 男子4×100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="戴东升" data-event="男子4×100米" data-slot="13:55" data-ekey="7dbe9673" data-nkey="y" data-filled="0">
+      <span class="rs-name">戴东升</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="戴东升 男子4×100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="戴东升 男子4×100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="李创华" data-event="男子4×100米" data-slot="13:55" data-ekey="7dbe9673" data-nkey="z" data-filled="0">
+      <span class="rs-name">李创华</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="李创华 男子4×100米 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="李创华 男子4×100米 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <article class="rs-ev" data-event="拔河">
+    <h3>拔河<span>14:20 检录 · 14:40 开赛</span></h3>
+    <div class="rs-row" data-name="刘松岩" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="5" data-filled="0">
+      <span class="rs-name">刘松岩</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="刘松岩 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="刘松岩 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="计楚韵" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="7" data-filled="0">
+      <span class="rs-name">计楚韵</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="计楚韵 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="计楚韵 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="郑子涵" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="a" data-filled="0">
+      <span class="rs-name">郑子涵</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="郑子涵 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="郑子涵 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="倪欣悦" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="b" data-filled="0">
+      <span class="rs-name">倪欣悦</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="倪欣悦 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="倪欣悦 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="崔姝斐" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="d" data-filled="0">
+      <span class="rs-name">崔姝斐</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="崔姝斐 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="崔姝斐 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="张子瑞" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="h" data-filled="0">
+      <span class="rs-name">张子瑞</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="张子瑞 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="张子瑞 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="聂连灿" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="k" data-filled="0">
+      <span class="rs-name">聂连灿</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="聂连灿 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="聂连灿 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="方奥林" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="q" data-filled="0">
+      <span class="rs-name">方奥林</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="方奥林 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="方奥林 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="梅利" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="v" data-filled="0">
+      <span class="rs-name">梅利</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="梅利 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="梅利 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="刘铮阳" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="10" data-filled="0">
+      <span class="rs-name">刘铮阳</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="刘铮阳 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="刘铮阳 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="卢子安" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="11" data-filled="0">
+      <span class="rs-name">卢子安</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="卢子安 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="卢子安 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="吴昌豪" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="12" data-filled="0">
+      <span class="rs-name">吴昌豪</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="吴昌豪 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="吴昌豪 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="宋子乐" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="13" data-filled="0">
+      <span class="rs-name">宋子乐</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="宋子乐 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="宋子乐 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="李禹昂" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="14" data-filled="0">
+      <span class="rs-name">李禹昂</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="李禹昂 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="李禹昂 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+    <div class="rs-row" data-name="柳黄征" data-event="拔河" data-slot="14:20" data-ekey="ac3f2c52" data-nkey="15" data-filled="0">
+      <span class="rs-name">柳黄征</span>
+      <span class="rs-fields">
+        <input class="rs-result" type="text" autocomplete="off" placeholder="成绩，如 13.24 / 1.42m" aria-label="柳黄征 拔河 的成绩">
+        <input class="rs-rank" type="text" autocomplete="off" placeholder="名次，如 第 3 名" aria-label="柳黄征 拔河 的名次">
+      </span>
+      <span class="rs-state">还没填</span>
+    </div>
+  </article>
+  <p class="rs-foot">一共 62 格（每人每项一格）。成绩存在班级站自己的数据库里（和加油墙同一套，独立分区），本页只收成绩与名次；填错就直接改，只有最新的那条会显示。数据生成时间 2026-10-17 01:47。</p>
+</section>
+<!--SC:RESULTS:END-->
 
       <p class="standalone-footer">点晶圆上的任意一颗芯片，看他的出战参数 · 名单来自班级报名表</p>
     </div>
@@ -567,10 +1175,14 @@
       </div>
     </noscript>
 
-    <script src="assets/icons.js?v=cc6b81d0"></script>
-    <script src="config.js?v=cc6b81d0"></script>
-    <script src="data.js?v=cc6b81d0"></script>
-    <script src="cheer-api.js?v=cc6b81d0"></script>
-    <script src="app.js?v=cc6b81d0" defer></script>
+    <script src="assets/icons.js?v=05598f3f"></script>
+    <script src="config.js?v=05598f3f"></script>
+    <script src="data.js?v=05598f3f"></script>
+    <script src="cheer-api.js?v=05598f3f"></script>
+    <script src="app.js?v=05598f3f" defer></script>
+  <!--SC:SCRIPTS:START-->
+<script src="results-api.js?v=05598f3f"></script>
+<script src="results.js?v=05598f3f" defer></script>
+<!--SC:SCRIPTS:END-->
   </body>
 </html>
