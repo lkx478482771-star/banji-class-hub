@@ -1780,6 +1780,24 @@ body.standalone-page {
   color: var(--red);
 }
 
+/* 复制 SQL 的页面（sql.html 专用） */
+.sql-block {
+  margin: 12px 0 0;
+  padding: 14px;
+  max-height: 58vh;
+  overflow: auto;
+  background: var(--surface, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  color: var(--ink, #e6edf3);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre;
+  overflow-wrap: normal;
+  -webkit-overflow-scrolling: touch;
+}
+
 @media (max-width: 760px) {
   .admin-shell {
     width: min(760px, 100% - 20px);
