@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f2f5fb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1720" media="(prefers-color-scheme: dark)" />
+    <title>班集 · 1 分钟上手</title>
+    <style>
+      :root {
+        --bg: #f2f5fb;
+        --card: #ffffff;
+        --ink: #16202c;
+        --ink-soft: #55627a;
+        --line: #e2e8f4;
+        --accent: #2f6df6;
+        --accent-soft: #eaf1ff;
+        --warn-bg: #fff7e8;
+        --warn-line: #f2d08a;
+        --danger-bg: #fff0f0;
+        --danger-line: #f0b6b6;
+        --ok: #0f8f5f;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1720;
+          --card: #17222f;
+          --ink: #e8eef7;
+          --ink-soft: #9fb0c6;
+          --line: #26364a;
+          --accent: #7aa6ff;
+          --accent-soft: #1d2b40;
+          --warn-bg: #2d2617;
+          --warn-line: #6b5726;
+          --danger-bg: #2e1d1d;
+          --danger-line: #6d3a3a;
+          --ok: #58d3a4;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+        overflow-wrap: anywhere;
+      }
+      .wrap {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 16px;
+      }
+      header.top {
+        background: var(--card);
+        border-bottom: 1px solid var(--line);
+        padding: 20px 0 16px;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+      }
+      .top-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .mark {
+        flex: none;
+        width: 42px;
+        height: 42px;
+        border-radius: 13px;
+        background: var(--accent);
+        color: #fff;
+        font: 700 20px/42px system-ui, sans-serif;
+        text-align: center;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0;
+        letter-spacing: 0.3px;
+      }
+      header.top p {
+        margin: 2px 0 0;
+        color: var(--ink-soft);
+        font-size: 13px;
+      }
+      .cta {
+        display: block;
+        margin-top: 14px;
+        padding: 15px;
+        border-radius: 14px;
+        background: var(--accent);
+        color: #fff;
+        text-align: center;
+        font-size: 17px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+      main {
+        padding: 16px 0 40px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px 16px 6px;
+        margin: 0 0 14px;
+      }
+      .card h2 {
+        font-size: 17px;
+        margin: 0 0 10px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .num {
+        flex: none;
+        width: 25px;
+        height: 25px;
+        border-radius: 9px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font: 700 14px/25px system-ui, sans-serif;
+        text-align: center;
+      }
+      .card p,
+      .card li {
+        font-size: 15px;
+        margin: 0 0 10px;
+      }
+      .card ul,
+      .card ol {
+        margin: 0 0 10px;
+        padding-left: 20px;
+      }
+      .card li {
+        margin-bottom: 7px;
+      }
+      b,
+      strong {
+        color: var(--ink);
+        font-weight: 650;
+      }
+      code {
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-radius: 6px;
+        padding: 1px 6px;
+        font-size: 14px;
+      }
+      .fields {
+        margin: 0 0 10px;
+      }
+      .fields > div {
+        display: flex;
+        gap: 10px;
+        padding: 7px 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 14px;
+      }
+      .fields > div:last-child {
+        border-bottom: 0;
+      }
+      .fields dt {
+        flex: none;
+        width: 88px;
+        color: var(--ink-soft);
+        font-weight: 600;
+      }
+      .fields dd {
+        margin: 0;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .tip,
+      .ok {
+        border-radius: 11px;
+        padding: 10px 12px;
+        font-size: 14px;
+      }
+      .ok {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      .tip {
+        background: var(--warn-bg);
+        border: 1px solid var(--warn-line);
+      }
+      .warn {
+        background: var(--warn-bg);
+        border-color: var(--warn-line);
+      }
+      .danger {
+        background: var(--danger-bg);
+        border-color: var(--danger-line);
+      }
+      .hint {
+        color: var(--ink-soft);
+        font-size: 13px;
+      }
+      .foot {
+        color: var(--ink-soft);
+        font-size: 13px;
+        text-align: center;
+        margin-top: 22px;
+      }
+      .foot a {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <div class="top-row">
+          <span class="mark">班</span>
+          <div>
+            <h1>班集 · 1 分钟上手</h1>
+            <p>写给第一次打开这个网站的同学，照着做就行。</p>
+          </div>
+        </div>
+        <a class="cta" href="./">打开班集 →</a>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="card">
+        <h2><span class="num">1</span>先注册（只做一次）</h2>
+        <p>打开网站后点中间的 <b>注册</b> 页签，就填这几个：</p>
+        <dl class="fields">
+          <div><dt>账号名称</dt><dd>你以后登录用的名字，写<b>真名</b>最好认，不能和别人重复</dd></div>
+          <div><dt>密码</dt><dd>自己设，<b>至少 6 位</b>（别用你在别的网站用过的密码，原因见最后一节）</dd></div>
+          <div><dt>确认密码</dt><dd>再输一遍</dd></div>
+          <div><dt>班级编码</dt><dd>已经默认填好 <code>AHU-IC-2026</code>，<b>不用改</b></dd></div>
+          <div><dt>班级身份</dt><dd>选 <b>普通同学</b>（选完<b>立刻就能用</b>；选班委或老师要等管理员审核）</dd></div>
+          <div><dt>职务、课程或负责事项</dt><dd>可以不填</dd></div>
+        </dl>
+        <p>填完点 <b>创建并进入</b>。</p>
+        <p class="ok">成功的标志：页面自动跳进「今日班级」，右上角出现你的名字。</p>
+        <p class="tip">如果提示「这个账号名称已经被使用」，说明你已经注册过了——直接去「登录」页签。</p>
+      </section>
+
+      <section class="card">
+        <h2><span class="num">2</span>以后怎么进去</h2>
+        <p>打开网站 → 填 <b>账号名称 + 密码</b> → 点 <b>登录并进入</b>。</p>
+        <p class="tip">
+          登录状态只存在你这台手机／电脑上，<b>下次打开会自动进去</b>，不用重新输。换设备（或在右上角点
+          <b>小门图标</b>退出登录）之后才要重新登一次。
+        </p>
+        <p class="tip">手机上建议：浏览器菜单 →「<b>添加到主屏幕</b>」，以后像 App 一样一点就开。</p>
+      </section>
+
+      <section class="card">
+        <h2><span class="num">3</span>进去以后，每个栏目是干嘛的</h2>
+        <p class="hint">手机上看不到左边的菜单？点左上角的 <b>☰</b> 打开。</p>
+        <ul>
+          <li><b>今日班级</b>：首页。今天的课、要交的事、班级最新动态</li>
+          <li><b>IC-4 运动会</b>：选手名单、成绩、加油墙、照片、三首歌</li>
+          <li><b>互助广场</b>：提问、找失物、借东西、求资料——点右上 <b>发布信息</b></li>
+          <li><b>任务搭子</b>：组队招募。你能看、能加入；发布是班委的事</li>
+          <li><b>资源共享</b>：班级资料库——点右上 <b>上传资料</b> 选文件</li>
+          <li><b>成员身份</b>：谁负责什么，班委和老师都在这里</li>
+          <li><b>匿名意见箱</b>：提改进建议，会进班级改进清单</li>
+          <li><b>个人中心</b>：改自己的身份、资料</li>
+          <li><b>历史记录</b>：已经过期的旧事项</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2><span class="num">4</span>运动会页怎么玩</h2>
+        <ul>
+          <li><b>上传照片</b>：点「上传照片」选一张 → 写句说明 → 提交，<b>马上就能看到</b>（不合适的会被管理员删掉）。原图上传，越清晰越好</li>
+          <li><b>赛场原声</b>：「3 首」那里<b>点了歌名才会响</b>，不点不费流量</li>
+          <li><b>晶圆 / 一键通电</b>：整块芯片会亮起来，纯好玩</li>
+          <li><b>加油墙</b>：给同学写一句加油，全班都能看到</li>
+          <li><b>生成专属海报</b>：点开选手 → 生成海报，可以存下来发朋友圈</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2><span class="num">5</span>把课表弄进网站</h2>
+        <p>
+          「今日班级」往下找到 <b>我的课表</b> → 点 <b>导入或更新课表</b> → 把教务系统课表页面的网址粘进去 →
+          确定。之后首页就会自动显示「下一节课」。
+        </p>
+        <p class="hint">懒得导也行：点「添加课程」一节课一节课手动加。</p>
+      </section>
+
+      <section class="card">
+        <h2><span class="num">6</span>每天能发几条</h2>
+        <p>
+          每人每天一共 <b>10 条</b>上限。你能自己发的是<b>互助信息</b>和<b>匿名意见</b>；组队和截止事项由班委发布，
+          你负责看和加入。发满了第二天自动恢复。
+        </p>
+      </section>
+
+      <section class="card warn">
+        <h2>出问题了怎么办</h2>
+        <ul>
+          <li><b>密码忘了</b>：找管理员重置，网站上没有自助找回</li>
+          <li><b>刚发的内容别人看不到</b>：正常。大家是几十秒同步一次，稍等一会儿，或让同学点左下角「手动刷新」</li>
+          <li><b>一直卡在「正在连接班级云…」</b>：先下拉刷新整个页面；还不行就切换一下网络（WiFi ↔ 流量）</li>
+          <li><b>照片传不上去</b>：等一会儿再试；如果提示「照片位快满了」，喊管理员清几张旧照片</li>
+          <li><b>看到的还是旧页面</b>：浏览器菜单里强制刷新一次</li>
+        </ul>
+      </section>
+
+      <section class="card danger">
+        <h2>三条请记住</h2>
+        <ol>
+          <li><b>不要用你在别的网站用过的密码。</b>这里的密码存在公共数据库里，理论上可以被暴力破解</li>
+          <li><b>不要发身份证号、学号、手机号、家庭住址</b>这类信息</li>
+          <li><b>「匿名意见箱」只是界面上匿名</b>，数据库里记着是谁提交的，请对自己的话负责</li>
+        </ol>
+      </section>
+
+      <p class="foot">
+        还是不会？在群里 @刘凯翔，或直接找宣传委员。<br />
+        网址：<a href="./">https://lkx478482771-star.github.io/banji-class-hub/</a>
+      </p>
+    </main>
+  </body>
+</html>
